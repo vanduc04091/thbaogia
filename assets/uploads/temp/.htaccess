@@ -1,0 +1,11 @@
+# Thu muc chua file Excel sinh tam (file mau, ban tong hop, file nha thau upload).
+#
+# Noi dung la du lieu gia ca nhay cam => KHONG cho tai truc tiep qua URL.
+# File chi duoc gui ra qua download.php (co requireLogin + check quyen),
+# doc bang readfile() nen chan o day khong anh huong chuc nang tai file.
+Require all denied
+
+# Chan thuc thi PHP (phong truong hop config thay doi)
+<FilesMatch "\.(php|php3|php4|php5|php7|phtml|phar)$">
+    Require all denied
+</FilesMatch>

@@ -1,0 +1,48 @@
+# ============================================================
+# .htaccess - Apache config cho he thong Tong Hop Bao Gia
+# (Comment de ASCII: file config server, tranh loi encoding.)
+# ============================================================
+
+# --- Giu nguyen body JSON khi tra ma loi 4xx/5xx ---
+# XAMPP dat ErrorDocument toan cuc (conf/extra/httpd-multilang-errordoc.conf)
+# nen Apache thay body cua response loi bang trang loi rieng => message JSON
+# tu ResponseHelper::error() khong toi duoc client.
+# "default" tra lai hanh vi goc: giu nguyen body do PHP sinh ra.
+# LUU Y: khong khai bao 419 - Apache bao "Unsupported HTTP response code 419"
+# va lam sap toan bo site. Dung 403 + co csrf_expired (xem Helper::requireAjaxCsrf).
+ErrorDocument 400 default
+ErrorDocument 401 default
+ErrorDocument 403 default
+ErrorDocument 404 default
+ErrorDocument 422 default
+ErrorDocument 500 default
+
+# --- Chan truy cap truc tiep cac thu muc noi bo ---
+# Chi GUI/, assets/ va index.php o goc la can truy cap tu browser.
+RedirectMatch 404 ^/(BUS|DAL|PUBLIC|database|docs|\.agent|\.claude)(/|$)
+
+# --- Khong cho liet ke thu muc ---
+Options -Indexes
+
+# --- Chan file cau hinh / script CLI ---
+<FilesMatch "^(bootstrap|seed|cron_cleanup)\.php$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "\.(md|sql|log|bak|ini|lock|xlsx)$">
+    Require all denied
+</FilesMatch>
+
+# --- Cache tai nguyen tinh (co ?v= de bust khi doi APP_VERSION) ---
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 7 days"
+    ExpiresByType application/javascript "access plus 7 days"
+    ExpiresByType font/woff2 "access plus 30 days"
+    ExpiresByType image/svg+xml "access plus 7 days"
+</IfModule>
+
+# --- Nen noi dung text ---
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json text/plain
+</IfModule>

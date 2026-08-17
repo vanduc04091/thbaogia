@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -o /dev/null -w \"repo HTTP status: %{http_code}\\\\n\" https://github.com/vanduc04091/codekhoitao)",
+      "Bash(curl -s https://api.github.com/repos/vanduc04091/codekhoitao)"
+    ]
+  }
+}
