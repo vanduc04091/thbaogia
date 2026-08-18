@@ -199,13 +199,17 @@ class BG_BaoGia_DAL
         return $row ? Database::hydrate($row, 'BG_BaoGia_PUBLIC') : null;
     }
 
+    /**
+     * @param int $coBanKy Lọc theo bản ký: -1 = tất cả, 1 = đã có, 0 = chưa có
+     */
     public static function getPaged(
         int $page,
         int $pageSize,
         int $goiThauId = 0,
         string $search = '',
         int $trangThai = -1,
-        int $daXoa = 0
+        int $daXoa = 0,
+        int $coBanKy = -1
     ): array {
         [$page, $pageSize, $offset] = PaginationHelper::normalize($page, $pageSize);
 
@@ -217,15 +221,23 @@ class BG_BaoGia_DAL
             $params[':gt'] = $goiThauId;
         }
         if ($search !== '') {
-            $where .= ' AND (bg.ten_cong_ty LIKE :s1 OR bg.ma_so_thue LIKE :s2 OR bg.email LIKE :s3) ';
+            // Tìm cả theo tên file bản ký để tra nhanh khi cầm tờ giấy trên tay
+            $where .= ' AND (bg.ten_cong_ty LIKE :s1 OR bg.ma_so_thue LIKE :s2
+                             OR bg.email LIKE :s3 OR bg.ten_file_goc LIKE :s4) ';
             $like = "%{$search}%";
             $params[':s1'] = $like;
             $params[':s2'] = $like;
             $params[':s3'] = $like;
+            $params[':s4'] = $like;
         }
         if ($trangThai >= 0) {
             $where .= ' AND bg.trang_thai = :tt ';
             $params[':tt'] = $trangThai;
+        }
+        if ($coBanKy === 1) {
+            $where .= " AND bg.file_ban_ky IS NOT NULL AND bg.file_ban_ky <> '' ";
+        } elseif ($coBanKy === 0) {
+            $where .= " AND (bg.file_ban_ky IS NULL OR bg.file_ban_ky = '') ";
         }
 
         $countSql = "SELECT COUNT(*) FROM bg_bao_gia bg" . $where;

@@ -45,6 +45,11 @@ require __DIR__ . '/../layouts/header.php';
                     <option value="<?= (int)$v ?>"><?= Helper::h($t) ?></option>
                 <?php endforeach; ?>
             </select>
+            <select id="filterBanKy" class="form-select" style="max-width:170px" aria-label="Lọc bản ký">
+                <option value="-1">Bản ký: tất cả</option>
+                <option value="1">Đã có bản ký</option>
+                <option value="0">Chưa có bản ký</option>
+            </select>
             <select id="filterDaXoa" class="form-select" style="max-width:150px" aria-label="Lọc thùng rác">
                 <option value="0">Đang hoạt động</option>
                 <option value="1">Thùng rác</option>
@@ -67,6 +72,7 @@ require __DIR__ . '/../layouts/header.php';
                     <th>Dòng chào</th>
                     <th class="col-price">Tổng tiền</th>
                     <th>Ngày nộp</th>
+                    <th>Bản ký</th>
                     <th>Trạng thái</th>
                     <th class="col-actions">Thao tác</th>
                 </tr>
@@ -167,6 +173,30 @@ require __DIR__ . '/../layouts/header.php';
     </div>
 </div>
 
+<!-- ============ Modal xem bản ký ============ -->
+<div class="modal" id="bkViewModal">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="bkvTitle" style="max-width:1000px">
+        <div class="modal-header">
+            <h3 id="bkvTitle">Bản báo giá có dấu và chữ ký</h3>
+            <button type="button" class="close" onclick="closeXemBanKy()" aria-label="Đóng"><?= IconHelper::svg('x', 20) ?></button>
+        </div>
+        <div class="modal-body">
+            <div id="bkvTenFile" class="file-chosen" style="margin-top:0"></div>
+            <!-- PDF nhúng iframe, ảnh dùng img — xem ngay không cần mở tab mới -->
+            <div id="bkvKhung" style="margin-top:14px"></div>
+        </div>
+        <div class="modal-footer">
+            <a class="btn btn-outline-secondary" id="bkvTaiVe" href="#">
+                <?= IconHelper::svg('download', 16) ?>Tải về máy
+            </a>
+            <a class="btn btn-outline-secondary" id="bkvTabMoi" href="#" target="_blank" rel="noopener">
+                <?= IconHelper::svg('external-link', 16) ?>Mở tab mới
+            </a>
+            <button type="button" class="btn btn-secondary" onclick="closeXemBanKy()">Đóng</button>
+        </div>
+    </div>
+</div>
+
 <!-- ============ Modal từ chối ============ -->
 <div class="modal" id="tuChoiModal">
     <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="tcTitle" style="max-width:540px">
@@ -215,7 +245,7 @@ function currentTrash() { return $('#filterDaXoa').val() === '1'; }
 function loadData() {
     if (isLoading) return;
     isLoading = true;
-    if (firstLoad) { $('#tbody').html(APP.skeletonRows(6, 8)); }
+    if (firstLoad) { $('#tbody').html(APP.skeletonRows(6, 9)); }
     else { APP.showLoading('#tableWrap'); }
 
     APP.ajax(AJAX_URL, {
@@ -225,6 +255,7 @@ function loadData() {
         goi_thau_id: $('#filterGoiThau').val(),
         search: $('#search').val(),
         trang_thai: $('#filterTrangThai').val(),
+        co_ban_ky: $('#filterBanKy').val(),
         da_xoa: $('#filterDaXoa').val()
     }, {
         success: function (res) {
@@ -245,7 +276,7 @@ function badgeTrangThai(tt) {
 
 function renderTable(rows) {
     if (!rows.length) {
-        $('#tbody').html(APP.emptyRow(8, currentTrash()
+        $('#tbody').html(APP.emptyRow(9, currentTrash()
             ? 'Thùng rác trống'
             : 'Chưa có nhà thầu nào nộp báo giá. Nhà thầu nộp qua link QR của gói thầu.'));
         return;
@@ -283,10 +314,21 @@ function renderTable(rows) {
               + APP.escape(String(r.ly_do_tu_choi).substring(0, 45)) + '</span>'
             : '';
 
-        var banKy = r.ten_file_goc
-            ? '<span class="badge badge-info badge-quote" title="' + APP.escape(r.ten_file_goc) + '">' +
-              APP.icon('check-circle', 12) + 'Có bản ký</span>'
-            : '';
+        // Ô bản ký: có file thì cho xem ngay + tải về, chưa có thì báo rõ
+        var oBanKy;
+        if (r.ten_file_goc) {
+            var uf = URL_BAN_KY + '?id=' + r.id;
+            oBanKy = '<span class="row-actions" style="justify-content:flex-start">' +
+                '<button type="button" class="btn btn-sm btn-outline-primary js-xem-bk"' +
+                    ' data-id="' + r.id + '" data-ten="' + APP.escape(r.ten_file_goc) + '"' +
+                    ' title="Xem bản ký: ' + APP.escape(r.ten_file_goc) + '">' +
+                    APP.icon('eye', 15) + '</button>' +
+                '<a class="btn btn-sm btn-outline-secondary" href="' + uf + '&tai_ve=1"' +
+                    ' title="Tải bản ký về máy">' + APP.icon('download', 15) + '</a>' +
+                '</span>';
+        } else {
+            oBanKy = '<span class="text-muted">Chưa có</span>';
+        }
 
         html += '<tr>' +
             '<td class="col-id">' + r.id + '</td>' +
@@ -300,7 +342,8 @@ function renderTable(rows) {
             '<td>' + (r.ngay_nop
                 ? APP.escape(APP.formatDateTime(r.ngay_nop))
                 : '<span class="text-muted">Chưa nộp</span>') + '</td>' +
-            '<td>' + badgeTrangThai(tt) + banKy + lyDo + '</td>' +
+            '<td>' + oBanKy + '</td>' +
+            '<td>' + badgeTrangThai(tt) + lyDo + '</td>' +
             '<td class="col-actions"><span class="row-actions">' + actions + '</span></td>' +
             '</tr>';
     }
@@ -380,8 +423,9 @@ function itemBanKy(bg) {
         (bg.ngay_upload_ban_ky ? ' <span class="text-muted">(' +
             APP.escape(APP.formatDateTime(bg.ngay_upload_ban_ky)) + ')</span>' : '') +
         '<span style="display:inline-flex;gap:8px;margin-left:10px">' +
-        '<a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener" href="' + u + '">' +
-        APP.icon('eye', 15) + '<span class="btn-label">Xem</span></a>' +
+        '<button type="button" class="btn btn-sm btn-outline-primary js-xem-bk"' +
+            ' data-id="' + bg.id + '" data-ten="' + APP.escape(bg.ten_file_goc) + '">' +
+        APP.icon('eye', 15) + '<span class="btn-label">Xem</span></button>' +
         '<a class="btn btn-sm btn-outline-secondary" href="' + u + '&tai_ve=1">' +
         APP.icon('download', 15) + '<span class="btn-label">Tải về</span></a>' +
         '</span></span></div>';
@@ -482,6 +526,53 @@ function delForever(id) {
     }, { yesText: 'Xóa vĩnh viễn' });
 }
 
+/* ============ XEM BẢN KÝ ============ */
+/**
+ * Mở bản ký ngay trong trang.
+ * PDF -> nhúng <iframe>; ảnh -> <img>. Cả 2 đều đi qua xem_ban_ky.php
+ * (có kiểm tra đăng nhập + quyền), không trỏ thẳng vào file trong uploads.
+ */
+function moXemBanKy(id, tenFile) {
+    var u = URL_BAN_KY + '?id=' + id;
+    var laAnh = /\.(jpg|jpeg|png)$/i.test(tenFile || '');
+
+    $('#bkvTenFile').html(APP.icon('file-spreadsheet', 17) +
+        '<span class="fc-name">' + APP.escape(tenFile || '') + '</span>');
+    $('#bkvTaiVe').attr('href', u + '&tai_ve=1');
+    $('#bkvTabMoi').attr('href', u);
+
+    if (laAnh) {
+        $('#bkvKhung').html(
+            '<img src="' + u + '" alt="Bản ký" style="max-width:100%;display:block;margin:0 auto;' +
+            'border:1px solid var(--gray-200);border-radius:var(--radius-sm)">'
+        );
+    } else {
+        // PDF: nhúng iframe. Một số trình duyệt/thiết bị (nhất là di động) không có
+        // trình xem PDF sẵn -> iframe sẽ trắng. Kèm sẵn lời nhắc + 2 nút dự phòng
+        // bên dưới để người dùng luôn mở/tải được file.
+        $('#bkvKhung').html(
+            '<iframe src="' + u + '" title="Bản ký" style="width:100%;height:70vh;border:1px solid ' +
+            'var(--gray-200);border-radius:var(--radius-sm);background:var(--gray-50)"></iframe>' +
+            '<p class="form-hint" style="margin-top:10px;text-align:center">' +
+            'Không thấy nội dung? Trình duyệt có thể không xem được PDF trực tiếp — ' +
+            'hãy bấm <strong>Mở tab mới</strong> hoặc <strong>Tải về máy</strong>.</p>'
+        );
+    }
+
+    $('#bkViewModal').addClass('open');
+}
+
+function closeXemBanKy() {
+    $('#bkViewModal').removeClass('open');
+    $('#bkvKhung').empty();   // gỡ iframe/img để dừng tải file
+}
+
+// Nút xem bản ký trong bảng (nội dung render động -> delegate)
+$(document).on('click', '.js-xem-bk', function () {
+    var $b = $(this);
+    moXemBanKy(parseInt($b.data('id'), 10), String($b.data('ten') || ''));
+});
+
 function closeCt() { $('#ctModal').removeClass('open'); }
 function closeEdit() { $('#editModal').removeClass('open'); }
 function closeTuChoi() { $('#tuChoiModal').removeClass('open'); }
@@ -493,10 +584,10 @@ function capNhatLinkTongHop() {
 
 $('#search').on('keyup', APP.debounce(function () { currentPage = 1; loadData(); }, 350));
 $('#filterGoiThau').on('change', function () { currentPage = 1; capNhatLinkTongHop(); loadData(); });
-$('#filterTrangThai, #filterDaXoa').on('change', function () { currentPage = 1; loadData(); });
-$('#ctModal, #editModal, #tuChoiModal').on('click', function (e) { if (e.target === this) $(this).removeClass('open'); });
+$('#filterTrangThai, #filterBanKy, #filterDaXoa').on('change', function () { currentPage = 1; loadData(); });
+$('#ctModal, #editModal, #tuChoiModal, #bkViewModal').on('click', function (e) { if (e.target === this) $(this).removeClass('open'); });
 $(document).on('keydown', function (e) {
-    if (e.key === 'Escape') { closeCt(); closeEdit(); closeTuChoi(); }
+    if (e.key === 'Escape') { closeCt(); closeEdit(); closeTuChoi(); closeXemBanKy(); }
 });
 
 APP.bindPagination('#paginationWrap', function (p) { currentPage = p; loadData(); });

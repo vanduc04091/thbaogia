@@ -524,9 +524,16 @@ class BG_BaoGia_BUS
         return BG_BaoGia_DAL::getById($id);
     }
 
-    public static function getPaged(int $page, int $pageSize, int $goiThauId = 0, string $search = '', int $trangThai = -1, int $daXoa = 0): array
-    {
-        return BG_BaoGia_DAL::getPaged($page, $pageSize, $goiThauId, $search, $trangThai, $daXoa);
+    public static function getPaged(
+        int $page,
+        int $pageSize,
+        int $goiThauId = 0,
+        string $search = '',
+        int $trangThai = -1,
+        int $daXoa = 0,
+        int $coBanKy = -1
+    ): array {
+        return BG_BaoGia_DAL::getPaged($page, $pageSize, $goiThauId, $search, $trangThai, $daXoa, $coBanKy);
     }
 
     public static function getChiTiet(int $baoGiaId): array

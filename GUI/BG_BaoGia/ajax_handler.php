@@ -21,7 +21,8 @@ try {
                 Helper::postInt('goi_thau_id', 0),
                 Helper::postStr('search'),
                 Helper::postInt('trang_thai', -1),
-                Helper::postInt('da_xoa', 0)
+                Helper::postInt('da_xoa', 0),
+                Helper::postInt('co_ban_ky', -1)
             );
             ResponseHelper::paged($res['data'], $page, $size, $res['totalRecords']);
             break;

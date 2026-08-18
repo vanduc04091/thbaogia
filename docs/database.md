@@ -390,3 +390,17 @@ sẽ không tải được file của gói B — trong khi trang tra cứu đang
 - Nút nổi `.fab-tracuu` (góc dưới phải, mọi trạng thái) → lớp phủ `#traCuuOverlay`
 - **Nộp báo giá xong tự mở** trang tra cứu, điền sẵn MST và tra luôn
 - Trong mỗi thẻ báo giá: tải Excel, xem/tải bản ký, upload bản ký
+
+### Xem / tải bản ký ở phía quản trị
+
+Module `BG_BaoGia` có cột **Bản ký** với 2 nút mỗi dòng:
+- **Xem** (`.js-xem-bk`) → mở modal xem ngay trong trang: ảnh dùng `<img>`,
+  PDF nhúng `<iframe>` kèm nút *Mở tab mới* / *Tải về máy* dự phòng
+  (một số trình duyệt, nhất là di động, không xem được PDF trong iframe).
+- **Tải** → `xem_ban_ky.php?id=..&tai_ve=1` (Content-Disposition: attachment).
+
+Bộ lọc **Bản ký: tất cả / đã có / chưa có** giúp bên mời rà nhanh nhà thầu
+chưa nộp bản ký. Ô tìm kiếm cũng tra được theo tên file bản ký.
+
+Quyền: `xem_ban_ky.php` gọi `requireQuyenView(BG_BaoGia)` — chưa đăng nhập bị
+đẩy về login, không có quyền xem trả 403 (không lộ byte nào của file).

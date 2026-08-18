@@ -470,7 +470,8 @@ script giải mã ngược độc lập, kiểm format info có trong bảng chu
 | `database/seed_bao_gia.php` | Dữ liệu test (`--reset` để làm sạch) |
 | `GUI/BG_GoiThau/` | CRUD gói thầu + modal QR |
 | `GUI/BG_HangHoa/` | CRUD + import Excel danh mục hàng hóa |
-| `GUI/BG_BaoGia/` | Xem báo giá, **xác nhận bản giấy**, từ chối |
+| `GUI/BG_BaoGia/` | Xem báo giá, **xác nhận bản giấy**, từ chối, **xem/tải bản ký** |
+| `GUI/BG_BaoGia/xem_ban_ky.php` | Gửi file bản ký (inline hoặc `?tai_ve=1` để tải) |
 | `GUI/BG_TongHop/` | Bảng so sánh + xuất Excel (mỗi nhà thầu 1 dòng) |
 | `GUI/portal/` | Cổng nhà thầu (token QR, layout riêng không sidebar) |
 | `*/download.php` | Xuất file nhị phân (không qua ResponseHelper) |
