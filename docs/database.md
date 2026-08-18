@@ -404,3 +404,47 @@ chưa nộp bản ký. Ô tìm kiếm cũng tra được theo tên file bản k�
 
 Quyền: `xem_ban_ky.php` gọi `requireQuyenView(BG_BaoGia)` — chưa đăng nhập bị
 đẩy về login, không có quyền xem trả 403 (không lộ byte nào của file).
+
+---
+
+## MODULE QUẢN LÝ FILE BẢN KÝ
+
+> Chạy: `php database/migrate_quan_ly_file.php`
+> Đổi tên file cũ: `php database/migrate_doi_ten_ban_ky.php` (mặc định chạy thử,
+> thêm `--that` để thực thi).
+
+### Quy tắc đặt tên file bản ký
+
+`<mã_số_thuế>_<slug-tên-gói-thầu>.<đuôi>`
+
+VD: `0101234567_mua-vat-tu-tieu-hao-phau-thuat-cot-song.pdf`
+
+Sinh bởi `BG_BaoGia_BUS::tenFileBanKy()`, dùng `Helper::slug()` (bỏ dấu tiếng Việt,
+chỉ giữ `[a-z0-9-]`). Trùng tên → thêm hậu tố `-2`, `-3`...
+
+An toàn đường dẫn: MST chỉ còn số và `-`, slug chỉ còn `[a-z0-9-]` nên không thể
+chèn `/` hay `..` để thoát thư mục.
+
+**Lưu ý khi đổi tên hàng loạt:** phải truyền tên hiện tại vào `tenFileBanKy()`
+(tham số `$tenHienTai`) để bỏ qua chính nó khi kiểm trùng — nếu không, chạy
+migration lần 2 sẽ thấy file của chính bản ghi đó trên đĩa rồi cứ thêm `-2`, `-3` mãi.
+
+### Cột thêm vào bg_bao_gia
+
+| Cột | Kiểu | Ghi chú |
+|---|---|---|
+| `kich_thuoc_file` | INT NULL | Dung lượng file bản ký (byte), để thống kê |
+
+### Chức năng module `BG_QuanLyFile`
+
+- Danh sách toàn bộ file bản ký + thống kê (số file, tổng dung lượng, PDF/ảnh)
+- Lọc theo gói thầu / loại file, sắp xếp (mới nhất, dung lượng, tên công ty...)
+- Tìm theo tên công ty, MST, tên file lưu trữ, tên file gốc, số thông báo
+- Xem trong trang (ảnh `<img>`, PDF `<iframe>`), tải về
+- **Xóa file**: xóa cả file vật lý. Nếu báo giá được xác nhận bằng chính bản ký đó
+  (`nguoi_xac_nhan IS NULL`) thì trả về *Chờ xác nhận*. Mọi lần xóa đều ghi nhật ký.
+- **Dò file mồ côi**: file có trên đĩa nhưng không bản ghi nào tham chiếu
+  (sinh ra khi xóa báo giá vĩnh viễn / upload lỗi giữa chừng).
+
+Thứ tự xóa: **commit DB trước, xóa file sau** — nếu DB lỗi thì file vẫn còn,
+hơn là xóa file rồi DB rollback làm bản ghi trỏ tới file đã mất.

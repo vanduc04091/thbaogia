@@ -1659,3 +1659,57 @@ input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
     margin: 0;
 }
 .goi-group-body .quote-card:last-child { border-bottom: 0; }
+
+/* ============================================================
+   THANH SỐ LIỆU (module Quản lý file bản ký)
+   ============================================================ */
+.stat-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.stat-box {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius);
+}
+.stat-box .stat-icon {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-sm);
+    background: var(--primary-subtle);
+    color: var(--primary);
+}
+.stat-box .stat-body { min-width: 0; }
+.stat-box .stat-body b {
+    display: block;
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--gray-900);
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+.stat-box .stat-body span {
+    display: block;
+    font-size: 12.5px;
+    color: var(--gray-600);
+    margin-top: 2px;
+}
+
+@media (max-width: 640px) {
+    .stat-row { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .stat-box { padding: 12px; gap: 10px; }
+    .stat-box .stat-icon { width: 34px; height: 34px; }
+    .stat-box .stat-body b { font-size: 16px; }
+}

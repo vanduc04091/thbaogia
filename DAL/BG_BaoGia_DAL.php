@@ -108,11 +108,12 @@ class BG_BaoGia_DAL
      * `nguoi_xac_nhan` = NULL vì đây là nhà thầu tự xác nhận bằng bản ký,
      * không phải nhân viên bên mời tích tay.
      */
-    public static function updateBanKy(int $id, string $fileName, string $tenGoc): int
+    public static function updateBanKy(int $id, string $fileName, string $tenGoc, int $kichThuoc = 0): int
     {
         $sql = "UPDATE bg_bao_gia SET
                     file_ban_ky = :f,
                     ten_file_goc = :tg,
+                    kich_thuoc_file = :kt,
                     ngay_upload_ban_ky = NOW(),
                     trang_thai = :tt,
                     ngay_xac_nhan = NOW(),
@@ -124,6 +125,7 @@ class BG_BaoGia_DAL
         $stmt->execute([
             ':f'  => $fileName,
             ':tg' => $tenGoc,
+            ':kt' => $kichThuoc > 0 ? $kichThuoc : null,
             ':tt' => BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN,
             ':id' => $id,
         ]);
@@ -136,6 +138,7 @@ class BG_BaoGia_DAL
         $sql = "UPDATE bg_bao_gia SET
                     file_ban_ky = NULL,
                     ten_file_goc = NULL,
+                    kich_thuoc_file = NULL,
                     ngay_upload_ban_ky = NULL,
                     ngay_cap_nhat = NOW(),
                     nguoi_cap_nhat = :u

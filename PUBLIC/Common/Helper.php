@@ -89,6 +89,68 @@ class Helper
     }
 
     /**
+     * Bỏ dấu tiếng Việt → chữ Latin không dấu.
+     *
+     * Tự viết bảng thay thế thay vì dùng iconv('ASCII//TRANSLIT') vì hàm đó
+     * cho kết quả khác nhau tùy hệ điều hành (Windows trả '?' cho chữ có dấu).
+     */
+    public static function boDau(string $str): string
+    {
+        $map = [
+            'a' => 'áàảãạăắằẳẵặâấầẩẫậ',
+            'e' => 'éèẻẽẹêếềểễệ',
+            'i' => 'íìỉĩị',
+            'o' => 'óòỏõọôốồổỗộơớờởỡợ',
+            'u' => 'úùủũụưứừửữự',
+            'y' => 'ýỳỷỹỵ',
+            'd' => 'đ',
+            'A' => 'ÁÀẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬ',
+            'E' => 'ÉÈẺẼẸÊẾỀỂỄỆ',
+            'I' => 'ÍÌỈĨỊ',
+            'O' => 'ÓÒỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢ',
+            'U' => 'ÚÙỦŨỤƯỨỪỬỮỰ',
+            'Y' => 'ÝỲỶỸỴ',
+            'D' => 'Đ',
+        ];
+        foreach ($map as $khongDau => $coDau) {
+            // preg_split với //u để tách đúng ký tự UTF-8 nhiều byte
+            $chars = preg_split('//u', $coDau, -1, PREG_SPLIT_NO_EMPTY);
+            $str = str_replace($chars, $khongDau, $str);
+        }
+        return $str;
+    }
+
+    /**
+     * Chuyển chuỗi thành slug an toàn cho TÊN FILE.
+     *
+     * "Mua vật tư tiêu hao PT cột sống 2026" → "mua-vat-tu-tieu-hao-pt-cot-song-2026"
+     *
+     * Chỉ giữ [a-z0-9-] nên an toàn tuyệt đối với đường dẫn: không có dấu chấm,
+     * dấu gạch chéo, khoảng trắng hay '..' để lợi dụng path traversal.
+     *
+     * @param int $maxLen Cắt bớt cho tên file không quá dài (0 = không giới hạn)
+     */
+    public static function slug(string $str, int $maxLen = 60): string
+    {
+        $str = self::boDau(trim($str));
+        $str = mb_strtolower($str, 'UTF-8');
+        // Mọi thứ không phải chữ/số → gạch ngang
+        $str = preg_replace('/[^a-z0-9]+/', '-', $str);
+        $str = trim((string)$str, '-');
+
+        if ($maxLen > 0 && strlen($str) > $maxLen) {
+            $str = substr($str, 0, $maxLen);
+            // Không cắt giữa chừng một từ
+            $viTri = strrpos($str, '-');
+            if ($viTri !== false && $viTri > $maxLen * 0.6) {
+                $str = substr($str, 0, $viTri);
+            }
+            $str = trim($str, '-');
+        }
+        return $str;
+    }
+
+    /**
      * Sinh chuỗi ngẫu nhiên
      */
     public static function randomString(int $length = 16): string

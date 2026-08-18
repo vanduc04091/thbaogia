@@ -69,6 +69,7 @@ class IconHelper
         'bar-chart'      => '<path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="4" width="3" height="14"/>',
         'send'           => '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/>',
         'external-link'  => '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6M10 14 21 3"/>',
+        'folder'         => '<path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/>',
     ];
 
     /**
@@ -83,6 +84,7 @@ class IconHelper
         'BG_HangHoa'      => 'package',
         'BG_BaoGia'       => 'file-spreadsheet',
         'BG_TongHop'      => 'bar-chart',
+        'BG_QuanLyFile'   => 'folder',
         // Hệ thống
         'DM_NguoiDung'     => 'user',
         'DM_NhomTaiKhoan'  => 'users',

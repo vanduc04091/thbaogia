@@ -689,6 +689,65 @@ class BG_BaoGia_BUS
     }
 
     /**
+     * Sinh tên file bản ký theo quy tắc: <mst>_<slug-goi-thau>.<ext>
+     *
+     * VD: 0101234567_mua-vat-tu-tieu-hao-phau-thuat-cot-song.pdf
+     *
+     * Nhìn tên là biết ngay của công ty nào, gói thầu nào — không phải tra DB.
+     * Vẫn an toàn: MST chỉ chứa số và dấu '-', slug chỉ chứa [a-z0-9-], nên
+     * không thể chèn '/' hay '..' để thoát khỏi thư mục.
+     *
+     * Trùng tên (1 MST nộp lại, hoặc 2 gói cùng slug) → thêm hậu tố -2, -3...
+     *
+     * @param string $mst        Mã số thuế nhà thầu
+     * @param string $tenGoiThau Tên gói thầu (dùng làm slug)
+     * @param string $soThongBao Số thông báo — dự phòng khi tên gói rỗng
+     * @param string $ext        Đuôi file đã kiểm tra (pdf/jpg/jpeg/png)
+     * @param string $dir        Thư mục lưu, để kiểm tra trùng
+     * @param array  $daDung     Tên đã dùng trong cùng lượt xử lý (cho migration)
+     * @param string $tenHienTai  Tên file bản ghi này ĐANG dùng — bỏ qua khi kiểm
+     *                            trùng, nếu không migration chạy lần 2 sẽ thấy
+     *                            chính nó trên đĩa rồi cứ thêm -2, -3... mãi.
+     */
+    public static function tenFileBanKy(
+        string $mst,
+        string $tenGoiThau,
+        string $soThongBao,
+        string $ext,
+        string $dir,
+        array $daDung = [],
+        string $tenHienTai = ''
+    ): string {
+        // MST: chỉ giữ số và dấu '-' (dạng 0101234567-001)
+        $mstSach = preg_replace('/[^0-9-]/', '', trim($mst));
+        if ($mstSach === '') $mstSach = 'khong-mst';
+
+        $slug = Helper::slug($tenGoiThau, 60);
+        if ($slug === '') $slug = Helper::slug($soThongBao, 30);   // dự phòng
+        if ($slug === '') $slug = 'goi-thau';
+
+        $goc = $mstSach . '_' . $slug;
+        $ten = $goc . '.' . $ext;
+
+        // Tên đang dùng của chính bản ghi này thì coi như hợp lệ, không cần đổi
+        if ($tenHienTai !== '' && $ten === $tenHienTai) {
+            return $ten;
+        }
+
+        // Tránh ghi đè file của lần nộp trước
+        $i = 1;
+        while (isset($daDung[$ten]) || is_file($dir . DIRECTORY_SEPARATOR . $ten)) {
+            $i++;
+            $ten = $goc . '-' . $i . '.' . $ext;
+            if ($i > 500) {   // chặn vòng lặp vô hạn
+                $ten = $goc . '-' . Helper::randomString(8) . '.' . $ext;
+                break;
+            }
+        }
+        return $ten;
+    }
+
+    /**
      * Nhà thầu upload bản báo giá có dấu + chữ ký.
      *
      * Upload thành công thì báo giá TỰ CHUYỂN sang "Đã xác nhận" — bản ký chính
@@ -757,8 +816,17 @@ class BG_BaoGia_BUS
 
         try {
             $dir = self::thuMucBanKy();
-            // Đổi tên khi lưu — không giữ tên gốc từ user
-            $tenLuu = 'bk_' . $baoGiaId . '_' . date('Ymd_His') . '_' . Helper::randomString(12) . '.' . $ext;
+
+            // Đổi tên khi lưu — KHÔNG giữ tên gốc từ user (§3B.9).
+            // Quy tắc: <mst>_<slug-goi-thau>.<ext> để nhìn tên là biết của ai, gói nào.
+            $gt = BG_GoiThau_DAL::getById((int)$bg->goi_thau_id);
+            $tenLuu = self::tenFileBanKy(
+                (string)$bg->ma_so_thue,
+                (string)($gt->ten_goi_thau ?? ''),
+                (string)($gt->so_thong_bao ?? ''),
+                $ext,
+                $dir
+            );
             $dich = $dir . DIRECTORY_SEPARATOR . $tenLuu;
 
             if (!move_uploaded_file($file['tmp_name'], $dich)) {
@@ -773,7 +841,12 @@ class BG_BaoGia_BUS
             }
 
             // Ghi DB + chuyển trạng thái trong 1 câu lệnh
-            BG_BaoGia_DAL::updateBanKy($baoGiaId, $tenLuu, ExcelHelper::toText($file['name'], 255));
+            BG_BaoGia_DAL::updateBanKy(
+                $baoGiaId,
+                $tenLuu,
+                ExcelHelper::toText($file['name'], 255),
+                (int)$file['size']
+            );
 
             DM_NhatKyHeThong_DAL::log(
                 $u, self::MODULE_LOG,

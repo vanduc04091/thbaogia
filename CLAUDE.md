@@ -329,6 +329,34 @@ switch ($action) {
 - DB credentials dev: user `root`, pass rỗng.
 - Không có unit test. Test thủ công qua browser.
 
+### 6.1. Config dev vs production — QUY TRÌNH BẮT BUỘC
+
+`PUBLIC/Common/AppConfig.php` trong repo đang giữ **cấu hình PRODUCTION**:
+
+| | Production (trong repo) | Dev (để chạy test) |
+|---|---|---|
+| `DB_NAME` | `thbaogia` | `th_bao_gia` |
+| `APP_URL` | `https://thbg.bvnghean.vn` | `http://thbg.bv` |
+
+DB `thbaogia` **không tồn tại trên máy dev** → chạy thẳng sẽ lỗi
+`SQLSTATE[HY000] [1049] Unknown database`.
+
+**Quy trình khi cần chạy test / migration trên máy dev:**
+
+1. **Sao lưu trước:** `cp PUBLIC/Common/AppConfig.php /tmp/AppConfig.prod.bak`
+2. Đổi 2 hằng số sang giá trị dev (`th_bao_gia`, `http://thbg.bv`)
+3. Chạy test / migration
+4. **PHỤC HỒI NGAY:** `cp /tmp/AppConfig.prod.bak PUBLIC/Common/AppConfig.php`
+   — rồi mới tăng `APP_VERSION` nếu có sửa CSS/JS.
+
+**Không được để config dev sót lại trong repo** — commit nhầm thì production
+trỏ vào DB không tồn tại. Xong việc luôn kiểm lại:
+
+```bash
+grep -n "DB_NAME\|APP_URL" PUBLIC/Common/AppConfig.php
+# Phải thấy: 'thbaogia' và 'https://thbg.bvnghean.vn'
+```
+
 ---
 
 ## 7. Files / Folders quan trọng
@@ -363,8 +391,40 @@ switch ($action) {
 10. **Đừng tự ý refactor lớn** — prefer pragmatic.
 11. **Đừng tạo file thừa** (docs/note/plan riêng) trừ khi user yêu cầu.
 12. **Chạy `php seed.php --reset`** để có lại dữ liệu test sạch khi cần.
+13. **KHÔNG tự ý chạy lệnh đổi cấu trúc DB** — xem §13.
 
 ---
+
+## 8B. THAY ĐỔI CẤU TRÚC DATABASE — quy tắc bắt buộc
+
+> **KHÔNG BAO GIỜ tự động chạy lệnh làm đổi cấu trúc database.**
+
+Khi một tính năng cần thêm/sửa bảng, cột, index, khóa ngoại... thì:
+
+1. **Viết file migration** trong `database/`, đặt tên `migrate_<viec_can_lam>.php`.
+2. **Báo cho user biết cần chạy file nào**, không tự chạy.
+3. User tự chạy: `php database/migrate_<ten>.php`.
+
+Áp dụng cho MỌI câu lệnh đổi cấu trúc: `CREATE TABLE`, `ALTER TABLE`,
+`DROP`, `CREATE INDEX`, `RENAME`... — kể cả khi "chỉ thêm 1 cột nhỏ".
+
+**Lý do:** database có thể đang chứa dữ liệu thật. User phải được quyền xem
+trước, sao lưu, và chọn thời điểm chạy — nhất là trên production.
+
+### Yêu cầu với file migration
+- **Idempotent**: chạy nhiều lần vẫn an toàn. Kiểm tra trước khi tác động:
+  - Bảng: `CREATE TABLE IF NOT EXISTS`
+  - Cột / index: truy vấn `information_schema` xem đã có chưa (xem
+    hàm `coCot()` trong `database/migrate_thoi_gian_bao_gia.php`)
+- **In rõ từng bước**: `+ đã thêm` / `= đã có, bỏ qua` để user biết chuyện gì xảy ra.
+- **Chạy qua PHP, không qua CLI mysql** — có tiếng Việt trong COMMENT/DEFAULT
+  thì CLI hay lỗi mã hóa (xem §9).
+- Cần dữ liệu khởi tạo kèm theo (form, phân quyền, thư mục upload...) thì
+  gộp luôn vào file migration đó.
+
+**Ngoại lệ duy nhất:** thao tác `SELECT` để kiểm tra/đọc dữ liệu — chạy thoải mái.
+Ghi dữ liệu test (INSERT/UPDATE/DELETE bản ghi) thì được, nhưng phải dọn sạch sau khi test.
+
 
 ## 9. Lưu ý khi làm việc với AI Assistant
 
@@ -408,6 +468,8 @@ Xuất Excel tổng hợp — CHỈ gộp báo giá đã xác nhận
   `nguoi_xac_nhan = NULL` để phân biệt: NULL = nhà thầu tự ký, có giá trị = nhân viên tích.
   Điều kiện: báo giá phải ĐÃ NỘP (`ngay_nop`) và có ≥ 1 dòng giá — chặn lách bằng cách
   upload file để thành "đã xác nhận" mà chưa hề chào giá.
+- **Tên file bản ký: `<mst>_<slug-gói-thầu>.<đuôi>`** — sinh bởi
+  `BG_BaoGia_BUS::tenFileBanKy()`. Nhìn tên biết ngay của ai, gói nào.
 - File bản ký lưu ở `assets/uploads/ban_ky/` (có `.htaccess` chặn truy cập thẳng),
   chỉ xem được qua `GUI/BG_BaoGia/xem_ban_ky.php` (quản trị, check quyền) hoặc
   `GUI/portal/download.php?loai=ban_ky` (nhà thầu, phải tra cứu đúng MST trước).
@@ -473,6 +535,7 @@ script giải mã ngược độc lập, kiểm format info có trong bảng chu
 | `GUI/BG_BaoGia/` | Xem báo giá, **xác nhận bản giấy**, từ chối, **xem/tải bản ký** |
 | `GUI/BG_BaoGia/xem_ban_ky.php` | Gửi file bản ký (inline hoặc `?tai_ve=1` để tải) |
 | `GUI/BG_TongHop/` | Bảng so sánh + xuất Excel (mỗi nhà thầu 1 dòng) |
+| `GUI/BG_QuanLyFile/` | Quản lý file bản ký: liệt kê, thống kê, xem/tải, xóa, dò file mồ côi |
 | `GUI/portal/` | Cổng nhà thầu (token QR, layout riêng không sidebar) |
 | `*/download.php` | Xuất file nhị phân (không qua ResponseHelper) |
 

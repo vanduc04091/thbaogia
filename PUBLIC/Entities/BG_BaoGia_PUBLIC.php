@@ -20,6 +20,7 @@ class BG_BaoGia_PUBLIC
     public ?string $ly_do_tu_choi = null;
     public ?string $file_ban_ky = null;         // tên file đã đổi khi lưu
     public ?string $ten_file_goc = null;        // tên gốc, chỉ để hiển thị
+    public ?int $kich_thuoc_file = null;        // dung lượng file (byte)
     public ?string $ngay_upload_ban_ky = null;
     public float $tong_tien = 0;
     public ?string $ip_nop = null;
