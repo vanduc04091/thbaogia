@@ -50,6 +50,7 @@ if (!$goiThau) {
 
 // loai=mau (mặc định): file mẫu để điền giá
 // loai=bao_gia&id=..: xuất lại báo giá đã nộp (từ cổng tra cứu)
+// loai=ban_ky&id=..:  xem lại bản ký (PDF/ảnh) đã tải lên
 $loai = (string)Helper::get('loai', 'mau');
 
 try {
@@ -57,8 +58,10 @@ try {
         $baoGiaId = (int)Helper::get('id', 0);
         // Chỉ cho tải báo giá của MST vừa tra cứu thành công trong phiên này
         // → nhà thầu không dò được id báo giá của đối thủ.
+        // Không giới hạn gói thầu: trang tra cứu hiện báo giá của MỌI gói,
+        // nên chỉ cần đúng MST đã tra cứu thành công trong phiên.
         $mst = (string)SessionHelper::get('portal_mst_tra_cuu', '');
-        if ($mst === '' || !BG_BaoGia_BUS::baoGiaThuocMst($baoGiaId, $mst, (int)$goiThau->id)) {
+        if ($mst === '' || !BG_BaoGia_BUS::baoGiaCuaMst($baoGiaId, $mst)) {
             loiTaiFile(
                 'Không có quyền tải báo giá này',
                 'Vui lòng tra cứu lại bằng mã số thuế của công ty rồi tải file.',
@@ -67,6 +70,41 @@ try {
         }
         $path = BG_TongHop_BUS::xuatChiTietBaoGia($baoGiaId, SessionHelper::userId());
         ExcelHelper::download($path, basename($path));
+    }
+
+    if ($loai === 'ban_ky') {
+        // Xem lại bản ký đã tải lên — cùng quy tắc quyền như loai=bao_gia
+        $baoGiaId = (int)Helper::get('id', 0);
+        $mst = (string)SessionHelper::get('portal_mst_tra_cuu', '');
+        if ($mst === '' || !BG_BaoGia_BUS::baoGiaCuaMst($baoGiaId, $mst)) {
+            loiTaiFile(
+                'Không có quyền xem bản ký này',
+                'Vui lòng tra cứu lại bằng mã số thuế của công ty rồi mở file.',
+                $token
+            );
+        }
+
+        $duongDan = BG_BaoGia_BUS::duongDanBanKy($baoGiaId);
+        if ($duongDan === '') {
+            loiTaiFile('Không tìm thấy file', 'Bản ký chưa được tải lên hoặc file không còn.', $token);
+        }
+
+        $bgFile = BG_BaoGia_BUS::getById($baoGiaId);
+        $ext = strtolower(pathinfo($duongDan, PATHINFO_EXTENSION));
+        $mimeMap = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg',
+                    'jpeg' => 'image/jpeg', 'png' => 'image/png'];
+        $tenGoc = (string)($bgFile->ten_file_goc ?: ('ban_ky.' . $ext));
+        $ascii  = preg_replace('/[^A-Za-z0-9._-]/', '_', $tenGoc);
+
+        if (ob_get_level()) ob_end_clean();
+        header('Content-Type: ' . ($mimeMap[$ext] ?? 'application/octet-stream'));
+        header('Content-Disposition: inline; filename="' . $ascii . '"; '
+             . "filename*=UTF-8''" . rawurlencode($tenGoc));
+        header('Content-Length: ' . filesize($duongDan));
+        header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: private, no-store');
+        readfile($duongDan);
+        exit;
     }
 
     $path = BG_HangHoa_BUS::xuatFileMau((int)$goiThau->id);

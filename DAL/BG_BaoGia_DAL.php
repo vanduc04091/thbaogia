@@ -100,6 +100,51 @@ class BG_BaoGia_DAL
         return $stmt->rowCount();
     }
 
+    /**
+     * Lưu file bản ký + tự chuyển sang ĐÃ XÁC NHẬN trong CÙNG một câu lệnh.
+     *
+     * Gộp 2 việc vào 1 UPDATE để không có trạng thái nửa vời (file đã lưu mà
+     * trạng thái chưa đổi, hoặc ngược lại).
+     * `nguoi_xac_nhan` = NULL vì đây là nhà thầu tự xác nhận bằng bản ký,
+     * không phải nhân viên bên mời tích tay.
+     */
+    public static function updateBanKy(int $id, string $fileName, string $tenGoc): int
+    {
+        $sql = "UPDATE bg_bao_gia SET
+                    file_ban_ky = :f,
+                    ten_file_goc = :tg,
+                    ngay_upload_ban_ky = NOW(),
+                    trang_thai = :tt,
+                    ngay_xac_nhan = NOW(),
+                    nguoi_xac_nhan = NULL,
+                    ly_do_tu_choi = NULL,
+                    ngay_cap_nhat = NOW()
+                WHERE id = :id AND da_xoa = 0";
+        $stmt = Database::getConnection()->prepare($sql);
+        $stmt->execute([
+            ':f'  => $fileName,
+            ':tg' => $tenGoc,
+            ':tt' => BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN,
+            ':id' => $id,
+        ]);
+        return $stmt->rowCount();
+    }
+
+    /** Gỡ file bản ký (khi upload đè thì xóa file cũ ở BUS) */
+    public static function xoaBanKy(int $id, int $u): int
+    {
+        $sql = "UPDATE bg_bao_gia SET
+                    file_ban_ky = NULL,
+                    ten_file_goc = NULL,
+                    ngay_upload_ban_ky = NULL,
+                    ngay_cap_nhat = NOW(),
+                    nguoi_cap_nhat = :u
+                WHERE id = :id AND da_xoa = 0";
+        $stmt = Database::getConnection()->prepare($sql);
+        $stmt->execute([':u' => $u, ':id' => $id]);
+        return $stmt->rowCount();
+    }
+
     public static function updateTongTien(int $id): void
     {
         $stmt = Database::getConnection()->prepare(
@@ -234,6 +279,52 @@ class BG_BaoGia_DAL
         );
         $stmt->execute([':mst' => $mst, ':gt' => $goiThauId]);
         return $stmt->fetchAll();
+    }
+
+    /**
+     * Tra cứu TẤT CẢ báo giá của 1 mã số thuế — không giới hạn gói thầu.
+     *
+     * Nhà thầu thường chào giá nhiều gói cùng lúc, nên tra theo MST phải ra hết
+     * để họ theo dõi ở một chỗ. MST là "khóa" nhà thầu tự biết, và so sánh CHÍNH
+     * XÁC (=, không LIKE) nên không dò được của công ty khác.
+     *
+     * Kèm thông tin gói thầu để nhóm kết quả theo từng gói ở giao diện.
+     */
+    public static function getAllByMst(string $mst): array
+    {
+        $mst = trim($mst);
+        if ($mst === '') return [];
+
+        $stmt = Database::getConnection()->prepare(
+            "SELECT bg.*, gt.so_thong_bao, gt.ten_goi_thau,
+                    gt.thoi_gian_mo_bao_gia, gt.thoi_gian_dong_bao_gia,
+                    gt.trang_thai AS gt_trang_thai, gt.token AS gt_token,
+                    (SELECT COUNT(*) FROM bg_bao_gia_chi_tiet ct
+                      WHERE ct.bao_gia_id = bg.id AND ct.da_xoa = 0 AND ct.don_gia > 0) AS so_dong_chao
+             FROM bg_bao_gia bg
+             INNER JOIN bg_goi_thau gt ON gt.id = bg.goi_thau_id
+             WHERE bg.ma_so_thue = :mst AND bg.da_xoa = 0 AND gt.da_xoa = 0
+             ORDER BY bg.ngay_nop DESC, bg.id DESC"
+        );
+        $stmt->execute([':mst' => $mst]);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * 1 báo giá có đúng của MST này không (bất kể gói thầu nào).
+     * Dùng để kiểm tra quyền tải file ở cổng tra cứu liên gói.
+     */
+    public static function baoGiaCuaMst(int $baoGiaId, string $mst): bool
+    {
+        $mst = trim($mst);
+        if ($baoGiaId <= 0 || $mst === '') return false;
+
+        $stmt = Database::getConnection()->prepare(
+            "SELECT COUNT(*) FROM bg_bao_gia
+             WHERE id = :id AND ma_so_thue = :mst AND da_xoa = 0"
+        );
+        $stmt->execute([':id' => $baoGiaId, ':mst' => $mst]);
+        return (int)$stmt->fetchColumn() > 0;
     }
 
     /** Chặn 1 MST nộp trùng 2 lần cho cùng gói thầu khi chưa bị từ chối */

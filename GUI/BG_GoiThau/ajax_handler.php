@@ -1,7 +1,6 @@
 <?php
 require_once __DIR__ . '/../../bootstrap.php';
 require_once __DIR__ . '/../../BUS/BG_GoiThau_BUS.php';
-require_once __DIR__ . '/../../BUS/BG_BaoGia_BUS.php';
 require_once __DIR__ . '/../../PUBLIC/Common/QrHelper.php';
 
 Helper::requireAjaxCsrf();
@@ -109,19 +108,6 @@ try {
             $res = BG_GoiThau_BUS::lamMoiToken(Helper::postInt('id'), $u);
             $res['success']
                 ? ResponseHelper::success($res['message'], $res['data'] ?? null)
-                : ResponseHelper::error($res['message']);
-            break;
-
-        /** Tra cứu báo giá của 1 MST trong gói thầu (mở từ modal QR) */
-        case 'traCuuMst':
-            // Quyền XEM báo giá — không phải quyền xem gói thầu
-            PhanQuyenHelper::requireQuyen(BG_BaoGia_BUS::MODULE_KEY, PhanQuyenHelper::QUYEN_XEM);
-            $res = BG_BaoGia_BUS::traCuuTheoMst(
-                Helper::postStr('ma_so_thue'),
-                Helper::postInt('goi_thau_id')
-            );
-            $res['success']
-                ? ResponseHelper::success($res['message'], $res['data'])
                 : ResponseHelper::error($res['message']);
             break;
 

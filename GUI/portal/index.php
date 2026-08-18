@@ -88,6 +88,7 @@ if ($baoGiaId > 0) {
 
 $AJAX = AppConfig::baseUrl('GUI/portal/ajax_handler.php');
 $hanCuoiTxt = $goiThau->han_cuoi ? Helper::formatDate($goiThau->han_cuoi) : 'Không đặt hạn';
+
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -153,35 +154,18 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
         <?php endif; ?>
     </div>
 
-    <div class="card lookup-box">
-        <div style="padding:20px">
-            <div style="text-align:center;margin-bottom:18px">
-                <span style="display:inline-flex;color:var(--gray-400)"><?= IconHelper::svg('search', 34) ?></span>
-                <h2 style="font-size:17px;margin:10px 0 6px">Tra cứu báo giá đã nộp</h2>
-                <p style="font-size:13.5px;color:var(--gray-600);margin:0">
-                    <?= $laChuaMo
-                        ? 'Hiện chưa tới thời gian nhận báo giá. Quý công ty có thể tra cứu các báo giá đã nộp trước đó.'
-                        : 'Đã hết thời gian nhận báo giá. Quý công ty vẫn có thể tra cứu và tải lại báo giá đã nộp.' ?>
-                </p>
-            </div>
-
-            <form class="lookup-form" id="lookupForm" onsubmit="return traCuu()">
-                <div class="form-group">
-                    <label for="lk_mst">Mã số thuế công ty <span class="req">*</span></label>
-                    <input type="text" id="lk_mst" class="form-control" required maxlength="14"
-                           placeholder="VD: 0101234567" autocomplete="off">
-                </div>
-                <button type="submit" class="btn btn-primary">
-                    <?= IconHelper::svg('search', 16) ?>Tra cứu
-                </button>
-            </form>
-            <p class="form-hint" style="margin-top:10px">
-                Chỉ hiển thị báo giá của đúng mã số thuế nhập vào.
-            </p>
-        </div>
+    <div class="state-card is-warning" style="margin-top:0">
+        <span class="state-icon"><?= IconHelper::svg($iconTt, 42) ?></span>
+        <h2>Chưa thể điền báo giá</h2>
+        <p>
+            <?= Helper::h($conNhan['message']) ?><br>
+            Quý công ty vẫn có thể <strong>tra cứu báo giá đã nộp</strong> và
+            <strong>tải bản có dấu, chữ ký</strong> ở mục bên dưới.
+        </p>
+        <button type="button" class="btn btn-primary" onclick="moTraCuu()">
+            <?= IconHelper::svg('search', 16) ?>Tra cứu báo giá đã nộp
+        </button>
     </div>
-
-    <div id="lookupResult"></div>
 
 <?php elseif ($baoGia && (int)$baoGia->trang_thai === BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN): ?>
     <!-- Đã được xác nhận bản giấy → khóa, không cho sửa -->
@@ -236,13 +220,39 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
     </div>
 
     <!-- ============ BƯỚC 1: THÔNG TIN CÔNG TY ============ -->
-    <div class="card" style="margin-bottom:16px">
+    <!-- Thanh tóm tắt: hiện THAY CHO form khi đã sang bước 2, để màn hình
+         chỉ còn bảng điền giá. Bấm "Sửa thông tin" mở lại form. -->
+    <div class="context-bar" id="ttTomTat" <?= $baoGia ? '' : 'hidden' ?>>
+        <span class="ctx-item">
+            <?= IconHelper::svg('building', 16) ?>
+            <span class="ctx-label">Công ty</span>
+            <span class="ctx-value" id="tt_ten"><?= Helper::h($baoGia->ten_cong_ty ?? '') ?></span>
+        </span>
+        <span class="ctx-item">
+            <span class="ctx-label">MST</span>
+            <span class="ctx-value" id="tt_mst"><?= Helper::h($baoGia->ma_so_thue ?? '') ?></span>
+        </span>
+        <span class="ctx-item">
+            <span class="ctx-label">Hiệu lực</span>
+            <span class="ctx-value" id="tt_hl"><?= (int)($baoGia->hieu_luc_bao_gia ?? 0) ?> ngày</span>
+        </span>
+        <span class="ctx-spacer"></span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="suaThongTin()">
+            <?= IconHelper::svg('pencil', 15) ?><span class="btn-label">Sửa thông tin</span>
+        </button>
+    </div>
+
+    <div class="card" id="cardThongTin" style="margin-bottom:16px" <?= $baoGia ? 'hidden' : '' ?>>
         <div class="card-header" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--gray-200)">
             <?= IconHelper::svg('building', 19) ?>
             <h2 style="font-size:15px;margin:0">Thông tin công ty chào giá</h2>
-            <?php if ($baoGia): ?>
-                <span class="badge badge-success" style="margin-left:auto">Đã lưu</span>
-            <?php endif; ?>
+            <!-- Luôn render, JS ẩn/hiện: khi CHƯA lưu lần nào thì không cho đóng
+                 (đóng sẽ không còn gì để nhập). -->
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="btnDongTT"
+                    style="margin-left:auto" onclick="dongSuaThongTin()"
+                    <?= $baoGia ? '' : 'hidden' ?>>
+                <?= IconHelper::svg('x', 15) ?><span class="btn-label">Đóng</span>
+            </button>
         </div>
         <form id="formCty" onsubmit="return luuThongTin()">
             <div class="modal-body" style="padding:18px">
@@ -531,6 +541,84 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
 
 <?php endif; ?>
 
+<!-- ============================================================
+     NÚT NỔI + TRANG TRA CỨU BÁO GIÁ THEO MÃ SỐ THUẾ
+     Hiện ở MỌI trạng thái của cổng. Bấm nút -> mở lớp phủ toàn trang
+     liệt kê TẤT CẢ báo giá của MST đó (mọi gói thầu), nhóm theo gói.
+     ============================================================ -->
+<button type="button" class="fab-tracuu" id="fabTraCuu" onclick="moTraCuu()"
+        aria-haspopup="dialog" aria-controls="traCuuOverlay">
+    <?= IconHelper::svg('search', 18) ?>
+    <span>Tra cứu báo giá của tôi</span>
+</button>
+
+<div class="tracuu-overlay" id="traCuuOverlay" role="dialog" aria-modal="true"
+     aria-labelledby="tcTieuDe" hidden>
+    <div class="tracuu-topbar">
+        <span style="display:inline-flex;color:var(--primary)"><?= IconHelper::svg('file-spreadsheet', 22) ?></span>
+        <div>
+            <h2 id="tcTieuDe">Báo giá đã nộp của công ty</h2>
+            <div class="tt-sub">Tra theo mã số thuế — hiển thị tất cả gói thầu</div>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary tt-close" onclick="dongTraCuu()">
+            <?= IconHelper::svg('x', 16) ?><span class="btn-label">Đóng</span>
+        </button>
+    </div>
+
+    <div class="tracuu-body">
+        <form class="tracuu-search" id="lookupForm" onsubmit="return traCuu()">
+            <div class="form-group">
+                <label for="lk_mst">Mã số thuế công ty <span class="req">*</span></label>
+                <input type="text" id="lk_mst" class="form-control" required maxlength="14"
+                       placeholder="VD: 0101234567" autocomplete="off" inputmode="numeric">
+                <div class="form-hint">Chỉ hiển thị báo giá của đúng mã số thuế nhập vào.</div>
+            </div>
+            <button type="submit" class="btn btn-primary">
+                <?= IconHelper::svg('search', 16) ?>Tra cứu
+            </button>
+        </form>
+
+        <div id="lookupResult"></div>
+    </div>
+</div>
+
+<div class="modal" id="banKyModal">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="bkTitle" style="max-width:640px">
+        <div class="modal-header">
+            <h3 id="bkTitle">Tải bản báo giá có dấu và chữ ký</h3>
+            <button type="button" class="close" onclick="closeBanKy()" aria-label="Đóng"><?= IconHelper::svg('x', 20) ?></button>
+        </div>
+        <div class="modal-body">
+            <div class="alert alert-info">
+                <?= IconHelper::svg('info', 16) ?>
+                <span>
+                    Tải lên bản báo giá đã <strong>ký tên và đóng dấu</strong> (bản scan hoặc ảnh chụp rõ nét).
+                    Sau khi tải lên, báo giá sẽ tự chuyển sang trạng thái
+                    <strong>ĐÃ XÁC NHẬN</strong> và không sửa được nữa.
+                </span>
+            </div>
+
+            <div id="bkCongTy" class="detail-grid" style="margin-bottom:14px"></div>
+
+            <label class="dropzone" id="bkDropzone" for="bkFile">
+                <span class="dz-icon"><?= IconHelper::svg('upload', 34) ?></span>
+                <span class="dz-main">Chọn file PDF hoặc ảnh đã ký đóng dấu</span>
+                <span class="dz-sub">Nhận PDF, JPG, PNG — tối đa 20MB</span>
+                <input type="file" id="bkFile" accept=".pdf,.jpg,.jpeg,.png" onchange="onBanKyChosen(this)">
+            </label>
+
+            <div id="bkFileInfo"></div>
+            <div id="bkPreview"></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeBanKy()">Hủy</button>
+            <button type="button" class="btn btn-primary" id="bkBtnUpload" onclick="uploadBanKy()" disabled>
+                <?= IconHelper::svg('upload', 16) ?>Tải lên và xác nhận
+            </button>
+        </div>
+    </div>
+</div>
+
 </main>
 
 <footer class="portal-footer">
@@ -551,14 +639,36 @@ var DONG = [];      // dữ liệu bảng chào giá
 
 function money(v) { return Number(v || 0).toLocaleString('vi-VN'); }
 
-/* ============ TRA CỨU BÁO GIÁ (khi ngoài thời gian chào giá) ============ */
+/* ============ TRA CỨU BÁO GIÁ ĐÃ NỘP (nút nổi + lớp phủ toàn trang) ============ */
+
+/**
+ * Mở trang tra cứu.
+ * @param {string} mstGoiY  MST điền sẵn (dùng khi vừa nộp báo giá xong)
+ * @param {boolean} tuTra   true = tra cứu luôn, không đợi bấm nút
+ */
+function moTraCuu(mstGoiY, tuTra) {
+    var $ov = $('#traCuuOverlay');
+    $ov.prop('hidden', false).addClass('open');
+    // Khóa cuộn trang nền để không cuộn 2 lớp cùng lúc
+    $('body').css('overflow', 'hidden');
+
+    if (mstGoiY) $('#lk_mst').val(mstGoiY);
+    if (tuTra && $('#lk_mst').val()) traCuu();
+    else $('#lk_mst').trigger('focus');
+}
+
+function dongTraCuu() {
+    $('#traCuuOverlay').removeClass('open').prop('hidden', true);
+    $('body').css('overflow', '');
+}
+
 function traCuu() {
     var mst = ($('#lk_mst').val() || '').trim();
     if (!mst) { APP.toast('Nhập mã số thuế', 'warning'); return false; }
 
     APP.showLoading('#lookupResult');
     APP.ajax(AJAX_URL, { action: 'traCuuMst', ma_so_thue: mst }, {
-        success: function (res) { renderTraCuu(res.data || []); },
+        success: function (res) { renderTraCuu(res.data || null); },
         error: function (res) {
             $('#lookupResult').html(
                 '<div class="card" style="padding:18px"><div class="alert alert-warning" style="margin:0">' +
@@ -571,8 +681,8 @@ function traCuu() {
     return false;
 }
 
-function renderTraCuu(list) {
-    if (!list.length) {
+function renderTraCuu(d) {
+    if (!d || !d.nhom || !d.nhom.length) {
         $('#lookupResult').html(
             '<div class="card" style="padding:18px"><div class="alert alert-warning" style="margin:0">' +
             APP.icon('info', 16) + ' Không tìm thấy báo giá nào của mã số thuế này.</div></div>'
@@ -580,40 +690,193 @@ function renderTraCuu(list) {
         return;
     }
 
-    var html = '<div class="card" style="padding:18px">';
-    html += '<h3 style="font-size:15px;margin:0 0 14px">Tìm thấy ' + list.length + ' báo giá</h3>';
+    var tk = d.tong_ket || {};
+    var html = '';
 
-    for (var i = 0; i < list.length; i++) {
-        var b = list[i];
-        var cls = b.trang_thai === TT_BG_XN ? 'badge-success'
-                : (b.trang_thai === TT_BG_TC ? 'badge-danger' : 'badge-warning');
-
-        html += '<div class="quote-card">' +
-            '<div class="quote-card-head">' +
-                '<span class="qc-title">' +
-                    '<span class="qc-name">' + APP.escape(b.ten_cong_ty) + '</span>' +
-                    '<span class="qc-mst">MST: ' + APP.escape(b.ma_so_thue || '—') +
-                        ' · Mã báo giá #' + b.id + '</span>' +
-                '</span>' +
-                '<span class="qc-actions">' +
-                    '<span class="badge ' + cls + '">' + APP.escape(b.ten_trang_thai) + '</span>' +
-                    '<span class="quote-total">' + money(b.tong_tien) + ' đ</span>' +
-                    '<a class="btn btn-sm btn-outline-primary" href="' + URL_DOWNLOAD +
-                        '?t=' + encodeURIComponent(PORTAL_TOKEN) + '&loai=bao_gia&id=' + b.id + '">' +
-                        APP.icon('download', 15) + '<span class="btn-label">Tải Excel</span></a>' +
-                '</span>' +
-            '</div>' +
-            '<div class="detail-grid">' +
-                dItemLk('Số dòng đã chào', b.so_dong_chao + ' dòng') +
-                dItemLk('Ngày nộp', b.ngay_nop ? APP.formatDateTime(b.ngay_nop) : '') +
-                dItemLk('Ngày xác nhận bản giấy', b.ngay_xac_nhan ? APP.formatDateTime(b.ngay_xac_nhan) : '') +
-                dItemLk('Hiệu lực báo giá', b.hieu_luc_bao_gia ? b.hieu_luc_bao_gia + ' ngày' : '') +
-                (b.ly_do_tu_choi ? dItemLk('Lý do từ chối', b.ly_do_tu_choi, 'span-2') : '') +
-            '</div>' +
+    // --- Thẻ tóm tắt công ty ---
+    html += '<div class="company-card">' +
+        '<span class="cc-name">' + APP.escape(tk.ten_cong_ty || '') +
+            '<span>MST: ' + APP.escape(d.ma_so_thue || '') + '</span></span>' +
+        '<span class="cc-stat"><b>' + (tk.so_bao_gia || 0) + '</b><span>Báo giá</span></span>' +
+        '<span class="cc-stat"><b>' + (tk.so_goi_thau || 0) + '</b><span>Gói thầu</span></span>' +
+        '<span class="cc-stat"><b>' + (tk.da_xac_nhan || 0) + '</b><span>Đã xác nhận</span></span>' +
+        '<span class="cc-stat"><b>' + (tk.cho_xac_nhan || 0) + '</b><span>Chờ xác nhận</span></span>' +
         '</div>';
+
+    // --- Từng gói thầu ---
+    for (var i = 0; i < d.nhom.length; i++) {
+        var g = d.nhom[i];
+        var clsGoi = g.trang_thai_bao_gia === 'dang_mo' ? 'badge-success'
+                   : (g.trang_thai_bao_gia === 'chua_mo' ? 'badge-info' : 'badge-neutral');
+
+        html += '<div class="goi-group">' +
+            '<div class="goi-group-head">' +
+                APP.icon('clipboard-list', 17) +
+                '<span class="gg-so">' + APP.escape(g.so_thong_bao) + '</span>' +
+                '<span class="gg-ten">' + APP.escape(g.ten_goi_thau) + '</span>' +
+                '<span class="badge ' + clsGoi + '">' + APP.escape(g.ten_trang_thai_bao_gia) + '</span>' +
+                (g.trang_thai_bao_gia === 'dang_mo'
+                    ? '<a class="btn btn-sm btn-outline-primary" href="' + APP.escape(g.url_portal) + '">' +
+                      APP.icon('external-link', 15) + '<span class="btn-label">Mở gói này</span></a>'
+                    : '') +
+            '</div>' +
+            '<div class="goi-group-body">';
+
+        for (var j = 0; j < g.bao_gia.length; j++) {
+            html += theBaoGia(g.bao_gia[j]);
+        }
+
+        html += '</div></div>';
     }
-    html += '</div>';
+
     $('#lookupResult').html(html);
+}
+
+/** 1 thẻ báo giá trong kết quả tra cứu */
+function theBaoGia(b) {
+    var cls = b.trang_thai === TT_BG_XN ? 'badge-success'
+            : (b.trang_thai === TT_BG_TC ? 'badge-danger' : 'badge-warning');
+
+    return '<div class="quote-card">' +
+        '<div class="quote-card-head">' +
+            '<span class="qc-title">' +
+                '<span class="qc-name">Báo giá #' + b.id + '</span>' +
+                '<span class="qc-mst">' +
+                    (b.ngay_nop ? 'Nộp lúc ' + APP.escape(APP.formatDateTime(b.ngay_nop)) : 'Chưa nộp') +
+                    ' · ' + b.so_dong_chao + ' dòng đã chào' +
+                '</span>' +
+            '</span>' +
+            '<span class="qc-actions">' +
+                '<span class="badge ' + cls + '">' + APP.escape(b.ten_trang_thai) + '</span>' +
+                '<span class="quote-total">' + money(b.tong_tien) + ' đ</span>' +
+                '<a class="btn btn-sm btn-outline-primary" href="' + URL_DOWNLOAD +
+                    '?t=' + encodeURIComponent(PORTAL_TOKEN) + '&loai=bao_gia&id=' + b.id + '">' +
+                    APP.icon('download', 15) + '<span class="btn-label">Tải Excel</span></a>' +
+                nutBanKy(b) +
+            '</span>' +
+        '</div>' +
+        '<div class="detail-grid">' +
+            dItemLk('Ngày xác nhận', b.ngay_xac_nhan ? APP.formatDateTime(b.ngay_xac_nhan) : '') +
+            dItemLk('Hiệu lực báo giá', b.hieu_luc_bao_gia ? b.hieu_luc_bao_gia + ' ngày' : '') +
+            dItemLk('Bản có dấu & chữ ký', b.ten_file_goc
+                ? b.ten_file_goc + (b.ngay_upload_ban_ky ? ' (' + APP.formatDateTime(b.ngay_upload_ban_ky) + ')' : '')
+                : '', 'span-2') +
+            (b.ly_do_tu_choi ? dItemLk('Lý do từ chối', b.ly_do_tu_choi, 'span-2') : '') +
+        '</div>' +
+    '</div>';
+}
+
+/* ============ TẢI BẢN KÝ (PDF/ảnh có dấu + chữ ký) ============ */
+var bkBaoGiaId = 0;
+
+/**
+ * Nút trong thẻ kết quả: đã có bản ký thì cho xem lại, chưa có thì cho tải lên.
+ *
+ * KHÔNG nhét dữ liệu vào onclick="..." — tên công ty có dấu nháy kép sẽ cắt đứt
+ * thuộc tính HTML, làm nút bấm không chạy (đã gặp lỗi này). Dùng data-* + APP.escape
+ * rồi bắt sự kiện bằng event delegation ở dưới.
+ */
+function nutBanKy(b) {
+    var h = '';
+    if (b.ten_file_goc) {
+        h += '<a class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener" href="' +
+             URL_DOWNLOAD + '?t=' + encodeURIComponent(PORTAL_TOKEN) + '&loai=ban_ky&id=' + b.id + '">' +
+             APP.icon('eye', 15) + '<span class="btn-label">Xem bản ký</span></a>';
+    }
+    // Chưa nộp online thì chưa cho tải bản ký (server cũng chặn)
+    if (b.ngay_nop) {
+        h += '<button type="button" class="btn btn-sm js-ban-ky ' +
+             (b.ten_file_goc ? 'btn-outline-secondary' : 'btn-primary') + '"' +
+             ' data-id="' + b.id + '"' +
+             ' data-cty="' + APP.escape(b.ten_cong_ty || '') + '"' +
+             ' data-mst="' + APP.escape(b.ma_so_thue || '') + '">' +
+             APP.icon('upload', 15) + '<span class="btn-label">' +
+             (b.ten_file_goc ? 'Tải lại' : 'Tải bản ký') + '</span></button>';
+    }
+    return h;
+}
+
+// Bắt sự kiện cho nút tải bản ký (nội dung render động nên phải delegate)
+$(document).on('click', '.js-ban-ky', function () {
+    var $b = $(this);
+    openBanKy(parseInt($b.data('id'), 10), String($b.data('cty') || ''), String($b.data('mst') || ''));
+});
+
+function openBanKy(id, tenCty, mst) {
+    bkBaoGiaId = id;
+    $('#bkFile').val('');
+    $('#bkFileInfo').empty();
+    $('#bkPreview').empty();
+    $('#bkBtnUpload').prop('disabled', true);
+    $('#bkCongTy').html(
+        dItemLk('Công ty', tenCty) + dItemLk('Mã số thuế', mst) + dItemLk('Mã báo giá', '#' + id)
+    );
+    $('#banKyModal').addClass('open');
+}
+
+function closeBanKy() { $('#banKyModal').removeClass('open'); }
+
+function onBanKyChosen(input) {
+    var f = input.files && input.files[0];
+    $('#bkPreview').empty();
+    if (!f) { $('#bkFileInfo').empty(); $('#bkBtnUpload').prop('disabled', true); return; }
+
+    var sz = f.size < 1048576 ? (f.size / 1024).toFixed(0) + ' KB' : (f.size / 1048576).toFixed(1) + ' MB';
+    if (f.size > 20 * 1048576) {
+        $('#bkFileInfo').html('<div class="alert alert-warning" style="margin-top:12px">' +
+            APP.icon('alert-triangle', 16) + ' File ' + sz + ' vượt quá 20MB.</div>');
+        $('#bkBtnUpload').prop('disabled', true);
+        return;
+    }
+
+    $('#bkFileInfo').html('<div class="file-chosen">' + APP.icon('file-spreadsheet', 17) +
+        '<span class="fc-name">' + APP.escape(f.name) + '</span>' +
+        '<span class="fc-size">' + sz + '</span></div>');
+
+    // Xem trước nếu là ảnh, giúp nhà thầu biết đã chọn đúng file chưa
+    if (/^image\//.test(f.type)) {
+        var url = URL.createObjectURL(f);
+        $('#bkPreview').html('<div style="margin-top:12px;text-align:center">' +
+            '<img src="' + url + '" alt="Xem trước bản ký" ' +
+            'style="max-width:100%;max-height:260px;border:1px solid var(--gray-200);border-radius:var(--radius-sm)" ' +
+            'onload="URL.revokeObjectURL(this.src)"></div>');
+    }
+    $('#bkBtnUpload').prop('disabled', false);
+}
+
+function uploadBanKy() {
+    var f = document.getElementById('bkFile').files[0];
+    if (!f || !bkBaoGiaId) { APP.toast('Chưa chọn file', 'warning'); return; }
+
+    APP.confirm('Tải lên bản ký này? Sau khi tải lên, báo giá chuyển sang ĐÃ XÁC NHẬN và KHÔNG sửa được nữa.',
+    function () {
+        var fd = new FormData();
+        fd.append('action', 'uploadBanKy');
+        fd.append('bao_gia_id', bkBaoGiaId);
+        fd.append('file', f);
+
+        APP.showLoading('#banKyModal .modal-body');
+        $.ajax({
+            url: AJAX_URL, type: 'POST', data: fd,
+            processData: false, contentType: false, dataType: 'json',
+            headers: { 'X-CSRF-Token': CSRF_TOKEN },
+            success: function (res) {
+                if (res && res.success) {
+                    APP.toast(res.message, 'success');
+                    closeBanKy();
+                    traCuu();   // tải lại kết quả để thấy trạng thái mới
+                } else {
+                    APP.toast((res && res.message) || 'Có lỗi xảy ra', 'error');
+                }
+            },
+            error: function (xhr) {
+                var msg = 'Lỗi tải file';
+                try { msg = JSON.parse(xhr.responseText).message || msg; } catch (e) {}
+                APP.toast(msg, 'error');
+            },
+            complete: function () { APP.hideLoading('#banKyModal .modal-body'); }
+        });
+    }, { yesClass: 'btn-primary', yesText: 'Tải lên và xác nhận' });
 }
 
 function dItemLk(label, value, cls) {
@@ -662,19 +925,47 @@ function luuThongTin() {
     APP.ajax(AJAX_URL, data, {
         success: function (res) {
             APP.toast(res.message, 'success');
+            capNhatTomTat();
+
             if (res.data && res.data.id) {
+                // Lần đầu lưu -> chuyển hẳn sang bước 2
                 BAO_GIA_ID = parseInt(res.data.id, 10);
                 $('#bao_gia_id').val(BAO_GIA_ID);
                 $('#buocGia').prop('hidden', false);
                 $('#step1').removeClass('is-active').addClass('is-done');
                 $('#step2').addClass('is-active');
                 loadBang();
-                // Cuộn tới bảng để người dùng thấy việc cần làm tiếp
-                $('html, body').animate({ scrollTop: $('#buocGia').offset().top - 20 }, 300);
             }
+            // Ẩn form, chỉ để lại thanh tóm tắt + bảng điền giá
+            $('#btnDongTT').prop('hidden', false);
+            dongSuaThongTin();
+            $('html, body').animate({ scrollTop: $('#ttTomTat').offset().top - 16 }, 300);
         }
     });
     return false;
+}
+
+/** Mở lại form sửa thông tin công ty */
+function suaThongTin() {
+    $('#cardThongTin').prop('hidden', false);
+    $('#btnDongTT').prop('hidden', !BAO_GIA_ID);
+    $('#ttTomTat').prop('hidden', true);
+    $('html, body').animate({ scrollTop: $('#cardThongTin').offset().top - 16 }, 250);
+    $('#ten_cong_ty').trigger('focus');
+}
+
+/** Đóng form, quay lại thanh tóm tắt gọn */
+function dongSuaThongTin() {
+    if (!BAO_GIA_ID) return;   // chưa lưu lần nào thì phải giữ form
+    $('#cardThongTin').prop('hidden', true);
+    $('#ttTomTat').prop('hidden', false);
+}
+
+/** Đồng bộ thanh tóm tắt với dữ liệu đang nhập trong form */
+function capNhatTomTat() {
+    $('#tt_ten').text($('#ten_cong_ty').val() || '');
+    $('#tt_mst').text($('#ma_so_thue').val() || '');
+    $('#tt_hl').text(($('#hieu_luc_bao_gia').val() || '0') + ' ngày');
 }
 
 /* ============ BƯỚC 2: BẢNG GIÁ ============ */
@@ -976,8 +1267,10 @@ function nopBaoGia() {
             success: function (res) {
                 APP.toast(res.message, 'success');
                 $('#step3').removeClass('is-active').addClass('is-done');
-                // Tải lại để hiện trạng thái đã nộp
-                setTimeout(function () { window.location.reload(); }, 1200);
+                // Nộp xong -> mở luôn trang tra cứu, điền sẵn MST và tra ngay,
+                // để nhà thầu thấy báo giá vừa nộp và tải bản ký lên.
+                var mst = ($('#ma_so_thue').val() || '').trim();
+                setTimeout(function () { moTraCuu(mst, true); }, 600);
             }
         });
     }, { yesClass: 'btn-primary', yesText: 'Nộp báo giá' });
@@ -1001,8 +1294,16 @@ if ($dz.length) {
 }
 
 $('#searchHang').on('keyup', APP.debounce(renderBang, 300));
-$('#dongModal, #importModal').on('click', function (e) { if (e.target === this) $(this).removeClass('open'); });
-$(document).on('keydown', function (e) { if (e.key === 'Escape') { closeDong(); closeImport(); } });
+$('#dongModal, #importModal, #banKyModal').on('click', function (e) { if (e.target === this) $(this).removeClass('open'); });
+$(document).on('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    // Esc: đóng modal con trước, hết modal mới đóng trang tra cứu
+    if ($('#banKyModal').hasClass('open')) { closeBanKy(); return; }
+    if ($('#dongModal').hasClass('open') || $('#importModal').hasClass('open')) {
+        closeDong(); closeImport(); return;
+    }
+    if ($('#traCuuOverlay').hasClass('open')) dongTraCuu();
+});
 
 /* Enter trong ô đơn giá → lưu luôn dòng đó */
 $(document).on('keydown', '.f-gia', function (e) {

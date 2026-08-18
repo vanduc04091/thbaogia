@@ -455,9 +455,16 @@ class QrHelper
         }
         $bits = (($data << 10) | ($rem & 0x3FF)) ^ 0x5412;
 
-        // Vị trí chuẩn của 15 bit format
+        // Vị trí chuẩn của 15 bit format.
+        //
+        // THỨ TỰ BIT: spec ghi bit CAO trước (MSB-first) — ô đầu tiên nhận bit 14,
+        // không phải bit 0. Ghi ngược (LSB-first) vẫn tạo ra hình QR "trông đúng",
+        // 2 bản copy vẫn khớp nhau, và bộ giải mã tự viết cũng đọc lại được
+        // (vì sai giống nhau ở cả 2 chiều) — NHƯNG máy quét thật đọc sai mức sửa
+        // lỗi + mask nên không giải mã nổi. Đây là lỗi từng gặp: QR không quét được
+        // dù dữ liệu và mask hoàn toàn chính xác.
         for ($i = 0; $i < 15; $i++) {
-            $b = ($bits >> $i) & 1;
+            $b = ($bits >> (14 - $i)) & 1;
 
             // Bản copy 1: quanh finder trên-trái
             if ($i < 6)        { $mod[8][$i] = $b; }
@@ -466,8 +473,12 @@ class QrHelper
             elseif ($i === 8)  { $mod[7][8] = $b; }
             else               { $mod[14 - $i][8] = $b; }
 
-            // Bản copy 2
-            if ($i < 8)        { $mod[$n - 1 - $i][8] = $b; }
+            // Bản copy 2 — ranh giới là i < 7, KHÔNG phải i < 8.
+            // Bit 0..6 nằm ở dải DỌC dưới finder trên-trái; bit 7..14 nằm ở dải
+            // NGANG bên phải. Đặt nhầm i < 8 làm bit 7 rơi vào (n-8,8) — vốn là
+            // ô dark module — và đẩy lệch toàn bộ bit 7..14 đi 1 vị trí, khiến
+            // máy quét đọc sai mask rồi giải mã hỏng (dữ liệu vẫn đúng nhưng vô dụng).
+            if ($i < 7)        { $mod[$n - 1 - $i][8] = $b; }
             else               { $mod[8][$n - 15 + $i] = $b; }
         }
         $mod[$n - 8][8] = 1;   // dark module

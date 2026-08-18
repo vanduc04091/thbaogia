@@ -637,6 +637,10 @@ class BG_BaoGia_BUS
                 'ngay_nop'        => $r['ngay_nop'],
                 'ngay_xac_nhan'   => $r['ngay_xac_nhan'],
                 'ly_do_tu_choi'   => $r['ly_do_tu_choi'],
+                // Bản có dấu + chữ ký: chỉ trả tên gốc để hiển thị, KHÔNG trả
+                // tên file thật trên đĩa (tránh lộ đường dẫn lưu trữ)
+                'ten_file_goc'       => $r['ten_file_goc'],
+                'ngay_upload_ban_ky' => $r['ngay_upload_ban_ky'],
                 'tong_tien'       => (float)$r['tong_tien'],
                 'so_dong_chao'    => (int)$r['so_dong_chao'],
                 'chi_tiet'        => BG_BaoGia_DAL::getChiTiet($id),
@@ -648,6 +652,255 @@ class BG_BaoGia_BUS
             'message' => 'Tìm thấy ' . count($out) . ' báo giá',
             'data'    => $out,
         ];
+    }
+
+    // =====================================================================
+    // BẢN BÁO GIÁ CÓ DẤU & CHỮ KÝ
+    // =====================================================================
+
+    /** Đuôi file cho phép upload bản ký */
+    const BAN_KY_EXT = ['pdf', 'jpg', 'jpeg', 'png'];
+
+    /** MIME thật tương ứng — KHÔNG tin $_FILES['type'] do client gửi */
+    const BAN_KY_MIME = [
+        'application/pdf',
+        'image/jpeg',
+        'image/png',
+    ];
+
+    /** Dung lượng tối đa cho bản ký (20MB — ảnh chụp/scan thường lớn) */
+    const BAN_KY_MAX_SIZE = 20971520;
+
+    /** Thư mục lưu bản ký */
+    public static function thuMucBanKy(): string
+    {
+        $dir = rtrim(AppConfig::UPLOAD_PATH, '/\\') . DIRECTORY_SEPARATOR . 'ban_ky';
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new RuntimeException('Không tạo được thư mục lưu file');
+        }
+        return $dir;
+    }
+
+    /**
+     * Nhà thầu upload bản báo giá có dấu + chữ ký.
+     *
+     * Upload thành công thì báo giá TỰ CHUYỂN sang "Đã xác nhận" — bản ký chính
+     * là bằng chứng thay cho việc bên mời tích tay khi nhận bản giấy.
+     *
+     * Chỉ cho upload khi báo giá ĐÃ NỘP (có ngay_nop) và có ít nhất 1 dòng giá,
+     * tránh trường hợp lách bằng cách upload file rồi thành "đã xác nhận" mà
+     * chưa hề chào giá.
+     *
+     * @param array $file phần tử của $_FILES
+     */
+    public static function uploadBanKy(int $baoGiaId, array $file, int $u): array
+    {
+        $bg = BG_BaoGia_DAL::getById($baoGiaId);
+        if (!$bg || (int)$bg->da_xoa === 1) {
+            return ['success' => false, 'message' => 'Không tìm thấy báo giá'];
+        }
+        if (empty($bg->ngay_nop)) {
+            return ['success' => false, 'message' => 'Chưa nộp báo giá — hãy nộp báo giá trước khi tải bản ký lên'];
+        }
+        if ((int)$bg->so_dong_chao === 0) {
+            return ['success' => false, 'message' => 'Báo giá chưa có dòng nào có đơn giá'];
+        }
+
+        // --- Kiểm tra file (§3B.9) ---
+        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            $map = [
+                UPLOAD_ERR_INI_SIZE  => 'File vượt quá giới hạn của server',
+                UPLOAD_ERR_FORM_SIZE => 'File vượt quá giới hạn cho phép',
+                UPLOAD_ERR_PARTIAL   => 'File tải lên chưa hoàn tất, hãy thử lại',
+                UPLOAD_ERR_NO_FILE   => 'Chưa chọn file',
+            ];
+            return ['success' => false, 'message' => $map[$file['error']] ?? 'Lỗi tải file'];
+        }
+        if (!is_uploaded_file($file['tmp_name']) || (int)$file['size'] <= 0) {
+            return ['success' => false, 'message' => 'File không hợp lệ hoặc rỗng'];
+        }
+        if ((int)$file['size'] > self::BAN_KY_MAX_SIZE) {
+            return ['success' => false, 'message' => 'File tối đa ' . round(self::BAN_KY_MAX_SIZE / 1048576) . 'MB'];
+        }
+
+        $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
+        if (!in_array($ext, self::BAN_KY_EXT, true)) {
+            return ['success' => false, 'message' => 'Chỉ nhận file PDF hoặc ảnh (JPG, PNG)'];
+        }
+
+        // MIME thật, không tin phần mở rộng lẫn $_FILES['type']
+        if (function_exists('finfo_open')) {
+            $fi = finfo_open(FILEINFO_MIME_TYPE);
+            $mime = finfo_file($fi, $file['tmp_name']);
+            finfo_close($fi);
+            if (!in_array($mime, self::BAN_KY_MIME, true)) {
+                return ['success' => false, 'message' => 'Nội dung file không phải PDF/ảnh hợp lệ'];
+            }
+            // Đuôi phải khớp nội dung thật (chặn đổi tên .php thành .pdf)
+            $khop = [
+                'pdf'  => ['application/pdf'],
+                'jpg'  => ['image/jpeg'],
+                'jpeg' => ['image/jpeg'],
+                'png'  => ['image/png'],
+            ];
+            if (!in_array($mime, $khop[$ext] ?? [], true)) {
+                return ['success' => false, 'message' => 'Đuôi file không khớp nội dung thật của file'];
+            }
+        }
+
+        try {
+            $dir = self::thuMucBanKy();
+            // Đổi tên khi lưu — không giữ tên gốc từ user
+            $tenLuu = 'bk_' . $baoGiaId . '_' . date('Ymd_His') . '_' . Helper::randomString(12) . '.' . $ext;
+            $dich = $dir . DIRECTORY_SEPARATOR . $tenLuu;
+
+            if (!move_uploaded_file($file['tmp_name'], $dich)) {
+                return ['success' => false, 'message' => 'Không lưu được file tải lên'];
+            }
+
+            // Xóa file cũ nếu upload đè
+            $fileCu = (string)$bg->file_ban_ky;
+            if ($fileCu !== '' && $fileCu !== $tenLuu) {
+                $duongDanCu = $dir . DIRECTORY_SEPARATOR . basename($fileCu);
+                if (is_file($duongDanCu)) @unlink($duongDanCu);
+            }
+
+            // Ghi DB + chuyển trạng thái trong 1 câu lệnh
+            BG_BaoGia_DAL::updateBanKy($baoGiaId, $tenLuu, ExcelHelper::toText($file['name'], 255));
+
+            DM_NhatKyHeThong_DAL::log(
+                $u, self::MODULE_LOG,
+                "Nhà thầu tải bản ký + tự xác nhận báo giá: {$bg->ten_cong_ty} (MST {$bg->ma_so_thue})",
+                'bg_bao_gia', $baoGiaId
+            );
+
+            return [
+                'success' => true,
+                'message' => 'Đã tải lên bản báo giá có dấu và chữ ký. Báo giá chuyển sang trạng thái ĐÃ XÁC NHẬN.',
+                'data' => [
+                    'ten_file_goc' => ExcelHelper::toText($file['name'], 255),
+                    'trang_thai'   => BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN,
+                ],
+            ];
+        } catch (Throwable $ex) {
+            return ['success' => false, 'message' => 'Lỗi: ' . $ex->getMessage()];
+        }
+    }
+
+    /**
+     * Đường dẫn tuyệt đối tới file bản ký của 1 báo giá.
+     * Trả '' nếu không có file hoặc file đã mất.
+     *
+     * Dùng basename() để chặn path traversal nếu DB bị chèn giá trị lạ.
+     */
+    public static function duongDanBanKy(int $baoGiaId): string
+    {
+        $bg = BG_BaoGia_DAL::getById($baoGiaId);
+        if (!$bg || empty($bg->file_ban_ky)) return '';
+        $p = self::thuMucBanKy() . DIRECTORY_SEPARATOR . basename((string)$bg->file_ban_ky);
+        return is_file($p) ? $p : '';
+    }
+
+    /**
+     * Tra cứu TẤT CẢ báo giá của 1 MST — mọi gói thầu, nhóm theo từng gói.
+     *
+     * Nhà thầu chào nhiều gói cùng lúc nên cần xem hết ở một chỗ.
+     * Chỉ trả dữ liệu của đúng MST nhập vào → không lộ công ty khác.
+     *
+     * @return array ['success'=>bool, 'message'=>string, 'data'=>['tong_ket'=>..., 'nhom'=>[...]]]
+     */
+    public static function traCuuTatCaTheoMst(string $mst): array
+    {
+        $mst = trim($mst);
+        if ($mst === '') {
+            return ['success' => false, 'message' => 'Vui lòng nhập mã số thuế'];
+        }
+        if (!preg_match('/^\d{10}(-\d{3})?$/', $mst)) {
+            return ['success' => false, 'message' => 'Mã số thuế không hợp lệ (10 số, hoặc dạng 0101234567-001)'];
+        }
+
+        $rows = BG_BaoGia_DAL::getAllByMst($mst);
+        if (empty($rows)) {
+            return ['success' => false, 'message' => 'Không tìm thấy báo giá nào của mã số thuế này.'];
+        }
+
+        $nhom = [];
+        $tenCongTy = '';
+        $soDaXacNhan = 0;
+        $soChoXacNhan = 0;
+        $tongTien = 0.0;
+
+        foreach ($rows as $r) {
+            $gtId = (int)$r['goi_thau_id'];
+            $tt = (int)$r['trang_thai'];
+
+            if ($tenCongTy === '') $tenCongTy = (string)$r['ten_cong_ty'];
+            if ($tt === BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN) $soDaXacNhan++;
+            if ($tt === BG_BaoGia_PUBLIC::TT_CHO_XAC_NHAN) $soChoXacNhan++;
+            $tongTien += (float)$r['tong_tien'];
+
+            // Còn trong thời gian chào giá thì mới cho sửa/nộp lại
+            $ttBaoGia = BG_GoiThau_PUBLIC::tinhTrangThaiBaoGia(
+                (int)$r['gt_trang_thai'],
+                $r['thoi_gian_mo_bao_gia'],
+                $r['thoi_gian_dong_bao_gia']
+            );
+
+            if (!isset($nhom[$gtId])) {
+                $nhom[$gtId] = [
+                    'goi_thau_id'            => $gtId,
+                    'so_thong_bao'           => $r['so_thong_bao'],
+                    'ten_goi_thau'           => $r['ten_goi_thau'],
+                    'thoi_gian_dong_bao_gia' => $r['thoi_gian_dong_bao_gia'],
+                    'trang_thai_bao_gia'     => $ttBaoGia,
+                    'ten_trang_thai_bao_gia' => BG_GoiThau_PUBLIC::tenTrangThaiBaoGia($ttBaoGia),
+                    // Link vào cổng chào giá của gói đó (nhà thầu tự chuyển gói)
+                    'url_portal'             => BG_GoiThau_BUS::urlPortal((string)$r['gt_token']),
+                    'bao_gia'                => [],
+                ];
+            }
+
+            $nhom[$gtId]['bao_gia'][] = [
+                'id'                 => (int)$r['id'],
+                'ten_cong_ty'        => $r['ten_cong_ty'],
+                'ma_so_thue'         => $r['ma_so_thue'],
+                'email'              => $r['email'],
+                'dien_thoai'         => $r['dien_thoai'],
+                'hieu_luc_bao_gia'   => (int)$r['hieu_luc_bao_gia'],
+                'trang_thai'         => $tt,
+                'ten_trang_thai'     => BG_BaoGia_PUBLIC::tenTrangThai($tt),
+                'ngay_nop'           => $r['ngay_nop'],
+                'ngay_xac_nhan'      => $r['ngay_xac_nhan'],
+                'ly_do_tu_choi'      => $r['ly_do_tu_choi'],
+                'tong_tien'          => (float)$r['tong_tien'],
+                'so_dong_chao'       => (int)$r['so_dong_chao'],
+                'ten_file_goc'       => $r['ten_file_goc'],
+                'ngay_upload_ban_ky' => $r['ngay_upload_ban_ky'],
+            ];
+        }
+
+        return [
+            'success' => true,
+            'message' => 'Tìm thấy ' . count($rows) . ' báo giá ở ' . count($nhom) . ' gói thầu',
+            'data' => [
+                'ma_so_thue' => $mst,
+                'tong_ket'   => [
+                    'ten_cong_ty'    => $tenCongTy,
+                    'so_bao_gia'     => count($rows),
+                    'so_goi_thau'    => count($nhom),
+                    'da_xac_nhan'    => $soDaXacNhan,
+                    'cho_xac_nhan'   => $soChoXacNhan,
+                    'tong_tien'      => $tongTien,
+                ],
+                'nhom' => array_values($nhom),
+            ],
+        ];
+    }
+
+    /** 1 báo giá có đúng của MST này không (mọi gói thầu) */
+    public static function baoGiaCuaMst(int $baoGiaId, string $mst): bool
+    {
+        return BG_BaoGia_DAL::baoGiaCuaMst($baoGiaId, $mst);
     }
 
     /**

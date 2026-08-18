@@ -1,7 +1,6 @@
 <?php
 require_once __DIR__ . '/../../bootstrap.php';
 require_once __DIR__ . '/../../BUS/BG_GoiThau_BUS.php';
-require_once __DIR__ . '/../../BUS/BG_BaoGia_BUS.php';
 
 Helper::requireLogin();
 PhanQuyenHelper::requireQuyenView('BG_GoiThau');
@@ -9,8 +8,6 @@ PhanQuyenHelper::requireQuyenView('BG_GoiThau');
 $canAdd  = PhanQuyenHelper::hasQuyen('BG_GoiThau', PhanQuyenHelper::QUYEN_THEM);
 $canEdit = PhanQuyenHelper::hasQuyen('BG_GoiThau', PhanQuyenHelper::QUYEN_SUA);
 $canDel  = PhanQuyenHelper::hasQuyen('BG_GoiThau', PhanQuyenHelper::QUYEN_XOA);
-// Tra cứu báo giá trong modal QR cần quyền xem báo giá (module khác)
-$canXemBaoGia = PhanQuyenHelper::hasQuyen('BG_BaoGia', PhanQuyenHelper::QUYEN_XEM);
 
 $pageTitle  = 'Gói thầu / Mời chào giá';
 $activeMenu = 'BG_GoiThau';
@@ -191,7 +188,15 @@ require __DIR__ . '/../layouts/header.php';
         <div class="modal-body">
             <div id="qrWarn"></div>
             <div class="qr-panel">
-                <div class="qr-figure" id="qrFigure"></div>
+                <!-- .qr-print-area: vùng DUY NHẤT được in (xem @media print trong style.css) -->
+                <div class="qr-print-area" id="qrPrintArea">
+                    <div class="qr-figure" id="qrFigure"></div>
+                    <!-- Chú thích chỉ hiện khi in, để tờ giấy biết là của gói thầu nào -->
+                    <div class="qr-print-caption" aria-hidden="true">
+                        <strong id="qrPrintTitle"></strong>
+                        <span id="qrPrintSub"></span>
+                    </div>
+                </div>
                 <div class="qr-side">
                     <div class="detail-item" style="margin-bottom:14px">
                         <span class="detail-label">Gói thầu</span>
@@ -208,7 +213,7 @@ require __DIR__ . '/../layouts/header.php';
                         <button type="button" class="btn btn-sm btn-outline-primary" onclick="copyUrl()">
                             <?= IconHelper::svg('copy', 15) ?><span class="btn-label">Sao chép link</span>
                         </button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="window.print()">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="inQr()">
                             <?= IconHelper::svg('printer', 15) ?><span class="btn-label">In mã QR</span>
                         </button>
                         <?php if ($canEdit): ?>
@@ -223,28 +228,6 @@ require __DIR__ . '/../layouts/header.php';
                 </div>
             </div>
 
-            <?php if ($canXemBaoGia): ?>
-            <!-- Tra cứu báo giá theo mã số thuế -->
-            <hr style="border:0;border-top:1px solid var(--gray-200);margin:20px 0">
-
-            <h4 style="font-size:14px;margin:0 0 4px;color:var(--gray-800)">Tra cứu báo giá theo mã số thuế</h4>
-            <p class="form-hint" style="margin:0 0 12px">
-                Nhập MST của nhà thầu để xem các báo giá họ đã nộp cho gói thầu này và xuất Excel.
-            </p>
-
-            <form class="lookup-form" id="qrLookupForm" onsubmit="return traCuuMst()">
-                <div class="form-group">
-                    <label for="qrMst">Mã số thuế</label>
-                    <input type="text" id="qrMst" class="form-control" maxlength="14"
-                           placeholder="VD: 0101234567" autocomplete="off">
-                </div>
-                <button type="submit" class="btn btn-primary">
-                    <?= IconHelper::svg('search', 16) ?>Tra cứu
-                </button>
-            </form>
-
-            <div id="qrLookupResult"></div>
-            <?php endif; ?>
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary" onclick="closeQr()">Đóng</button>
@@ -257,9 +240,6 @@ var AJAX_URL = <?= json_encode($AJAX) ?>;
 var URL_HANG_HOA = <?= json_encode(AppConfig::baseUrl('GUI/BG_HangHoa/index.php')) ?>;
 var URL_BAO_GIA  = <?= json_encode(AppConfig::baseUrl('GUI/BG_BaoGia/index.php')) ?>;
 var URL_TONG_HOP = <?= json_encode(AppConfig::baseUrl('GUI/BG_TongHop/index.php')) ?>;
-var URL_XUAT_BG  = <?= json_encode(AppConfig::baseUrl('GUI/BG_BaoGia/download.php')) ?>;
-var TT_BG_XN = <?= (int)BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN ?>;
-var TT_BG_TC = <?= (int)BG_BaoGia_PUBLIC::TT_TU_CHOI ?>;
 var CAN = { add: <?= $canAdd ? 'true' : 'false' ?>, edit: <?= $canEdit ? 'true' : 'false' ?>, del: <?= $canDel ? 'true' : 'false' ?> };
 var TT = <?= json_encode(BG_GoiThau_PUBLIC::danhSachTrangThai(), JSON_UNESCAPED_UNICODE) ?>;
 var TT_DANG_MO = <?= (int)BG_GoiThau_PUBLIC::TT_DANG_MO ?>;
@@ -492,15 +472,15 @@ function delForever(id) {
 /* ============ QR ============ */
 function showQr(id) {
     qrId = id;
-    // Xóa kết quả tra cứu của gói thầu trước, tránh hiểu nhầm là của gói này
-    $('#qrMst').val('');
-    $('#qrLookupResult').empty();
     APP.ajax(AJAX_URL, { action: 'getQr', id: id }, {
         success: function (res) {
             var d = res.data;
             // svg do server sinh (QrHelper), không phải dữ liệu người dùng nhập
             $('#qrFigure').html(d.svg);
             $('#qrGoiThau').text(d.so_thong_bao + ' — ' + d.ten_goi_thau);
+            // Chú thích in kèm dưới mã QR
+            $('#qrPrintTitle').text('Thông báo mời chào giá số ' + d.so_thong_bao);
+            $('#qrPrintSub').text(d.ten_goi_thau);
             $('#qrHanCuoi').text(d.thoi_gian_dong_bao_gia
                 ? APP.formatDateTime(d.thoi_gian_dong_bao_gia)
                 : (d.han_cuoi ? APP.formatDate(d.han_cuoi) : 'Chưa đặt'));
@@ -558,85 +538,6 @@ function lamMoiToken() {
             }
         });
     }, { yesText: 'Tạo link mới' });
-}
-
-/* ============ TRA CỨU BÁO GIÁ THEO MST (trong modal QR) ============ */
-function traCuuMst() {
-    var mst = ($('#qrMst').val() || '').trim();
-    if (!mst) {
-        APP.toast('Nhập mã số thuế cần tra cứu', 'warning');
-        $('#qrMst').trigger('focus');
-        return false;
-    }
-
-    APP.showLoading('#qrLookupResult');
-    APP.ajax(AJAX_URL, { action: 'traCuuMst', ma_so_thue: mst, goi_thau_id: qrId }, {
-        success: function (res) { renderKetQuaTraCuu(res.data || []); },
-        error: function (res) {
-            // Không tìm thấy là kết quả bình thường, không phải lỗi hệ thống
-            $('#qrLookupResult').html(
-                '<div class="alert alert-warning" style="margin-top:14px">' +
-                APP.icon('info', 16) + ' ' +
-                APP.escape((res && res.message) || 'Không tìm thấy báo giá') + '</div>'
-            );
-        },
-        complete: function () { APP.hideLoading('#qrLookupResult'); }
-    });
-    return false;
-}
-
-function renderKetQuaTraCuu(list) {
-    if (!list.length) {
-        $('#qrLookupResult').html(
-            '<div class="alert alert-warning" style="margin-top:14px">' + APP.icon('info', 16) +
-            ' Không tìm thấy báo giá nào của mã số thuế này.</div>'
-        );
-        return;
-    }
-
-    var html = '<div style="margin-top:14px">';
-    for (var i = 0; i < list.length; i++) {
-        var b = list[i];
-        var cls = b.trang_thai === TT_BG_XN ? 'badge-success'
-                : (b.trang_thai === TT_BG_TC ? 'badge-danger' : 'badge-warning');
-
-        html += '<div class="quote-card">' +
-            '<div class="quote-card-head">' +
-                '<span class="qc-title">' +
-                    '<span class="qc-name">' + APP.escape(b.ten_cong_ty) + '</span>' +
-                    '<span class="qc-mst">MST: ' + APP.escape(b.ma_so_thue || '—') +
-                        ' · Mã báo giá #' + b.id + '</span>' +
-                '</span>' +
-                '<span class="qc-actions">' +
-                    '<span class="badge ' + cls + '">' + APP.escape(b.ten_trang_thai) + '</span>' +
-                    '<span class="quote-total">' + money(b.tong_tien) + ' đ</span>' +
-                    '<a class="btn btn-sm btn-outline-primary" href="' + URL_XUAT_BG + '?id=' + b.id + '">' +
-                        APP.icon('download', 15) + '<span class="btn-label">Xuất Excel</span></a>' +
-                '</span>' +
-            '</div>' +
-            '<div class="detail-grid">' +
-                dItem('Số dòng đã chào', b.so_dong_chao + ' / ' + (b.chi_tiet ? b.chi_tiet.length : 0) + ' dòng') +
-                dItem('Ngày nộp online', b.ngay_nop ? APP.formatDateTime(b.ngay_nop) : '') +
-                dItem('Ngày xác nhận bản giấy', b.ngay_xac_nhan ? APP.formatDateTime(b.ngay_xac_nhan) : '') +
-                dItem('Hiệu lực báo giá', b.hieu_luc_bao_gia ? b.hieu_luc_bao_gia + ' ngày' : '') +
-                dItem('Email', b.email) +
-                dItem('Điện thoại', b.dien_thoai) +
-                (b.ly_do_tu_choi ? dItem('Lý do từ chối', b.ly_do_tu_choi, 'span-2') : '') +
-            '</div>' +
-        '</div>';
-    }
-    html += '</div>';
-    $('#qrLookupResult').html(html);
-}
-
-function money(v) { return Number(v || 0).toLocaleString('vi-VN'); }
-
-function dItem(label, value, cls) {
-    var empty = (value === null || typeof value === 'undefined' || String(value).trim() === '');
-    return '<div class="detail-item ' + (cls || '') + '">' +
-        '<span class="detail-label">' + APP.escape(label) + '</span>' +
-        '<span class="detail-value' + (empty ? ' is-empty' : '') + '">' +
-        APP.escape(empty ? 'Chưa có' : value) + '</span></div>';
 }
 
 function closeModal() { $('#modal').removeClass('open'); }

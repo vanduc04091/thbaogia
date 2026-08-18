@@ -309,3 +309,84 @@ Dùng ở 2 nơi:
   (`portal_mst_tra_cuu` trong session) → chặn dò id báo giá của đối thủ.
 - **Modal QR phía quản trị**: ô tra cứu theo MST + nút xuất Excel từng báo giá.
   Cần quyền `BG_BaoGia` / `quyen_xem` (khác quyền xem gói thầu).
+
+---
+
+## CẬP NHẬT: Bản báo giá có dấu & chữ ký
+
+> Tạo bởi `php database/migrate_ban_ky.php` (idempotent).
+
+Thêm vào `bg_bao_gia`:
+
+| Cột | Kiểu | Ghi chú |
+|---|---|---|
+| `file_ban_ky` | VARCHAR(255) NULL | Tên file đã ĐỔI khi lưu (không giữ tên gốc từ user) |
+| `ten_file_goc` | VARCHAR(255) NULL | Tên gốc nhà thầu đặt, chỉ để hiển thị |
+| `ngay_upload_ban_ky` | DATETIME NULL | Thời điểm upload |
+
+### Luồng tự xác nhận
+
+```
+Nhà thầu nộp báo giá online
+   ↓ vào phần tra cứu, nhập MST của mình
+   ↓ upload PDF/ảnh bản báo giá đã ký + đóng dấu
+Hệ thống: lưu file + trang_thai = 1 (Đã xác nhận) trong CÙNG 1 UPDATE
+   ↓
+Báo giá được đưa vào bảng tổng hợp
+```
+
+Có **2 đường** để 1 báo giá thành "Đã xác nhận":
+1. Bên mời tích tay khi nhận bản giấy → `nguoi_xac_nhan` = id nhân viên
+2. Nhà thầu upload bản ký → `nguoi_xac_nhan` = **NULL**
+
+Phân biệt bằng `nguoi_xac_nhan`: NULL + có `file_ban_ky` = nhà thầu tự xác nhận.
+
+### Ràng buộc
+
+- Chỉ upload được khi báo giá **đã nộp** (`ngay_nop` khác NULL) và có ≥ 1 dòng có đơn giá
+  → chặn việc upload file bừa để thành "đã xác nhận" mà chưa chào giá.
+- Chỉ nhận **PDF, JPG, PNG** tối đa 20MB; kiểm tra MIME thật bằng `finfo` và
+  **đuôi file phải khớp nội dung thật** (chặn đổi tên `.php` thành `.pdf`).
+- File đổi tên khi lưu: `bk_<id>_<ngày giờ>_<random>.<ext>`.
+- Upload đè thì xóa file cũ trên đĩa.
+- Nhà thầu chỉ upload/xem được bản ký của báo giá **do phiên mình tạo** hoặc
+  **thuộc MST vừa tra cứu thành công** (`portal_mst_tra_cuu` trong session).
+
+### Bố cục sheet "SoSanhGia" (đã đổi)
+
+Trước: mỗi nhà thầu là 1 **nhóm cột** → nhiều nhà thầu thì bảng rất rộng, không lọc được.
+Nay: mỗi (hàng hóa × nhà thầu) là **1 dòng**, có cột `Nhà thầu` + `Mã số thuế`.
+6 cột thông tin hàng hóa được **gộp dọc** theo số nhà thầu để dễ đọc.
+Lợi ích: dùng được AutoFilter / Sort / PivotTable của Excel.
+
+### Vị trí mục "Tra cứu theo mã số thuế"
+
+Chỉ nằm ở **cổng nhà thầu** `GUI/portal/index.php` (mục `#tra-cuu`), hiển thị ở
+**mọi trạng thái** của cổng — kể cả khi đang mở chào giá.
+
+Không đặt ở modal QR phía quản trị: bên mời đã có module `BG_BaoGia` với đầy đủ
+bộ lọc theo gói thầu / trạng thái / tìm kiếm, không cần tra cứu lại theo MST.
+
+Mặc định: mở sẵn khi ngoài thời gian chào giá (lúc đó tra cứu là việc chính),
+thu gọn khi đang chào giá (tránh rối màn hình nhập liệu).
+
+### Tra cứu LIÊN GÓI theo mã số thuế
+
+`BG_BaoGia_DAL::getAllByMst($mst)` — trả **tất cả** báo giá của 1 MST ở **mọi gói thầu**
+(khác `getByMstTrongGoiThau()` chỉ trong 1 gói). Nhà thầu thường chào nhiều gói cùng lúc
+nên cần xem tập trung một chỗ.
+
+`BG_BaoGia_BUS::traCuuTatCaTheoMst()` nhóm kết quả theo gói thầu, kèm:
+- Trạng thái báo giá của gói (đang mở / hết hạn...) để biết còn sửa được không
+- `url_portal` của từng gói → nhà thầu bấm chuyển thẳng sang gói đó
+- Tổng kết: số báo giá, số gói, số đã/chờ xác nhận
+
+**Quyền tải file cũng theo MST, không theo gói:** dùng `baoGiaCuaMst($id, $mst)`.
+Nếu vẫn dùng `baoGiaThuocMst($id, $mst, $goiThauId)` thì nhà thầu đứng ở portal gói A
+sẽ không tải được file của gói B — trong khi trang tra cứu đang hiện cả 2.
+
+### Giao diện cổng tra cứu
+
+- Nút nổi `.fab-tracuu` (góc dưới phải, mọi trạng thái) → lớp phủ `#traCuuOverlay`
+- **Nộp báo giá xong tự mở** trang tra cứu, điền sẵn MST và tra luôn
+- Trong mỗi thẻ báo giá: tải Excel, xem/tải bản ký, upload bản ký

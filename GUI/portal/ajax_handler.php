@@ -229,12 +229,59 @@ try {
          */
         case 'traCuuMst':
             $mst = Helper::postStr('ma_so_thue');
-            $res = BG_BaoGia_BUS::traCuuTheoMst($mst, (int)$gt->id);
+            // Tra TẤT CẢ gói thầu — nhà thầu thường chào nhiều gói, cần xem 1 chỗ
+            $res = BG_BaoGia_BUS::traCuuTatCaTheoMst($mst);
             if (!$res['success']) ResponseHelper::error($res['message']);
 
-            // Ghi nhớ MST đã tra cứu thành công → cho phép tải Excel của MST này
+            // Ghi nhớ MST đã tra cứu thành công → cho phép tải file của MST này
             SessionHelper::set('portal_mst_tra_cuu', trim($mst));
             ResponseHelper::success($res['message'], $res['data']);
+            break;
+
+        /**
+         * Nhà thầu upload bản báo giá có dấu + chữ ký (PDF/ảnh).
+         * Upload xong báo giá tự chuyển sang ĐÃ XÁC NHẬN.
+         *
+         * Cho phép cả khi đã hết thời gian chào giá — vì bản ký thường được gửi
+         * sau khi nộp online. Nhưng báo giá phải thuộc MST đã tra cứu trong phiên
+         * (hoặc do chính phiên này tạo) để nhà thầu không ký thay người khác.
+         */
+        case 'uploadBanKy':
+            $id = Helper::postInt('bao_gia_id');
+
+            $duocPhep = false;
+            // 1) Báo giá do chính phiên này tạo
+            $idsCuaToi = SessionHelper::get(SS_BAO_GIA_CUA_TOI, []);
+            if (is_array($idsCuaToi) && in_array($id, $idsCuaToi, true)) {
+                $duocPhep = true;
+            }
+            // 2) Hoặc thuộc MST vừa tra cứu thành công — KHÔNG giới hạn gói thầu,
+            //    vì trang tra cứu hiện báo giá của mọi gói, nhà thầu tải bản ký
+            //    cho gói nào cũng phải được.
+            if (!$duocPhep) {
+                $mst = (string)SessionHelper::get('portal_mst_tra_cuu', '');
+                if ($mst !== '' && BG_BaoGia_BUS::baoGiaCuaMst($id, $mst)) {
+                    $duocPhep = true;
+                }
+            }
+            if (!$duocPhep) {
+                ResponseHelper::error(
+                    'Bạn không có quyền tải bản ký cho báo giá này. Hãy tra cứu bằng mã số thuế của công ty trước.',
+                    403
+                );
+            }
+
+            $bgKt = BG_BaoGia_BUS::getById($id);
+            if (!$bgKt || (int)$bgKt->da_xoa === 1) {
+                ResponseHelper::error('Không tìm thấy báo giá', 404);
+            }
+
+            if (!isset($_FILES['file'])) ResponseHelper::error('Chưa chọn file');
+
+            $res = BG_BaoGia_BUS::uploadBanKy($id, $_FILES['file'], $u);
+            $res['success']
+                ? ResponseHelper::success($res['message'], $res['data'] ?? null)
+                : ResponseHelper::error($res['message']);
             break;
 
         /** Nộp báo giá */

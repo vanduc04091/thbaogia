@@ -403,6 +403,22 @@ Xuất Excel tổng hợp — CHỈ gộp báo giá đã xác nhận
 - `han_cuoi` chỉ để hiển thị/in. Khóa cổng chào giá căn theo `thoi_gian_dong_bao_gia`.
 - Tra cứu theo MST so sánh **chính xác** (`=`, không LIKE) và giới hạn trong 1 gói thầu
   → nhà thầu không xem được báo giá của nhau.
+- **Nhà thầu upload bản ký (PDF/ảnh có dấu + chữ ký) → TỰ chuyển sang "Đã xác nhận".**
+  Đây là đường xác nhận thứ 2 bên cạnh việc bên mời tích tay khi nhận bản giấy.
+  `nguoi_xac_nhan = NULL` để phân biệt: NULL = nhà thầu tự ký, có giá trị = nhân viên tích.
+  Điều kiện: báo giá phải ĐÃ NỘP (`ngay_nop`) và có ≥ 1 dòng giá — chặn lách bằng cách
+  upload file để thành "đã xác nhận" mà chưa hề chào giá.
+- File bản ký lưu ở `assets/uploads/ban_ky/` (có `.htaccess` chặn truy cập thẳng),
+  chỉ xem được qua `GUI/BG_BaoGia/xem_ban_ky.php` (quản trị, check quyền) hoặc
+  `GUI/portal/download.php?loai=ban_ky` (nhà thầu, phải tra cứu đúng MST trước).
+- **Tra cứu theo MST chỉ có ở cổng nhà thầu** (`GUI/portal/`) — không đặt ở modal QR
+  phía quản trị. Bên mời xem báo giá thì vào module `BG_BaoGia` (đủ bộ lọc + tìm kiếm).
+- Giao diện tra cứu: **nút nổi** `.fab-tracuu` góc dưới phải (mọi trạng thái của cổng)
+  → mở **lớp phủ toàn trang** `#traCuuOverlay`. Nộp báo giá xong tự mở, điền sẵn MST.
+- **Tra cứu là LIÊN GÓI**: `traCuuTatCaTheoMst()` trả TẤT CẢ báo giá của MST đó ở
+  mọi gói thầu, nhóm theo từng gói. Nhà thầu thường chào nhiều gói nên cần xem 1 chỗ.
+  Kéo theo: quyền tải file / upload bản ký cũng theo MST, KHÔNG giới hạn gói thầu
+  (dùng `baoGiaCuaMst()`, không dùng `baoGiaThuocMst()` vốn bó trong 1 gói).
 - `thanh_tien` **luôn** tính ở server = `don_gia × bg_hang_hoa.so_luong`. Không tin giá trị client gửi lên.
 - 1 MST chỉ 1 báo giá / gói thầu (trừ bản đã bị từ chối).
 - Gói thầu đã có báo giá → **không cho ghi đè** danh mục hàng hóa (lệch dữ liệu đã chào).
@@ -432,6 +448,21 @@ Reader/writer .xlsx thuần PHP (ZipArchive + XMLReader), **không cần Compose
 Sinh QR thuần PHP xuất SVG (không CDN, không thư viện ngoài). `QrHelper::svg($url, $size)`.
 Hỗ trợ version 1-10 mức sửa lỗi M (đủ cho URL ~200 ký tự).
 
+⚠️ **QR sai vẫn "trông như QR thật"** — vẫn đủ 3 ô định vị, vẫn vuông vắn, và bộ
+giải mã tự viết vẫn đọc lại được (vì sai giống nhau ở cả 2 chiều mã hóa/giải mã).
+Chỉ MÁY QUÉT THẬT mới phát hiện. Đã gặp 2 lỗi thuộc loại này ở phần format info:
+1. Ghi **LSB-first** thay vì **MSB-first** (spec ghi bit cao trước)
+2. Copy 2 lệch 1 ô: ranh giới đúng là `$i < 7`, không phải `$i < 8`
+   (đặt sai làm bit 7 rơi vào ô dark module)
+
+Cả 2 đều khiến máy quét đọc sai mask → không giải mã nổi, **dù dữ liệu và
+Reed-Solomon hoàn toàn chính xác**.
+
+**Sau khi đụng vào QrHelper, BẮT BUỘC chạy `php database/kiem_tra_qr.php`** —
+script giải mã ngược độc lập, kiểm format info có trong bảng chuẩn ISO/IEC 18004,
+2 bản copy khớp nhau, syndrome Reed-Solomon = 0, và nội dung giải ra đúng URL gốc.
+Đã kiểm chứng script bắt được cả 2 lỗi trên.
+
 ### 10.6. Vị trí file nghiệp vụ
 | Path | Vai trò |
 |---|---|
@@ -440,7 +471,7 @@ Hỗ trợ version 1-10 mức sửa lỗi M (đủ cho URL ~200 ký tự).
 | `GUI/BG_GoiThau/` | CRUD gói thầu + modal QR |
 | `GUI/BG_HangHoa/` | CRUD + import Excel danh mục hàng hóa |
 | `GUI/BG_BaoGia/` | Xem báo giá, **xác nhận bản giấy**, từ chối |
-| `GUI/BG_TongHop/` | Bảng so sánh ngang + xuất Excel |
+| `GUI/BG_TongHop/` | Bảng so sánh + xuất Excel (mỗi nhà thầu 1 dòng) |
 | `GUI/portal/` | Cổng nhà thầu (token QR, layout riêng không sidebar) |
 | `*/download.php` | Xuất file nhị phân (không qua ResponseHelper) |
 

@@ -114,6 +114,11 @@
     unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
+/* Thuộc tính [hidden] phải LUÔN thắng mọi display của component.
+   Không có dòng này thì .context-bar{display:flex} ... vẫn hiện dù đã đặt hidden
+   (đã gặp: thanh tóm tắt công ty hiện ra khi chưa có dữ liệu). */
+[hidden] { display: none !important; }
+
 /* ============ TOKENS ============ */
 :root {
     /* Brand — 1 accent duy nhất, khóa toàn trang (COLOR CONSISTENCY LOCK) */
@@ -1255,9 +1260,9 @@ input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
     padding: 14px 0;
 }
 .portal-header .portal-inner {
-    max-width: 1400px;
+    max-width: min(2000px, calc(100vw - 32px));
     margin: 0 auto;
-    padding: 0 22px;
+    padding: 0 16px;
     display: flex;
     align-items: center;
     gap: 14px;
@@ -1271,14 +1276,16 @@ input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
 }
 .portal-header .portal-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 .portal-main {
-    max-width: 1400px;
+    /* Bảng chào giá có rất nhiều cột -> cần rộng.
+       Dùng gần hết bề ngang màn hình, chỉ chừa lề nhỏ hai bên. */
+    max-width: min(2000px, calc(100vw - 32px));
     margin: 0 auto;
-    padding: 22px;
+    padding: 18px 16px;
 }
 .portal-footer {
-    max-width: 1400px;
+    max-width: min(2000px, calc(100vw - 32px));
     margin: 0 auto;
-    padding: 18px 22px 34px;
+    padding: 18px 16px 34px;
     font-size: 12.5px;
     color: var(--gray-500);
 }
@@ -1327,15 +1334,77 @@ input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
 .total-bar .tb-spacer { flex: 1 1 auto; }
 .total-bar .tb-note { font-size: 12.5px; color: var(--gray-500); }
 
-/* ---------- In ấn phiếu QR ---------- */
+/* Chú thích dưới mã QR: chỉ hiện khi in, ẩn trên màn hình */
+.qr-print-caption { display: none; }
+
+/* ---------- In ấn: CHỈ in mã QR ----------
+   Cách làm: JS gắn class .printing-qr vào <body> trước khi gọi window.print(),
+   và bọc phần cần in trong .qr-print-area.
+   Ẩn TOÀN BỘ body rồi cho hiện lại đúng nhánh tổ tiên của vùng in, nên không
+   phụ thuộc vào việc liệt kê đủ mọi thành phần cần ẩn (cách cũ liệt kê thiếu
+   nên vẫn lòi ra cả trang). */
 @media print {
-    .sidebar, .topbar, .breadcrumb, .toolbar, .pagination-wrap,
-    .app-footer, .modal-footer, .btn, .sidebar-scrim { display: none !important; }
-    .main, .content { margin: 0 !important; padding: 0 !important; }
-    .modal { position: static !important; background: none !important; display: block !important; }
-    .modal-content { box-shadow: none !important; border: 0 !important; max-width: none !important; }
-    .card { border: 0 !important; box-shadow: none !important; }
-    .qr-figure { border: 0 !important; }
+    /* Ẩn mọi thứ trong trang */
+    body.printing-qr * { visibility: hidden !important; }
+
+    /* Hiện lại vùng QR và mọi thứ bên trong nó */
+    body.printing-qr .qr-print-area,
+    body.printing-qr .qr-print-area * { visibility: visible !important; }
+
+    /* Đưa vùng QR lên góc trên-trái của trang giấy */
+    body.printing-qr .qr-print-area {
+        position: absolute !important;
+        left: 0; top: 0;
+        width: 100%;
+        margin: 0 !important;
+        padding: 24px !important;
+        display: block !important;
+        text-align: center;
+        background: #fff !important;
+        border: 0 !important;
+        box-shadow: none !important;
+    }
+
+    /* Modal chứa QR: bỏ nền mờ + cuộn để không tạo trang trắng thừa */
+    body.printing-qr .modal {
+        position: static !important;
+        display: block !important;
+        background: none !important;
+        padding: 0 !important;
+        overflow: visible !important;
+    }
+    body.printing-qr .modal-content {
+        box-shadow: none !important;
+        border: 0 !important;
+        max-width: none !important;
+        max-height: none !important;
+        overflow: visible !important;
+    }
+
+    /* Không in nút bấm bên trong vùng QR */
+    body.printing-qr .qr-print-area .btn,
+    body.printing-qr .qr-print-area .no-print { display: none !important; }
+
+    body.printing-qr .qr-figure {
+        border: 0 !important;
+        padding: 0 !important;
+        display: inline-block !important;
+    }
+    /* Cỡ in cố định theo mm để mã luôn đủ lớn cho điện thoại quét */
+    body.printing-qr .qr-figure svg { width: 62mm !important; height: 62mm !important; }
+
+    /* Chú thích: hiện khi in để biết tờ giấy thuộc gói thầu nào */
+    body.printing-qr .qr-print-caption {
+        display: block !important;
+        margin-top: 6mm;
+        font-size: 12pt;
+        color: #000 !important;
+    }
+    body.printing-qr .qr-print-caption strong { display: block; margin-bottom: 2mm; }
+    body.printing-qr .qr-print-caption span { font-size: 10.5pt; }
+
+    /* Bỏ lề mặc định của trình duyệt cho gọn */
+    @page { margin: 12mm; }
 }
 
 /* ---------- Ô bảng có icon dẫn đầu (ma trận phân quyền, danh sách module) ---------- */
@@ -1425,3 +1494,168 @@ input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
+
+/* ============================================================
+   CỔNG TRA CỨU BÁO GIÁ THEO MST — nút nổi + trang kết quả
+   ============================================================ */
+
+/* ---------- Nút nổi góc dưới phải ---------- */
+.fab-tracuu {
+    position: fixed;
+    right: 22px;
+    bottom: 22px;
+    z-index: var(--z-topbar);
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 13px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    background: var(--primary);
+    border: 0;
+    border-radius: var(--radius-pill);
+    box-shadow: 0 6px 20px rgba(22, 163, 74, .32), 0 2px 6px rgba(15, 23, 42, .12);
+    cursor: pointer;
+    transition: background-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+                transform var(--dur) var(--ease);
+}
+.fab-tracuu:hover { background: var(--primary-dark); box-shadow: 0 8px 26px rgba(22, 163, 74, .40); }
+.fab-tracuu:active { transform: translateY(1px); }
+.fab-tracuu:focus-visible { outline: 3px solid var(--primary-light); outline-offset: 2px; }
+.fab-tracuu .icon { flex: none; }
+
+@media (max-width: 640px) {
+    .fab-tracuu { right: 14px; bottom: 14px; padding: 12px 16px; font-size: 13px; }
+    /* Chừa chỗ để nút không che nội dung cuối trang */
+    .portal-footer { padding-bottom: 84px; }
+}
+
+/* ---------- Lớp phủ toàn trang cho trang tra cứu ---------- */
+.tracuu-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal, 50);
+    background: var(--canvas);
+    overflow-y: auto;
+    display: none;
+}
+.tracuu-overlay.open { display: block; }
+
+.tracuu-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 22px;
+    background: var(--gray-900);
+    color: #fff;
+}
+.tracuu-topbar h2 { font-size: 16px; margin: 0; font-weight: 600; }
+.tracuu-topbar .tt-sub { font-size: 12.5px; color: var(--gray-400); margin-top: 2px; }
+.tracuu-topbar .tt-close { margin-left: auto; }
+
+.tracuu-body {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 22px;
+}
+
+/* ---------- Ô nhập MST ---------- */
+.tracuu-search {
+    display: flex;
+    gap: 10px 12px;
+    flex-wrap: wrap;
+    /* KHÔNG dùng align-items: flex-end — .form-group có dòng hint bên dưới input
+       nên căn đáy sẽ đẩy nút tụt xuống dưới ô nhập. Căn theo đầu rồi bù margin
+       cho nút để nút thẳng hàng với chính ô input. */
+    align-items: flex-start;
+    padding: 18px;
+    background: var(--surface);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius);
+    margin-bottom: 18px;
+}
+.tracuu-search .form-group { flex: 1 1 260px; margin-bottom: 0; }
+/* Đẩy nút xuống ngang hàng input: chiều cao nhãn (~20px) + khoảng cách (6px) */
+.tracuu-search > .btn { margin-top: 26px; }
+
+@media (max-width: 560px) {
+    /* Màn hẹp: nút xuống dòng riêng, chiếm trọn chiều ngang cho dễ bấm */
+    .tracuu-search > .btn { margin-top: 0; width: 100%; justify-content: center; }
+}
+
+/* ---------- Thẻ tóm tắt công ty ---------- */
+.company-card {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px 28px;
+    align-items: center;
+    padding: 16px 18px;
+    background: var(--primary-subtle);
+    border: 1px solid var(--primary-light);
+    border-radius: var(--radius);
+    margin-bottom: 18px;
+}
+.company-card .cc-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--gray-900);
+    flex: 1 1 260px;
+    min-width: 0;
+}
+.company-card .cc-name span {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 400;
+    color: var(--gray-600);
+    margin-top: 3px;
+}
+.company-card .cc-stat { text-align: center; flex: none; }
+.company-card .cc-stat b {
+    display: block;
+    font-size: 19px;
+    color: var(--gray-900);
+    font-variant-numeric: tabular-nums;
+}
+.company-card .cc-stat span { font-size: 12px; color: var(--gray-600); }
+
+/* ---------- Nhóm theo gói thầu ---------- */
+.goi-group { margin-bottom: 18px; }
+.goi-group-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 12px 16px;
+    background: var(--gray-100);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius) var(--radius) 0 0;
+}
+.goi-group-head .gg-so {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gray-900);
+}
+.goi-group-head .gg-ten {
+    font-size: 13px;
+    color: var(--gray-600);
+    flex: 1 1 200px;
+    min-width: 0;
+}
+.goi-group-body {
+    border: 1px solid var(--gray-200);
+    border-top: 0;
+    border-radius: 0 0 var(--radius) var(--radius);
+    background: var(--surface);
+}
+.goi-group-body .quote-card {
+    border: 0;
+    border-bottom: 1px solid var(--gray-200);
+    border-radius: 0;
+    margin: 0;
+}
+.goi-group-body .quote-card:last-child { border-bottom: 0; }

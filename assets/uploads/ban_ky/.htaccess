@@ -1,0 +1,8 @@
+# File ban bao gia co dau + chu ky cua nha thau.
+# Day la tai lieu phap ly, KHONG cho tai truc tiep qua URL.
+# Chi duoc gui ra qua GUI/*/xem_ban_ky.php (co kiem tra quyen).
+Require all denied
+
+<FilesMatch "\.(php|php3|php4|php5|php7|phtml|phar)$">
+    Require all denied
+</FilesMatch>

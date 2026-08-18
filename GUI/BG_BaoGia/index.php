@@ -198,6 +198,7 @@ require __DIR__ . '/../layouts/header.php';
 <script>
 var AJAX_URL = <?= json_encode($AJAX) ?>;
 var URL_XUAT_BG = <?= json_encode(AppConfig::baseUrl('GUI/BG_BaoGia/download.php')) ?>;
+var URL_BAN_KY  = <?= json_encode(AppConfig::baseUrl('GUI/BG_BaoGia/xem_ban_ky.php')) ?>;
 var URL_TONG_HOP = <?= json_encode(AppConfig::baseUrl('GUI/BG_TongHop/index.php')) ?>;
 var CAN = { edit: <?= $canEdit ? 'true' : 'false' ?>, del: <?= $canDel ? 'true' : 'false' ?> };
 var TT = <?= json_encode(BG_BaoGia_PUBLIC::danhSachTrangThai(), JSON_UNESCAPED_UNICODE) ?>;
@@ -282,6 +283,11 @@ function renderTable(rows) {
               + APP.escape(String(r.ly_do_tu_choi).substring(0, 45)) + '</span>'
             : '';
 
+        var banKy = r.ten_file_goc
+            ? '<span class="badge badge-info badge-quote" title="' + APP.escape(r.ten_file_goc) + '">' +
+              APP.icon('check-circle', 12) + 'Có bản ký</span>'
+            : '';
+
         html += '<tr>' +
             '<td class="col-id">' + r.id + '</td>' +
             '<td><span class="cell-main">' + APP.escape(r.ten_cong_ty) + '</span>' +
@@ -294,7 +300,7 @@ function renderTable(rows) {
             '<td>' + (r.ngay_nop
                 ? APP.escape(APP.formatDateTime(r.ngay_nop))
                 : '<span class="text-muted">Chưa nộp</span>') + '</td>' +
-            '<td>' + badgeTrangThai(tt) + lyDo + '</td>' +
+            '<td>' + badgeTrangThai(tt) + banKy + lyDo + '</td>' +
             '<td class="col-actions"><span class="row-actions">' + actions + '</span></td>' +
             '</tr>';
     }
@@ -320,7 +326,9 @@ function showCt(id) {
                 dItem('Gói thầu', (bg.so_thong_bao || '') + ' — ' + (bg.ten_goi_thau || ''), 'span-2') +
                 dItem('Ngày nộp online', bg.ngay_nop ? APP.formatDateTime(bg.ngay_nop) : '') +
                 dItem('Ngày xác nhận bản giấy', bg.ngay_xac_nhan ? APP.formatDateTime(bg.ngay_xac_nhan) : '') +
-                dItem('Người xác nhận', bg.tai_khoan_xac_nhan) +
+                dItem('Người xác nhận', bg.tai_khoan_xac_nhan
+                    || (bg.ten_file_goc ? 'Nhà thầu tự xác nhận bằng bản ký' : '')) +
+                itemBanKy(bg) +
                 dItem('Tổng tiền', money(bg.tong_tien) + ' VND') +
                 dItem('Trạng thái', TT[parseInt(bg.trang_thai, 10)]) +
                 (bg.ly_do_tu_choi ? dItem('Lý do từ chối', bg.ly_do_tu_choi, 'span-2') : '') +
@@ -356,6 +364,27 @@ function showCt(id) {
             $('#ctModal').addClass('open');
         }
     });
+}
+
+/** Ô "Bản có dấu & chữ ký" — kèm nút xem và tải nếu nhà thầu đã upload */
+function itemBanKy(bg) {
+    if (!bg.ten_file_goc) {
+        return '<div class="detail-item span-2">' +
+            '<span class="detail-label">Bản có dấu &amp; chữ ký</span>' +
+            '<span class="detail-value is-empty">Nhà thầu chưa tải lên</span></div>';
+    }
+    var u = URL_BAN_KY + '?id=' + bg.id;
+    return '<div class="detail-item span-2">' +
+        '<span class="detail-label">Bản có dấu &amp; chữ ký</span>' +
+        '<span class="detail-value">' + APP.escape(bg.ten_file_goc) +
+        (bg.ngay_upload_ban_ky ? ' <span class="text-muted">(' +
+            APP.escape(APP.formatDateTime(bg.ngay_upload_ban_ky)) + ')</span>' : '') +
+        '<span style="display:inline-flex;gap:8px;margin-left:10px">' +
+        '<a class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener" href="' + u + '">' +
+        APP.icon('eye', 15) + '<span class="btn-label">Xem</span></a>' +
+        '<a class="btn btn-sm btn-outline-secondary" href="' + u + '&tai_ve=1">' +
+        APP.icon('download', 15) + '<span class="btn-label">Tải về</span></a>' +
+        '</span></span></div>';
 }
 
 function dItem(label, value, cls) {
