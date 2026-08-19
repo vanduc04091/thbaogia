@@ -217,9 +217,6 @@ require __DIR__ . '/../layouts/header.php';
                             <?= IconHelper::svg('printer', 15) ?><span class="btn-label">In mã QR</span>
                         </button>
                         <?php if ($canEdit): ?>
-                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="lamMoiToken()">
-                                <?= IconHelper::svg('refresh', 15) ?><span class="btn-label">Tạo link mới</span>
-                            </button>
                         <?php endif; ?>
                     </div>
                     <p class="form-hint" style="margin-top:12px">
@@ -529,16 +526,6 @@ function fallbackCopy() {
     }
 }
 
-function lamMoiToken() {
-    APP.confirm('Tạo link QR mới? Mã QR và link cũ sẽ KHÔNG dùng được nữa — nhà thầu đã nhận link cũ phải nhận lại link mới.', function () {
-        APP.ajax(AJAX_URL, { action: 'lamMoiToken', id: qrId }, {
-            success: function (res) {
-                APP.toast(res.message, 'success');
-                showQr(qrId);
-            }
-        });
-    }, { yesText: 'Tạo link mới' });
-}
 
 function closeModal() { $('#modal').removeClass('open'); }
 function closeQr() { $('#qrModal').removeClass('open'); }

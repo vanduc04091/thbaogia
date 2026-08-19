@@ -1,0 +1,4 @@
+# Thu muc chua script migration + sao luu - chi chay tu CLI.
+# .htaccess goc da chan bang RedirectMatch, day la lop thu 2 phong khi
+# server production khong doc .htaccess goc hoac cau hinh khac.
+Require all denied

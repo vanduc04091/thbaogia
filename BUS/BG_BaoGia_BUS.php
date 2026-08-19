@@ -65,6 +65,25 @@ class BG_BaoGia_BUS
         return '';
     }
 
+    /**
+     * Liệt kê các trường THAY ĐỔI giữa bản cũ và bản mới, dạng
+     * "nhãn: cũ → mới". Dùng ghi vào nhật ký để có tranh chấp còn truy được
+     * ai sửa gì, chứ không chỉ biết "đã sửa".
+     *
+     * KHÔNG ghi mật khẩu / token / dữ liệu nhạy cảm (§3B.11).
+     */
+    private static function soSanhThayDoi(array $cu, array $moi, array $nhan): string
+    {
+        $doi = [];
+        foreach ($nhan as $truong => $ten) {
+            $a = trim((string)($cu[$truong] ?? ''));
+            $b = trim((string)($moi[$truong] ?? ''));
+            if ($a === $b) continue;
+            $doi[] = $ten . ': ' . ($a === '' ? '(trống)' : $a) . ' → ' . ($b === '' ? '(trống)' : $b);
+        }
+        return implode('; ', $doi);
+    }
+
     // =====================================================================
     // NHÀ THẦU: TẠO / CẬP NHẬT BÁO GIÁ QUA CỔNG QR
     // =====================================================================
@@ -134,10 +153,32 @@ class BG_BaoGia_BUS
         }
 
         try {
+            // Ghi lại GIÁ TRỊ CŨ → MỚI trước khi update, để nhật ký truy được
+            $thayDoi = self::soSanhThayDoi(
+                [
+                    'ten_cong_ty' => $cu->ten_cong_ty, 'ma_so_thue' => $cu->ma_so_thue,
+                    'email' => $cu->email, 'dien_thoai' => $cu->dien_thoai,
+                    'dia_chi' => $cu->dia_chi, 'hieu_luc_bao_gia' => $cu->hieu_luc_bao_gia,
+                ],
+                [
+                    'ten_cong_ty' => $e->ten_cong_ty, 'ma_so_thue' => $e->ma_so_thue,
+                    'email' => $e->email, 'dien_thoai' => $e->dien_thoai,
+                    'dia_chi' => $e->dia_chi, 'hieu_luc_bao_gia' => $e->hieu_luc_bao_gia,
+                ],
+                [
+                    'ten_cong_ty' => 'Tên công ty', 'ma_so_thue' => 'MST',
+                    'email' => 'Email', 'dien_thoai' => 'Điện thoại',
+                    'dia_chi' => 'Địa chỉ', 'hieu_luc_bao_gia' => 'Hiệu lực',
+                ]
+            );
+
             $e->nguoi_cap_nhat = $u;
             BG_BaoGia_DAL::update($e);
             DM_NhatKyHeThong_DAL::log(
-                $u, self::MODULE_LOG, "Cập nhật thông tin báo giá: {$e->ten_cong_ty}", 'bg_bao_gia', $e->id
+                $u, self::MODULE_LOG,
+                "Cập nhật thông tin báo giá: {$e->ten_cong_ty}"
+                . ($thayDoi !== '' ? ' | ' . $thayDoi : ' (không có gì đổi)'),
+                'bg_bao_gia', $e->id
             );
             return ['success' => true, 'message' => 'Cập nhật thành công'];
         } catch (Throwable $ex) {
@@ -421,6 +462,9 @@ class BG_BaoGia_BUS
     {
         $bg = BG_BaoGia_DAL::getById($id);
         if (!$bg || $bg->da_xoa === 1) return ['success' => false, 'message' => 'Không tìm thấy báo giá'];
+
+        $chot = BG_GoiThau_BUS::kiemTraChuaChotSo((int)$bg->goi_thau_id);
+        if (!$chot['ok']) return ['success' => false, 'message' => $chot['message']];
         if ((int)$bg->trang_thai === BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN) {
             return ['success' => false, 'message' => 'Báo giá này đã được xác nhận'];
         }
@@ -459,6 +503,9 @@ class BG_BaoGia_BUS
     {
         $bg = BG_BaoGia_DAL::getById($id);
         if (!$bg || $bg->da_xoa === 1) return ['success' => false, 'message' => 'Không tìm thấy báo giá'];
+
+        $chot = BG_GoiThau_BUS::kiemTraChuaChotSo((int)$bg->goi_thau_id);
+        if (!$chot['ok']) return ['success' => false, 'message' => $chot['message']];
 
         BG_BaoGia_DAL::updateXacNhan($id, BG_BaoGia_PUBLIC::TT_CHO_XAC_NHAN, null, $u);
         DM_NhatKyHeThong_DAL::log(

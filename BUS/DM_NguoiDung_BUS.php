@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../DAL/DM_NguoiDung_DAL.php';
+require_once __DIR__ . '/../DAL/DM_DangNhapThatBai_DAL.php';
 require_once __DIR__ . '/../DAL/DM_NhatKyHeThong_DAL.php';
 
 class DM_NguoiDung_BUS
@@ -143,11 +144,15 @@ class DM_NguoiDung_BUS
             return ['success' => false, 'message' => 'Vui lòng nhập tài khoản và mật khẩu'];
         }
 
-        // Chống brute force: đếm số lần sai theo tài khoản + IP
-        $throttleKey = 'login_fail:' . sha1(mb_strtolower($taiKhoan) . '|' . Helper::getClientIp());
-        $fail = SessionHelper::getLoginFail($throttleKey);
-        if ($fail['count'] >= self::MAX_LOGIN_ATTEMPTS && (time() - $fail['time']) < self::LOGIN_LOCKOUT_SECONDS) {
-            $conLai = (int)ceil((self::LOGIN_LOCKOUT_SECONDS - (time() - $fail['time'])) / 60);
+        // Chống brute force: đếm số lần sai theo tài khoản + IP, LƯU Ở DB.
+        // Không dùng session vì xóa cookie là mất bộ đếm — bot dò mật khẩu
+        // luôn gửi request không kèm cookie nên session chặn được số 0.
+        $ip = Helper::getClientIp();
+        $throttleKey = DM_DangNhapThatBai_DAL::taoKhoa($taiKhoan, $ip);
+        $fail = DM_DangNhapThatBai_DAL::layTrangThai($throttleKey, self::LOGIN_LOCKOUT_SECONDS);
+        if ($fail['so_lan'] >= self::MAX_LOGIN_ATTEMPTS) {
+            $conLai = (int)ceil((self::LOGIN_LOCKOUT_SECONDS - (time() - $fail['lan_cuoi_ts'])) / 60);
+            $conLai = max(1, $conLai);
             DM_NhatKyHeThong_DAL::log(0, Constants::MODULE_HE_THONG, "Đăng nhập bị chặn (quá số lần): {$taiKhoan}", 'dm_nguoi_dung');
             return ['success' => false, 'message' => "Bạn đã nhập sai quá nhiều lần. Thử lại sau {$conLai} phút."];
         }
@@ -157,23 +162,23 @@ class DM_NguoiDung_BUS
 
         $user = DM_NguoiDung_DAL::getByTaiKhoan($taiKhoan);
         if (!$user) {
-            SessionHelper::addLoginFail($throttleKey);
+            DM_DangNhapThatBai_DAL::ghiNhanSai($throttleKey, $ip, $taiKhoan, self::LOGIN_LOCKOUT_SECONDS);
             DM_NhatKyHeThong_DAL::log(0, Constants::MODULE_HE_THONG, "Đăng nhập thất bại: {$taiKhoan}", 'dm_nguoi_dung', null, 'Tài khoản không tồn tại');
             return ['success' => false, 'message' => $loiChung];
         }
         if ((int)$user->trang_thai !== 1) {
-            SessionHelper::addLoginFail($throttleKey);
+            DM_DangNhapThatBai_DAL::ghiNhanSai($throttleKey, $ip, $taiKhoan, self::LOGIN_LOCKOUT_SECONDS);
             DM_NhatKyHeThong_DAL::log($user->id, Constants::MODULE_HE_THONG, "Đăng nhập thất bại: {$taiKhoan}", 'dm_nguoi_dung', $user->id, 'Tài khoản bị khóa');
             return ['success' => false, 'message' => 'Tài khoản đã bị khóa'];
         }
         if (!password_verify($matKhau, $user->mat_khau)) {
-            SessionHelper::addLoginFail($throttleKey);
+            DM_DangNhapThatBai_DAL::ghiNhanSai($throttleKey, $ip, $taiKhoan, self::LOGIN_LOCKOUT_SECONDS);
             DM_NhatKyHeThong_DAL::log($user->id, Constants::MODULE_HE_THONG, "Đăng nhập thất bại: {$taiKhoan}", 'dm_nguoi_dung', $user->id, 'Sai mật khẩu');
             return ['success' => false, 'message' => $loiChung];
         }
 
         // Thành công → xóa bộ đếm
-        SessionHelper::clearLoginFail($throttleKey);
+        DM_DangNhapThatBai_DAL::xoa($throttleKey);
 
         // Nâng cấp hash nếu cost/thuật toán đã đổi
         if (password_needs_rehash($user->mat_khau, AppConfig::PASSWORD_ALGO, ['cost' => AppConfig::PASSWORD_COST])) {

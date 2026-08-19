@@ -66,6 +66,25 @@ class BG_HangHoa_DAL
         ];
     }
 
+    /**
+     * Đếm số nhà thầu ĐÃ CHÀO GIÁ (đơn giá > 0) cho 1 hàng hóa.
+     *
+     * Dùng để chặn xóa hàng hóa đã có giá: xóa đi thì dòng biến mất khỏi bảng
+     * tổng hợp nhưng tiền vẫn nằm trong tổng của nhà thầu → cộng tay không khớp
+     * dòng TỔNG CỘNG.
+     */
+    public static function demBaoGiaDaChao(int $hangHoaId): int
+    {
+        $stmt = Database::getConnection()->prepare(
+            "SELECT COUNT(*) FROM bg_bao_gia_chi_tiet ct
+             INNER JOIN bg_bao_gia bg ON bg.id = ct.bao_gia_id
+             WHERE ct.hang_hoa_id = :id AND ct.da_xoa = 0 AND ct.don_gia > 0
+               AND bg.da_xoa = 0"
+        );
+        $stmt->execute([':id' => $hangHoaId]);
+        return (int)$stmt->fetchColumn();
+    }
+
     public static function softDelete(int $id, int $u): int
     {
         $stmt = Database::getConnection()->prepare(

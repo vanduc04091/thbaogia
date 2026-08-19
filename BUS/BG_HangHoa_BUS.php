@@ -3,6 +3,7 @@ require_once __DIR__ . '/../DAL/BG_HangHoa_DAL.php';
 require_once __DIR__ . '/../DAL/BG_GoiThau_DAL.php';
 require_once __DIR__ . '/../DAL/DM_NhatKyHeThong_DAL.php';
 require_once __DIR__ . '/../PUBLIC/Common/ExcelHelper.php';
+require_once __DIR__ . '/BG_GoiThau_BUS.php';   // kiemTraChuaChotSo()
 
 class BG_HangHoa_BUS
 {
@@ -91,6 +92,20 @@ class BG_HangHoa_BUS
         if ($id <= 0) return ['success' => false, 'message' => 'Thiếu ID'];
         $hh = BG_HangHoa_DAL::getById($id);
         if (!$hh) return ['success' => false, 'message' => 'Không tìm thấy hàng hóa'];
+
+        $chot = BG_GoiThau_BUS::kiemTraChuaChotSo((int)$hh->goi_thau_id);
+        if (!$chot['ok']) return ['success' => false, 'message' => $chot['message']];
+
+        // Đã có nhà thầu chào giá thì KHÔNG cho xóa: dòng sẽ biến mất khỏi bảng
+        // tổng hợp nhưng tiền vẫn nằm trong tổng của nhà thầu → sai số.
+        $soChao = BG_HangHoa_DAL::demBaoGiaDaChao($id);
+        if ($soChao > 0) {
+            return [
+                'success' => false,
+                'message' => "Đã có {$soChao} nhà thầu chào giá cho hàng hóa này — không thể xóa. "
+                           . 'Xóa sẽ làm lệch tổng tiền trong bảng tổng hợp.',
+            ];
+        }
 
         BG_HangHoa_DAL::softDelete($id, $u);
         DM_NhatKyHeThong_DAL::log(

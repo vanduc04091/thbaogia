@@ -103,14 +103,6 @@ try {
             $res['success'] ? ResponseHelper::success($res['message']) : ResponseHelper::error($res['message']);
             break;
 
-        case 'lamMoiToken':
-            PhanQuyenHelper::requireQuyen($MODULE, PhanQuyenHelper::QUYEN_SUA);
-            $res = BG_GoiThau_BUS::lamMoiToken(Helper::postInt('id'), $u);
-            $res['success']
-                ? ResponseHelper::success($res['message'], $res['data'] ?? null)
-                : ResponseHelper::error($res['message']);
-            break;
-
         case 'trash':
             PhanQuyenHelper::requireQuyen($MODULE, PhanQuyenHelper::QUYEN_XOA);
             $res = BG_GoiThau_BUS::trash(Helper::postInt('id'), $u);

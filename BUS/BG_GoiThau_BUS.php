@@ -105,6 +105,29 @@ class BG_GoiThau_BUS
         }
     }
 
+    /**
+     * Gói thầu đã CHỐT SỔ (trạng thái "Đã tổng hợp") thì khóa mọi thay đổi
+     * về hàng hóa và báo giá — hồ sơ đã xuất ra để trình ký, sửa hậu kỳ sẽ
+     * làm lệch với bản đã in.
+     *
+     * @return array ['ok' => bool, 'message' => string]
+     */
+    public static function kiemTraChuaChotSo(int $goiThauId): array
+    {
+        $gt = BG_GoiThau_DAL::getById($goiThauId);
+        if (!$gt || (int)$gt->da_xoa === 1) {
+            return ['ok' => false, 'message' => 'Không tìm thấy gói thầu'];
+        }
+        if ((int)$gt->trang_thai === BG_GoiThau_PUBLIC::TT_DA_TONG_HOP) {
+            return [
+                'ok' => false,
+                'message' => 'Gói thầu ' . $gt->so_thong_bao . ' đã CHỐT SỔ (Đã tổng hợp) — '
+                           . 'không thể thay đổi. Muốn sửa, hãy chuyển gói thầu về "Đã đóng".',
+            ];
+        }
+        return ['ok' => true, 'message' => ''];
+    }
+
     /** Đổi trạng thái: mở / đóng nhận báo giá */
     public static function doiTrangThai(int $id, int $trangThai, int $u): array
     {
@@ -119,6 +142,16 @@ class BG_GoiThau_BUS
             return ['success' => false, 'message' => 'Chưa có hàng hóa nào — không thể mở nhận báo giá'];
         }
 
+        // Đã có nhà thầu nộp thì KHÔNG lùi về Nháp: nhà thầu đang chào dở sẽ bị
+        // cắt giữa chừng mà không được báo trước. Muốn dừng nhận thì dùng "Đã đóng".
+        if ($trangThai === BG_GoiThau_PUBLIC::TT_NHAP && (int)$gt->so_bao_gia > 0) {
+            return [
+                'success' => false,
+                'message' => 'Gói thầu đã có ' . (int)$gt->so_bao_gia . ' báo giá — không thể đưa về Nháp. '
+                           . 'Nếu muốn ngừng nhận báo giá, hãy chuyển sang "Đã đóng".',
+            ];
+        }
+
         BG_GoiThau_DAL::updateTrangThai($id, $trangThai, $u);
         $ten = BG_GoiThau_PUBLIC::tenTrangThai($trangThai);
         DM_NhatKyHeThong_DAL::log(
@@ -126,25 +159,6 @@ class BG_GoiThau_BUS
             "Đổi trạng thái gói thầu {$gt->so_thong_bao} → {$ten}", 'bg_goi_thau', $id
         );
         return ['success' => true, 'message' => "Đã chuyển trạng thái sang: {$ten}"];
-    }
-
-    /** Sinh lại token → link QR cũ hết hiệu lực */
-    public static function lamMoiToken(int $id, int $u): array
-    {
-        if ($id <= 0) return ['success' => false, 'message' => 'Thiếu ID'];
-        $gt = BG_GoiThau_DAL::getById($id);
-        if (!$gt || $gt->da_xoa === 1) return ['success' => false, 'message' => 'Không tìm thấy gói thầu'];
-
-        $token = self::sinhToken();
-        BG_GoiThau_DAL::updateToken($id, $token, $u);
-        DM_NhatKyHeThong_DAL::log(
-            $u, self::MODULE_LOG,
-            "Làm mới link QR gói thầu {$gt->so_thong_bao}", 'bg_goi_thau', $id
-        );
-        return ['success' => true, 'message' => 'Đã tạo link QR mới, link cũ không còn dùng được', 'data' => [
-            'token' => $token,
-            'url'   => self::urlPortal($token),
-        ]];
     }
 
     public static function trash(int $id, int $u): array

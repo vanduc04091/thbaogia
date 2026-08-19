@@ -91,16 +91,6 @@ class BG_GoiThau_DAL
         return $stmt->rowCount();
     }
 
-    /** Sinh lại token QR (khi cần vô hiệu link cũ) */
-    public static function updateToken(int $id, string $token, int $u): int
-    {
-        $stmt = Database::getConnection()->prepare(
-            "UPDATE bg_goi_thau SET token = :tk, ngay_cap_nhat = NOW(), nguoi_cap_nhat = :u
-             WHERE id = :id AND da_xoa = 0"
-        );
-        $stmt->execute([':tk' => $token, ':u' => $u, ':id' => $id]);
-        return $stmt->rowCount();
-    }
 
     public static function softDelete(int $id, int $u): int
     {

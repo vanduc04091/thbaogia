@@ -14,6 +14,18 @@ try {
 }
 
 try {
+    // Dọn bộ đếm đăng nhập sai đã hết hạn khóa
+    require_once __DIR__ . '/BUS/DM_NguoiDung_BUS.php';
+    require_once __DIR__ . '/DAL/DM_DangNhapThatBai_DAL.php';
+    $soXoa = DM_DangNhapThatBai_DAL::donCu(DM_NguoiDung_BUS::LOGIN_LOCKOUT_SECONDS);
+    echo "Đã xóa {$soXoa} bản ghi đếm đăng nhập sai đã hết hạn.
+";
+} catch (Throwable $ex) {
+    echo "Lỗi dọn bộ đếm đăng nhập: " . $ex->getMessage() . "
+";
+}
+
+try {
     // Dọn file Excel sinh tạm (file mẫu, bản tổng hợp, file nhà thầu upload).
     // download.php đã tự xóa file sau khi gửi, nhưng request bị hủy giữa đường
     // hoặc lỗi khi xuất sẽ để lại file mồ côi.

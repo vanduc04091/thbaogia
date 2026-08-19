@@ -525,3 +525,32 @@ hơn là xóa file rồi DB rollback làm bản ghi trỏ tới file đã mất.
 
 Sửa số cột thì phải sửa đồng bộ: `$soCot`, `$rowHeader`, dòng dữ liệu,
 vòng gộp dọc, chỉ số dòng tổng cộng, và mảng `$cols1` (độ rộng).
+
+---
+
+## BẢNG `dm_dang_nhap_that_bai`
+
+> Chạy: `php database/migrate_chong_brute_force.php`
+
+| Cột | Kiểu | Ghi chú |
+|---|---|---|
+| `khoa` | VARCHAR(190) UNIQUE | `sha1(tai_khoan + ip)` |
+| `ip_address` | VARCHAR(45) | |
+| `tai_khoan` | VARCHAR(100) | Chỉ để tra cứu, không dùng để so khớp |
+| `so_lan` | INT | Số lần sai liên tiếp |
+| `lan_dau` / `lan_cuoi` | DATETIME | `lan_cuoi` là mốc tính hết hạn khóa |
+
+Khóa 15 phút sau 5 lần sai (`DM_NguoiDung_BUS::MAX_LOGIN_ATTEMPTS`).
+Dọn bản ghi hết hạn trong `cron_cleanup.php`.
+
+## SAO LƯU
+
+`php database/sao_luu.php` — xuất toàn bộ bảng ra `assets/backup/*.sql`
+(tự viết, không cần `mysqldump` nên chạy được cả khi host cấm `exec`).
+Giữ 30 ngày, tự xóa bản cũ. Thư mục có `.htaccess` chặn tải qua web.
+
+⚠️ File .sql **KHÔNG chứa file bản ký** — phải sao lưu riêng thư mục
+`assets/uploads/ban_ky/`.
+
+Đã kiểm chứng: import ngược file .sql vào DB trống, số dòng mọi bảng khớp,
+tiếng Việt và số tiền nguyên vẹn.

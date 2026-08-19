@@ -197,7 +197,12 @@ switch ($action) {
   `MAX_LOGIN_ATTEMPTS = 5`, khóa `LOGIN_LOCKOUT_SECONDS = 900` (15 phút).
 - Sai tài khoản / sai mật khẩu đều trả **cùng một thông báo** → không lộ tài khoản nào tồn tại.
 - Mọi lần đăng nhập thất bại đều ghi `dm_nhat_ky_he_thong`.
-- Bộ đếm hiện lưu trong session (đủ cho nội bộ). Nếu mở ra Internet → chuyển sang lưu DB/Redis theo IP.
+- **Bộ đếm lưu ở DB** (`dm_dang_nhap_that_bai`), khóa theo `IP + tài khoản`.
+  KHÔNG dùng session: xóa cookie là mất bộ đếm, mà bot dò mật khẩu luôn gửi
+  request không kèm cookie → session chặn được số 0. Đã kiểm chứng bằng cách
+  đăng nhập sai 7 lần với cookie mới mỗi lần.
+- Bản ghi đếm cũ được dọn tự động trong `cron_cleanup.php`.
+  Mở khóa tay cho 1 IP: xóa dòng tương ứng trong `dm_dang_nhap_that_bai`.
 
 ### 3B.5. SQL Injection
 
@@ -510,6 +515,16 @@ Xuất Excel tổng hợp — CHỈ gộp báo giá đã xác nhận
   Kéo theo: quyền tải file / upload bản ký cũng theo MST, KHÔNG giới hạn gói thầu
   (dùng `baoGiaCuaMst()`, không dùng `baoGiaThuocMst()` vốn bó trong 1 gói).
 - `thanh_tien` **luôn** tính ở server = `don_gia × bg_hang_hoa.so_luong`. Không tin giá trị client gửi lên.
+- **Hàng hóa đã có nhà thầu chào giá → KHÔNG cho xóa.** Xóa thì dòng biến mất khỏi
+  bảng tổng hợp nhưng tiền vẫn nằm trong tổng của nhà thầu → cộng tay không khớp
+  dòng TỔNG CỘNG. Chặn ở `BG_HangHoa_BUS::trash()` qua `demBaoGiaDaChao()`.
+- **Gói thầu đã có báo giá → KHÔNG lùi về Nháp.** Nhà thầu đang chào dở bị cắt
+  giữa chừng. Muốn ngừng nhận thì chuyển "Đã đóng".
+- **Trạng thái "Đã tổng hợp" = CHỐT SỔ**: khóa mọi thay đổi hàng hóa + xác nhận
+  báo giá của gói đó (`BG_GoiThau_BUS::kiemTraChuaChotSo()`). Muốn sửa phải
+  chuyển gói về "Đã đóng" trước.
+- **KHÔNG có chức năng làm mới token QR** — đã bỏ có chủ ý: đổi token làm mọi
+  QR đã in ra giấy phát cho nhà thầu chết ngay lập tức.
 - 1 MST chỉ 1 báo giá / gói thầu (trừ bản đã bị từ chối).
 - Gói thầu đã có báo giá → **không cho ghi đè** danh mục hàng hóa (lệch dữ liệu đã chào).
 - Báo giá đã xác nhận → khóa, nhà thầu không sửa được nữa.
@@ -557,6 +572,8 @@ script giải mã ngược độc lập, kiểm format info có trong bảng chu
 | Path | Vai trò |
 |---|---|
 | `database/migrate_bao_gia.php` | Tạo 4 bảng + form + nhóm/tài khoản nhà thầu |
+| `database/migrate_chong_brute_force.php` | Bảng đếm đăng nhập sai theo IP |
+| `database/sao_luu.php` | Sao lưu DB ra .sql (chạy cron hằng ngày) |
 | `database/migrate_bang_file.php` | Tách file ra bảng `bg_file`, bg_bao_gia chỉ giữ `file_ban_ky_id` |
 | `database/seed_bao_gia.php` | Dữ liệu test (`--reset` để làm sạch) |
 | `GUI/BG_GoiThau/` | CRUD gói thầu + modal QR |
