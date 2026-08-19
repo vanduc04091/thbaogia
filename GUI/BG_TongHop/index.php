@@ -151,87 +151,117 @@ function render() {
 
     var chiGia = $('#chkChiGia').is(':checked');
 
-    // ---- Header 2 tầng ----
-    var colsFix = 5;   // STT | STT phần | Tên hàng hóa | ĐVT | SL
-    var perNt = chiGia ? 2 : 4;
-
-    var h1 = '<tr>' +
-        '<th class="col-id" rowspan="2">STT</th>' +
-        '<th rowspan="2">Phần</th>' +
-        '<th rowspan="2" class="sticky-col">Tên hàng hóa</th>' +
-        '<th rowspan="2">ĐVT</th>' +
-        '<th rowspan="2" class="col-qty">SL</th>';
-    for (var i = 0; i < nt.length; i++) {
-        h1 += '<th class="th-vendor grp-start" colspan="' + perNt + '" title="MST: ' +
-              APP.escape(nt[i].ma_so_thue || '') + '">' +
-              (i + 1) + '. ' + APP.escape(nt[i].ten_cong_ty) + '</th>';
+    // ---- Header 1 tầng: mỗi nhà thầu là 1 DÒNG, không phải nhóm cột ----
+    // Bố cục giống hệt file Excel xuất ra: 1 hàng hóa có N nhà thầu chào
+    // -> N dòng liên tiếp, tên nhà thầu + MST nằm thành CỘT trên chính dòng đó.
+    var h = '<tr>' +
+        '<th class="col-id">STT</th>' +
+        '<th>Phần</th>' +
+        '<th class="sticky-col">Tên hàng hóa</th>' +
+        '<th>ĐVT</th>' +
+        '<th class="col-qty">SL</th>' +
+        '<th class="th-vendor">Nhà thầu</th>' +
+        '<th class="th-vendor">Mã số thuế</th>';
+    if (!chiGia) {
+        h += '<th class="th-vendor">Tên TM / Model</th>' +
+             '<th class="th-vendor">Hãng SX / Xuất xứ</th>';
     }
-    h1 += '</tr>';
+    h += '<th class="th-vendor col-price">Đơn giá</th>' +
+         '<th class="th-vendor col-price">Thành tiền</th>' +
+         '</tr>';
+    $('#thead').html(h);
 
-    var h2 = '<tr>';
-    for (var j = 0; j < nt.length; j++) {
-        if (!chiGia) {
-            h2 += '<th class="grp-start">Tên TM / Model</th>';
-            h2 += '<th>Hãng SX / Xuất xứ</th>';
-            h2 += '<th class="col-price">Đơn giá</th>';
-        } else {
-            h2 += '<th class="col-price grp-start">Đơn giá</th>';
-        }
-        h2 += '<th class="col-price">Thành tiền</th>';
-    }
-    h2 += '</tr>';
-    $('#thead').html(h1 + h2);
+    // Số cột cố định (phần hàng hóa) — dùng cho rowspan & dòng tổng cộng
+    var colsFix = 5;
+    var soCotNt = chiGia ? 4 : 6;
 
     // ---- Dữ liệu ----
     var html = '';
+    var stt = 0;
+
     for (var k = 0; k < hh.length; k++) {
         var r = hh[k];
-        html += '<tr>' +
-            '<td class="col-id">' + (k + 1) + '</td>' +
-            '<td>' + APP.escape(r.stt_theo_phan || r.ten_phan || '—') + '</td>' +
-            '<td class="sticky-col"><span class="cell-main">' + APP.escape(r.ten_hang_hoa) + '</span>' +
-                (r.so_nha_thau_chao < nt.length
-                    ? '<span class="cell-sub">' + r.so_nha_thau_chao + '/' + nt.length + ' nhà thầu chào</span>'
-                    : '') +
-            '</td>' +
-            '<td>' + APP.escape(r.dvt || '—') + '</td>' +
-            '<td class="col-qty">' + Number(r.so_luong || 0).toLocaleString('vi-VN') + '</td>';
 
+        // CHỈ lấy nhà thầu THỰC SỰ có chào giá cho hàng hóa này
+        var dsChao = [];
         for (var m = 0; m < nt.length; m++) {
-            var ch = r.chao[nt[m].id];
-            var laMin = ch && ch.co_chao && r.nha_thau_min === nt[m].id;
-            var first = ' grp-start';
+            var c = r.chao[nt[m].id];
+            if (c && c.co_chao) dsChao.push({ nt: nt[m], ch: c });
+        }
+
+        stt++;
+
+        // Không nhà thầu nào chào -> 1 dòng báo trống, không lặp tên nhà thầu
+        if (!dsChao.length) {
+            html += '<tr>' +
+                '<td class="col-id">' + stt + '</td>' +
+                '<td>' + APP.escape(r.stt_theo_phan || r.ten_phan || '—') + '</td>' +
+                '<td class="sticky-col"><span class="cell-main">' + APP.escape(r.ten_hang_hoa) + '</span></td>' +
+                '<td>' + APP.escape(r.dvt || '—') + '</td>' +
+                '<td class="col-qty">' + Number(r.so_luong || 0).toLocaleString('vi-VN') + '</td>' +
+                '<td class="no-quote" colspan="' + soCotNt + '">Chưa có nhà thầu nào chào giá</td>' +
+                '</tr>';
+            continue;
+        }
+
+        // Nhiều nhà thầu -> gộp dọc 5 cột hàng hóa bằng rowspan
+        for (var i2 = 0; i2 < dsChao.length; i2++) {
+            var x = dsChao[i2], ch = x.ch, nhaThau = x.nt;
+            var laMin = r.nha_thau_min === nhaThau.id;
+            var laDongDau = (i2 === 0);
+            var rs = dsChao.length > 1 ? ' rowspan="' + dsChao.length + '"' : '';
+
+            html += '<tr' + (laMin && dsChao.length > 1 ? ' class="row-best"' : '') + '>';
+
+            if (laDongDau) {
+                html += '<td class="col-id"' + rs + '>' + stt + '</td>' +
+                    '<td' + rs + '>' + APP.escape(r.stt_theo_phan || r.ten_phan || '—') + '</td>' +
+                    '<td class="sticky-col"' + rs + '><span class="cell-main">' +
+                        APP.escape(r.ten_hang_hoa) + '</span>' +
+                        '<span class="cell-sub">' + dsChao.length + '/' + nt.length + ' nhà thầu chào</span></td>' +
+                    '<td' + rs + '>' + APP.escape(r.dvt || '—') + '</td>' +
+                    '<td class="col-qty"' + rs + '>' +
+                        Number(r.so_luong || 0).toLocaleString('vi-VN') + '</td>';
+            }
+
+            html += '<td><span class="cell-main">' + APP.escape(nhaThau.ten_cong_ty) + '</span></td>' +
+                    '<td><span class="text-mono">' + APP.escape(nhaThau.ma_so_thue || '—') + '</span></td>';
 
             if (!chiGia) {
-                var tenModel = ch ? APP.escape(ch.ten_thuong_mai || '') : '';
-                if (ch && ch.model) tenModel += '<span class="cell-sub">' + APP.escape(ch.model) + '</span>';
-                var hangXx = ch ? APP.escape(ch.hang_san_xuat || '') : '';
-                if (ch && ch.xuat_xu) hangXx += '<span class="cell-sub">' + APP.escape(ch.xuat_xu) + '</span>';
-
-                html += '<td class="' + first.trim() + '">' + (tenModel || '<span class="text-muted">—</span>') + '</td>';
-                html += '<td>' + (hangXx || '<span class="text-muted">—</span>') + '</td>';
-                first = '';
+                var tenModel = APP.escape(ch.ten_thuong_mai || '');
+                if (ch.model) tenModel += '<span class="cell-sub">' + APP.escape(ch.model) + '</span>';
+                var hangXx = APP.escape(ch.hang_san_xuat || '');
+                if (ch.xuat_xu) hangXx += '<span class="cell-sub">' + APP.escape(ch.xuat_xu) + '</span>';
+                html += '<td>' + (tenModel || '<span class="text-muted">—</span>') + '</td>' +
+                        '<td>' + (hangXx || '<span class="text-muted">—</span>') + '</td>';
             }
 
-            if (ch && ch.co_chao) {
-                html += '<td class="col-price' + first + (laMin ? ' is-best' : '') + '"' +
-                        (laMin ? ' title="Giá thấp nhất"' : '') + '>' + money(ch.don_gia) + '</td>';
-                html += '<td class="col-price">' + money(ch.thanh_tien) + '</td>';
-            } else {
-                html += '<td class="no-quote' + first + '" colspan="2">Không chào</td>';
-            }
+            html += '<td class="col-price' + (laMin ? ' is-best' : '') + '"' +
+                    (laMin ? ' title="Giá thấp nhất cho hàng hóa này"' : '') + '>' +
+                    money(ch.don_gia) + '</td>' +
+                    '<td class="col-price">' + money(ch.thanh_tien) + '</td>' +
+                    '</tr>';
         }
-        html += '</tr>';
     }
 
-    // ---- Dòng tổng cộng ----
-    html += '<tr style="background:var(--gray-50);font-weight:600">' +
-        '<td colspan="' + colsFix + '" class="sticky-col" style="text-align:right;background:var(--gray-50)">TỔNG CỘNG</td>';
+    // ---- Tổng cộng theo từng nhà thầu ----
+    html += '<tr class="row-sep"><td colspan="' + (colsFix + soCotNt) + '"></td></tr>';
+    html += '<tr style="background:var(--gray-100);font-weight:600">' +
+        '<td colspan="' + colsFix + '" class="sticky-col" style="text-align:right;background:var(--gray-100)">' +
+        'TỔNG CỘNG THEO NHÀ THẦU</td>' +
+        '<td colspan="' + (soCotNt - 1) + '"></td>' +
+        '<td class="col-price">Tổng tiền</td></tr>';
+
     for (var n = 0; n < nt.length; n++) {
-        html += '<td class="col-price grp-start" colspan="' + (perNt - 1) + '"></td>';
-        html += '<td class="col-price">' + money(nt[n].tong_tien) + '</td>';
+        html += '<tr style="background:var(--gray-50)">' +
+            '<td colspan="' + colsFix + '" class="sticky-col" style="background:var(--gray-50)"></td>' +
+            '<td><span class="cell-main">' + APP.escape(nt[n].ten_cong_ty) + '</span></td>' +
+            '<td><span class="text-mono">' + APP.escape(nt[n].ma_so_thue || '—') + '</span></td>' +
+            (chiGia ? '' : '<td></td><td></td>') +
+            '<td></td>' +
+            '<td class="col-price" style="font-weight:700">' + money(nt[n].tong_tien) + '</td>' +
+            '</tr>';
     }
-    html += '</tr>';
 
     $('#tbody').html(html);
 }

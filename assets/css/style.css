@@ -1107,7 +1107,36 @@ input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
     font-weight: 700;
     color: #78350f;
 }
-.table.table-compare .no-quote { color: var(--gray-400); text-align: center; }
+.table.table-compare .no-quote { color: var(--gray-400); text-align: center; font-style: italic; }
+
+/* --- Bố cục "mỗi nhà thầu 1 dòng" (giống file Excel xuất ra) --- */
+
+/* Ô hàng hóa gộp dọc (rowspan): canh trên cho thẳng với dòng đầu của nhóm */
+.table.table-compare td[rowspan] {
+    vertical-align: top;
+    background: var(--gray-50);
+}
+
+/* Vạch phân tách giữa các nhóm hàng hóa — nhìn ra ngay đâu là 1 mục */
+.table.table-compare tbody td[rowspan] { border-top: 2px solid var(--gray-300); }
+.table.table-compare tbody tr:has(td[rowspan]) > td { border-top: 2px solid var(--gray-300); }
+
+/* Dòng của nhà thầu chào giá thấp nhất — nền xanh nhạt + vạch trái đậm
+   để nhận ra ngay giữa nhiều dòng cùng một hàng hóa. */
+.table.table-compare tbody tr.row-best > td:not(.sticky-col):not([rowspan]) {
+    background: var(--primary-light);
+}
+.table.table-compare tbody tr.row-best > td:not([rowspan]):first-of-type {
+    box-shadow: inset 3px 0 0 var(--primary);
+}
+
+/* Dòng trống ngăn bảng dữ liệu với phần tổng cộng */
+.table.table-compare tbody tr.row-sep > td {
+    height: 10px;
+    padding: 0;
+    border: 0;
+    background: var(--canvas);
+}
 
 /* Cột tên hàng hóa dính bên trái khi cuộn ngang */
 .table-wrap.has-sticky .table.table-compare th.sticky-col,
