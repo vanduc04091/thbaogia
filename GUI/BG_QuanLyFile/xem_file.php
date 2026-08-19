@@ -35,10 +35,10 @@ if ($id <= 0) loiXemFile('Thiếu mã báo giá');
 
 $r = BG_QuanLyFile_BUS::getById($id);
 if (!$r) loiXemFile('Không tìm thấy bản ghi');
-if (empty($r['file_ban_ky'])) loiXemFile('Báo giá này chưa có file bản ký');
+if (empty($r['ten_file'])) loiXemFile('Báo giá này chưa có file bản ký');
 
 // basename() chặn path traversal nếu DB bị chèn giá trị lạ
-$path = BG_BaoGia_BUS::thuMucBanKy() . DIRECTORY_SEPARATOR . basename((string)$r['file_ban_ky']);
+$path = BG_BaoGia_BUS::thuMucBanKy() . DIRECTORY_SEPARATOR . basename((string)$r['ten_file']);
 if (!is_file($path)) loiXemFile('File không còn trên hệ thống');
 
 $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
@@ -50,7 +50,7 @@ $mimeMap = [
 ];
 
 // Tên gửi ra: dùng chính tên đã chuẩn hóa (mst_slug.ext) cho dễ lưu trữ
-$tenGui = basename((string)$r['file_ban_ky']);
+$tenGui = basename((string)$r['ten_file']);
 $ascii  = preg_replace('/[^A-Za-z0-9._-]/', '_', $tenGui);
 
 if (ob_get_level()) ob_end_clean();

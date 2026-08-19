@@ -9,14 +9,23 @@ class BG_BaoGia_DAL
 
     private static function selectSql(): string
     {
+        // JOIN bg_file để lấy kèm thông tin bản ký — GUI dùng thẳng
+        // ten_file / ten_file_goc / kich_thuoc_file / ngay_upload_ban_ky
+        // như trước, không phải truy vấn thêm.
         return "SELECT bg.*, gt.so_thong_bao, gt.ten_goi_thau,
                        nd.tai_khoan AS tai_khoan_xac_nhan,
+                       f.ten_file AS file_ban_ky,
+                       f.ten_file_goc,
+                       f.kich_thuoc AS kich_thuoc_file,
+                       f.loai_file,
+                       f.ngay_tao AS ngay_upload_ban_ky,
                        (SELECT COUNT(*) FROM bg_bao_gia_chi_tiet ct
                          WHERE ct.bao_gia_id = bg.id AND ct.da_xoa = 0
                            AND ct.don_gia > 0) AS so_dong_chao
                 FROM bg_bao_gia bg
                 LEFT JOIN bg_goi_thau gt ON gt.id = bg.goi_thau_id
-                LEFT JOIN dm_nguoi_dung nd ON nd.id = bg.nguoi_xac_nhan";
+                LEFT JOIN dm_nguoi_dung nd ON nd.id = bg.nguoi_xac_nhan
+                LEFT JOIN bg_file f ON f.id = bg.file_ban_ky_id AND f.da_xoa = 0";
     }
 
     public static function insert(BG_BaoGia_PUBLIC $e): int
@@ -108,13 +117,10 @@ class BG_BaoGia_DAL
      * `nguoi_xac_nhan` = NULL vì đây là nhà thầu tự xác nhận bằng bản ký,
      * không phải nhân viên bên mời tích tay.
      */
-    public static function updateBanKy(int $id, string $fileName, string $tenGoc, int $kichThuoc = 0): int
+    public static function updateBanKy(int $id, int $fileId): int
     {
         $sql = "UPDATE bg_bao_gia SET
-                    file_ban_ky = :f,
-                    ten_file_goc = :tg,
-                    kich_thuoc_file = :kt,
-                    ngay_upload_ban_ky = NOW(),
+                    file_ban_ky_id = :fid,
                     trang_thai = :tt,
                     ngay_xac_nhan = NOW(),
                     nguoi_xac_nhan = NULL,
@@ -123,11 +129,9 @@ class BG_BaoGia_DAL
                 WHERE id = :id AND da_xoa = 0";
         $stmt = Database::getConnection()->prepare($sql);
         $stmt->execute([
-            ':f'  => $fileName,
-            ':tg' => $tenGoc,
-            ':kt' => $kichThuoc > 0 ? $kichThuoc : null,
-            ':tt' => BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN,
-            ':id' => $id,
+            ':fid' => $fileId,
+            ':tt'  => BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN,
+            ':id'  => $id,
         ]);
         return $stmt->rowCount();
     }
@@ -135,11 +139,9 @@ class BG_BaoGia_DAL
     /** Gỡ file bản ký (khi upload đè thì xóa file cũ ở BUS) */
     public static function xoaBanKy(int $id, int $u): int
     {
+        // Chỉ gỡ liên kết; bản ghi trong bg_file do BUS xử lý riêng
         $sql = "UPDATE bg_bao_gia SET
-                    file_ban_ky = NULL,
-                    ten_file_goc = NULL,
-                    kich_thuoc_file = NULL,
-                    ngay_upload_ban_ky = NULL,
+                    file_ban_ky_id = NULL,
                     ngay_cap_nhat = NOW(),
                     nguoi_cap_nhat = :u
                 WHERE id = :id AND da_xoa = 0";
@@ -226,7 +228,7 @@ class BG_BaoGia_DAL
         if ($search !== '') {
             // Tìm cả theo tên file bản ký để tra nhanh khi cầm tờ giấy trên tay
             $where .= ' AND (bg.ten_cong_ty LIKE :s1 OR bg.ma_so_thue LIKE :s2
-                             OR bg.email LIKE :s3 OR bg.ten_file_goc LIKE :s4) ';
+                             OR bg.email LIKE :s3 OR f.ten_file_goc LIKE :s4) ';
             $like = "%{$search}%";
             $params[':s1'] = $like;
             $params[':s2'] = $like;
@@ -238,9 +240,9 @@ class BG_BaoGia_DAL
             $params[':tt'] = $trangThai;
         }
         if ($coBanKy === 1) {
-            $where .= " AND bg.file_ban_ky IS NOT NULL AND bg.file_ban_ky <> '' ";
+            $where .= ' AND bg.file_ban_ky_id IS NOT NULL ';
         } elseif ($coBanKy === 0) {
-            $where .= " AND (bg.file_ban_ky IS NULL OR bg.file_ban_ky = '') ";
+            $where .= ' AND bg.file_ban_ky_id IS NULL ';
         }
 
         $countSql = "SELECT COUNT(*) FROM bg_bao_gia bg" . $where;
@@ -285,10 +287,15 @@ class BG_BaoGia_DAL
 
         $stmt = Database::getConnection()->prepare(
             "SELECT bg.*, gt.so_thong_bao, gt.ten_goi_thau,
+                    f.ten_file AS file_ban_ky,
+                    f.ten_file_goc,
+                    f.kich_thuoc AS kich_thuoc_file,
+                    f.ngay_tao AS ngay_upload_ban_ky,
                     (SELECT COUNT(*) FROM bg_bao_gia_chi_tiet ct
                       WHERE ct.bao_gia_id = bg.id AND ct.da_xoa = 0 AND ct.don_gia > 0) AS so_dong_chao
              FROM bg_bao_gia bg
              LEFT JOIN bg_goi_thau gt ON gt.id = bg.goi_thau_id
+             LEFT JOIN bg_file f ON f.id = bg.file_ban_ky_id AND f.da_xoa = 0
              WHERE bg.ma_so_thue = :mst AND bg.goi_thau_id = :gt AND bg.da_xoa = 0
              ORDER BY bg.id DESC"
         );
@@ -314,10 +321,15 @@ class BG_BaoGia_DAL
             "SELECT bg.*, gt.so_thong_bao, gt.ten_goi_thau,
                     gt.thoi_gian_mo_bao_gia, gt.thoi_gian_dong_bao_gia,
                     gt.trang_thai AS gt_trang_thai, gt.token AS gt_token,
+                    f.ten_file AS file_ban_ky,
+                    f.ten_file_goc,
+                    f.kich_thuoc AS kich_thuoc_file,
+                    f.ngay_tao AS ngay_upload_ban_ky,
                     (SELECT COUNT(*) FROM bg_bao_gia_chi_tiet ct
                       WHERE ct.bao_gia_id = bg.id AND ct.da_xoa = 0 AND ct.don_gia > 0) AS so_dong_chao
              FROM bg_bao_gia bg
              INNER JOIN bg_goi_thau gt ON gt.id = bg.goi_thau_id
+             LEFT JOIN bg_file f ON f.id = bg.file_ban_ky_id AND f.da_xoa = 0
              WHERE bg.ma_so_thue = :mst AND bg.da_xoa = 0 AND gt.da_xoa = 0
              ORDER BY bg.ngay_nop DESC, bg.id DESC"
         );

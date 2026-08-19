@@ -329,12 +329,38 @@ switch ($action) {
 - DB credentials dev: user `root`, pass rỗng.
 - Không có unit test. Test thủ công qua browser.
 
-### 6.1. Config dev vs production — QUY TRÌNH BẮT BUỘC
+### 6.1. Config dev vs production
 
-`PUBLIC/Common/AppConfig.php` trong repo đang giữ **cấu hình PRODUCTION**:
+`PUBLIC/Common/AppConfig.php` giữ SẴN cả 2 cấu hình, một dòng active và một dòng
+comment — chỉ việc đảo comment khi cần đổi môi trường:
 
-| | Production (trong repo) | Dev (để chạy test) |
+```php
+    const DB_NAME = 'th_bao_gia';          // dev
+//  const DB_NAME = 'thbaogia';            // production
+
+    const APP_URL = 'http://thbg.bv';                 // dev
+//  const APP_URL = 'https://thbg.bvnghean.vn';       // production
+```
+
+| | Dev (máy local) | Production |
 |---|---|---|
+| `DB_NAME` | `th_bao_gia` | `thbaogia` |
+| `APP_URL` | `http://thbg.bv` | `https://thbg.bvnghean.vn` |
+
+**Khi chạy test / migration trên máy dev:** để nguyên cấu hình dev đang active,
+chạy thoải mái. Nếu có đổi sang production để thử thì **đảo comment lại ngay**.
+
+**Khi deploy lên server:** đảo comment sang dòng production, và đặt
+`APP_DEBUG = false` (§3B.10).
+
+⚠️ **Không xóa dòng comment của môi trường còn lại** — giữ cả 2 để đảo qua lại
+không phải nhớ giá trị. Sửa xong luôn kiểm lại:
+
+```bash
+grep -n "DB_NAME\|APP_URL" PUBLIC/Common/AppConfig.php
+```
+
+---|---|---|
 | `DB_NAME` | `thbaogia` | `th_bao_gia` |
 | `APP_URL` | `https://thbg.bvnghean.vn` | `http://thbg.bv` |
 
@@ -470,6 +496,8 @@ Xuất Excel tổng hợp — CHỈ gộp báo giá đã xác nhận
   upload file để thành "đã xác nhận" mà chưa hề chào giá.
 - **Tên file bản ký: `<mst>_<slug-gói-thầu>.<đuôi>`** — sinh bởi
   `BG_BaoGia_BUS::tenFileBanKy()`. Nhìn tên biết ngay của ai, gói nào.
+- **File lưu ở bảng riêng `bg_file`**; `bg_bao_gia` chỉ giữ `file_ban_ky_id`.
+  Thêm loại file mới → thêm `nhom_file`, không thêm cột vào bảng nghiệp vụ.
 - File bản ký lưu ở `assets/uploads/ban_ky/` (có `.htaccess` chặn truy cập thẳng),
   chỉ xem được qua `GUI/BG_BaoGia/xem_ban_ky.php` (quản trị, check quyền) hoặc
   `GUI/portal/download.php?loai=ban_ky` (nhà thầu, phải tra cứu đúng MST trước).
@@ -529,6 +557,7 @@ script giải mã ngược độc lập, kiểm format info có trong bảng chu
 | Path | Vai trò |
 |---|---|
 | `database/migrate_bao_gia.php` | Tạo 4 bảng + form + nhóm/tài khoản nhà thầu |
+| `database/migrate_bang_file.php` | Tách file ra bảng `bg_file`, bg_bao_gia chỉ giữ `file_ban_ky_id` |
 | `database/seed_bao_gia.php` | Dữ liệu test (`--reset` để làm sạch) |
 | `GUI/BG_GoiThau/` | CRUD gói thầu + modal QR |
 | `GUI/BG_HangHoa/` | CRUD + import Excel danh mục hàng hóa |

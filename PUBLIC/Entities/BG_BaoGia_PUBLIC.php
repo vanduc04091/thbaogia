@@ -18,10 +18,12 @@ class BG_BaoGia_PUBLIC
     public ?string $ngay_xac_nhan = null;
     public ?int $nguoi_xac_nhan = null;
     public ?string $ly_do_tu_choi = null;
-    public ?string $file_ban_ky = null;         // tên file đã đổi khi lưu
-    public ?string $ten_file_goc = null;        // tên gốc, chỉ để hiển thị
-    public ?int $kich_thuoc_file = null;        // dung lượng file (byte)
-    public ?string $ngay_upload_ban_ky = null;
+    /**
+     * Trỏ tới bg_file.id — bản báo giá có dấu & chữ ký.
+     * Thông tin file (tên, dung lượng, ngày tải) nằm ở bảng bg_file,
+     * bảng này chỉ giữ khóa để không phình cột khi thêm loại file mới.
+     */
+    public ?int $file_ban_ky_id = null;
     public float $tong_tien = 0;
     public ?string $ip_nop = null;
     public ?string $ngay_tao = null;

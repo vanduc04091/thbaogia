@@ -200,11 +200,14 @@ function renderTable(rows) {
             '<span class="badge badge-danger badge-quote" title="Bản ghi còn nhưng file đã mất khỏi thư mục">' +
             APP.icon('alert-triangle', 12) + 'Mất file</span>';
 
+        // r.id là id của bg_file; mọi thao tác xem/tải/xóa đều đi theo id BÁO GIÁ
+        var bgId = r.bao_gia_id;
+
         var actions = '';
         if (r.file_ton_tai) {
             actions += '<button type="button" class="btn btn-sm btn-outline-primary js-xem"' +
-                ' data-id="' + r.id + '" title="Xem file">' + APP.icon('eye', 15) + '</button>';
-            actions += '<a class="btn btn-sm btn-outline-secondary" href="' + URL_XEM + '?id=' + r.id +
+                ' data-id="' + bgId + '" title="Xem file">' + APP.icon('eye', 15) + '</button>';
+            actions += '<a class="btn btn-sm btn-outline-secondary" href="' + URL_XEM + '?id=' + bgId +
                 '&tai_ve=1" title="Tải về máy">' + APP.icon('download', 15) + '</a>';
         }
         actions += '<a class="btn btn-sm btn-outline-secondary" href="' + URL_BAO_GIA +
@@ -212,20 +215,20 @@ function renderTable(rows) {
             APP.icon('external-link', 15) + '</a>';
         if (CAN.del) {
             actions += '<button type="button" class="btn btn-sm btn-outline-danger js-xoa"' +
-                ' data-id="' + r.id + '" data-cty="' + APP.escape(r.ten_cong_ty) + '"' +
+                ' data-id="' + bgId + '" data-cty="' + APP.escape(r.ten_cong_ty) + '"' +
                 ' title="Xóa file">' + APP.icon('trash', 15) + '</button>';
         }
 
         html += '<tr>' +
-            '<td class="col-id">' + r.id + '</td>' +
+            '<td class="col-id" title="Mã file trong kho lưu trữ">' + r.id + '</td>' +
             '<td><span class="cell-main">' + APP.escape(r.ten_cong_ty) + '</span>' +
                 '<span class="cell-sub">MST: ' + APP.escape(r.ma_so_thue || '—') + '</span></td>' +
             '<td><span class="text-mono">' + APP.escape(r.so_thong_bao || '—') + '</span></td>' +
             '<td><span class="text-mono" style="font-size:12px;word-break:break-all">' +
-                APP.escape(r.file_ban_ky) + '</span>' + canhBao + '</td>' +
+                APP.escape(r.ten_file) + '</span>' + canhBao + '</td>' +
             '<td>' + loai + '</td>' +
             '<td>' + APP.escape(r.kich_thuoc_dep || '—') + '</td>' +
-            '<td>' + (r.ngay_upload_ban_ky ? APP.escape(APP.formatDateTime(r.ngay_upload_ban_ky)) : '—') + '</td>' +
+            '<td>' + (r.ngay_tao ? APP.escape(APP.formatDateTime(r.ngay_tao)) : '—') + '</td>' +
             '<td class="col-actions"><span class="row-actions">' + actions + '</span></td>' +
             '</tr>';
     }
@@ -237,14 +240,15 @@ function xemFile(id) {
     APP.ajax(AJAX_URL, { action: 'getById', id: id }, {
         success: function (res) {
             var d = res.data;
-            var u = URL_XEM + '?id=' + d.id;
+            var u = URL_XEM + '?id=' + d.bao_gia_id;   // endpoint nhận id BÁO GIÁ
 
             $('#vThongTin').html(
                 dItem('Nhà thầu', d.ten_cong_ty) +
                 dItem('Mã số thuế', d.ma_so_thue) +
                 dItem('Gói thầu', d.so_thong_bao) +
                 dItem('Dung lượng', d.kich_thuoc_dep) +
-                dItem('Tên file lưu trữ', d.file_ban_ky, 'span-2') +
+                dItem('Mã file / Mã báo giá', '#' + d.id + ' / #' + d.bao_gia_id) +
+                dItem('Tên file lưu trữ', d.ten_file, 'span-2') +
                 dItem('Tên file gốc nhà thầu đặt', d.ten_file_goc, 'span-2')
             );
             $('#vTaiVe').attr('href', u + '&tai_ve=1');

@@ -1,11 +1,11 @@
 <?php
-require_once __DIR__ . '/../DAL/BG_QuanLyFile_DAL.php';
+require_once __DIR__ . '/../DAL/BG_File_DAL.php';
 require_once __DIR__ . '/../DAL/BG_BaoGia_DAL.php';
 require_once __DIR__ . '/../DAL/DM_NhatKyHeThong_DAL.php';
 require_once __DIR__ . '/BG_BaoGia_BUS.php';
 
 /**
- * BG_QuanLyFile_BUS — Quản lý file bản ký nhà thầu đã upload.
+ * BG_QuanLyFile_BUS — Quản lý file người dùng tải lên (bảng `bg_file`).
  *
  * Việc module này làm: liệt kê, lọc, thống kê dung lượng, xem/tải,
  * xóa file, và dò file mồ côi (có trên đĩa nhưng DB không tham chiếu).
@@ -25,17 +25,16 @@ class BG_QuanLyFile_BUS
         string $loaiFile = '',
         string $sapXep = 'moi_nhat'
     ): array {
-        $res = BG_QuanLyFile_DAL::getPaged($page, $pageSize, $goiThauId, $search, $loaiFile, $sapXep);
+        $res = BG_File_DAL::getPagedBanKy($page, $pageSize, $goiThauId, $search, $loaiFile, $sapXep);
 
         // Bổ sung thông tin suy ra để GUI khỏi tự tính
         $dir = BG_BaoGia_BUS::thuMucBanKy();
         foreach ($res['data'] as &$r) {
-            $ten = basename((string)$r['file_ban_ky']);
-            $r['duoi_file']    = strtolower(pathinfo($ten, PATHINFO_EXTENSION));
-            $r['la_anh']       = in_array($r['duoi_file'], ['jpg', 'jpeg', 'png'], true);
-            $r['kich_thuoc_dep'] = self::dinhDangDungLuong((int)$r['kich_thuoc_file']);
-            // Cảnh báo khi DB có tham chiếu nhưng file đã biến mất khỏi đĩa
-            $r['file_ton_tai'] = is_file($dir . DIRECTORY_SEPARATOR . $ten);
+            $ten = basename((string)$r['ten_file']);
+            $r['la_anh']         = in_array(strtolower((string)$r['loai_file']), ['jpg', 'jpeg', 'png'], true);
+            $r['kich_thuoc_dep'] = BG_File_PUBLIC::dinhDangDungLuong((int)$r['kich_thuoc']);
+            // Cảnh báo khi DB có bản ghi nhưng file đã biến mất khỏi đĩa
+            $r['file_ton_tai']   = is_file($dir . DIRECTORY_SEPARATOR . $ten);
         }
         unset($r);
 
@@ -44,18 +43,15 @@ class BG_QuanLyFile_BUS
 
     public static function thongKe(int $goiThauId = 0): array
     {
-        $tk = BG_QuanLyFile_DAL::thongKe($goiThauId);
-        $tk['dung_luong_dep'] = self::dinhDangDungLuong($tk['tong_dung_luong']);
+        $tk = BG_File_DAL::thongKeBanKy($goiThauId);
+        $tk['dung_luong_dep'] = BG_File_PUBLIC::dinhDangDungLuong($tk['tong_dung_luong']);
         return $tk;
     }
 
     /** Byte → chuỗi dễ đọc (KB/MB) */
     public static function dinhDangDungLuong(int $byte): string
     {
-        if ($byte <= 0) return '—';
-        if ($byte < 1024) return $byte . ' B';
-        if ($byte < 1048576) return number_format($byte / 1024, 0) . ' KB';
-        return number_format($byte / 1048576, 1) . ' MB';
+        return BG_File_PUBLIC::dinhDangDungLuong($byte);
     }
 
     /**
@@ -71,9 +67,14 @@ class BG_QuanLyFile_BUS
         if (!$bg || (int)$bg->da_xoa === 1) {
             return ['success' => false, 'message' => 'Không tìm thấy báo giá'];
         }
-        if (empty($bg->file_ban_ky)) {
+        $fileId = (int)($bg->file_ban_ky_id ?? 0);
+        if ($fileId <= 0) {
             return ['success' => false, 'message' => 'Báo giá này không có file bản ký'];
         }
+
+        $f = BG_File_DAL::getById($fileId);
+        $tenFile = $f ? $f->ten_file : '';
+        $tenGoc  = $f ? (string)$f->ten_file_goc : '';
 
         try {
             Database::beginTransaction();
@@ -83,15 +84,16 @@ class BG_QuanLyFile_BUS
                  && (int)$bg->trang_thai === BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN;
 
             BG_BaoGia_DAL::xoaBanKy($baoGiaId, $u);
+            BG_File_DAL::softDelete($fileId, $u);
             if ($tuKy) {
                 BG_BaoGia_DAL::updateXacNhan($baoGiaId, BG_BaoGia_PUBLIC::TT_CHO_XAC_NHAN, null, $u);
             }
 
             DM_NhatKyHeThong_DAL::log(
                 $u, self::MODULE_LOG,
-                "Xóa file bản ký của {$bg->ten_cong_ty} (MST {$bg->ma_so_thue}), file: {$bg->ten_file_goc}"
+                "Xóa file bản ký của {$bg->ten_cong_ty} (MST {$bg->ma_so_thue}), file: {$tenGoc}"
                 . ($tuKy ? ' — báo giá trở lại Chờ xác nhận' : ''),
-                'bg_bao_gia', $baoGiaId
+                'bg_file', $fileId
             );
 
             Database::commit();
@@ -102,8 +104,10 @@ class BG_QuanLyFile_BUS
 
         // Xóa file vật lý SAU khi DB đã commit — nếu DB lỗi thì file vẫn còn,
         // hơn là xóa file trước rồi DB rollback làm mất file mà bản ghi vẫn trỏ tới.
-        $duongDan = BG_BaoGia_BUS::thuMucBanKy() . DIRECTORY_SEPARATOR . basename((string)$bg->file_ban_ky);
-        if (is_file($duongDan)) @unlink($duongDan);
+        if ($tenFile !== '') {
+            $duongDan = BG_BaoGia_BUS::thuMucBanKy() . DIRECTORY_SEPARATOR . basename($tenFile);
+            if (is_file($duongDan)) @unlink($duongDan);
+        }
 
         return [
             'success' => true,
@@ -114,7 +118,7 @@ class BG_QuanLyFile_BUS
     }
 
     /**
-     * Dò file mồ côi: nằm trong thư mục ban_ky nhưng KHÔNG bản ghi nào trỏ tới.
+     * Dò file mồ côi: nằm trong thư mục ban_ky nhưng KHÔNG bản ghi bg_file nào trỏ tới.
      *
      * Sinh ra khi: xóa báo giá vĩnh viễn, upload đè lỗi giữa chừng, hoặc
      * ai đó copy file vào thủ công.
@@ -122,7 +126,9 @@ class BG_QuanLyFile_BUS
     public static function timFileMoCoi(): array
     {
         $dir = BG_BaoGia_BUS::thuMucBanKy();
-        $dangDung = BG_QuanLyFile_DAL::tatCaTenFile();
+        // Lấy CẢ bản ghi đã soft delete — file của chúng vẫn cần giữ để tra cứu,
+        // không được coi là mồ côi.
+        $dangDung = BG_File_DAL::tatCaTenFile();
 
         $moCoi = [];
         foreach ((array)glob($dir . DIRECTORY_SEPARATOR . '*') as $p) {
@@ -134,7 +140,7 @@ class BG_QuanLyFile_BUS
             $moCoi[] = [
                 'ten_file'       => $ten,
                 'kich_thuoc'     => filesize($p),
-                'kich_thuoc_dep' => self::dinhDangDungLuong((int)filesize($p)),
+                'kich_thuoc_dep' => BG_File_PUBLIC::dinhDangDungLuong((int)filesize($p)),
                 'ngay_sua'       => date('Y-m-d H:i:s', (int)filemtime($p)),
             ];
         }
@@ -146,7 +152,7 @@ class BG_QuanLyFile_BUS
     /**
      * Xóa 1 file mồ côi.
      * Chỉ nhận tên file (basename) và phải nằm trong danh sách mồ côi thật sự
-     * → không xóa nhầm file đang được báo giá tham chiếu.
+     * → không xóa nhầm file đang được bản ghi bg_file tham chiếu.
      */
     public static function xoaFileMoCoi(string $tenFile, int $u): array
     {
@@ -180,16 +186,15 @@ class BG_QuanLyFile_BUS
         return ['success' => true, 'message' => 'Đã xóa file mồ côi'];
     }
 
-    /** Thông tin 1 file để hiển thị chi tiết */
+    /** Thông tin 1 file để hiển thị chi tiết (theo id BÁO GIÁ) */
     public static function getById(int $baoGiaId): ?array
     {
-        $r = BG_QuanLyFile_DAL::getById($baoGiaId);
+        $r = BG_File_DAL::getBanKyByBaoGia($baoGiaId);
         if (!$r) return null;
 
-        $ten = basename((string)$r['file_ban_ky']);
-        $r['duoi_file']      = strtolower(pathinfo($ten, PATHINFO_EXTENSION));
-        $r['la_anh']         = in_array($r['duoi_file'], ['jpg', 'jpeg', 'png'], true);
-        $r['kich_thuoc_dep'] = self::dinhDangDungLuong((int)$r['kich_thuoc_file']);
+        $ten = basename((string)$r['ten_file']);
+        $r['la_anh']         = in_array(strtolower((string)$r['loai_file']), ['jpg', 'jpeg', 'png'], true);
+        $r['kich_thuoc_dep'] = BG_File_PUBLIC::dinhDangDungLuong((int)$r['kich_thuoc']);
         $r['file_ton_tai']   = is_file(BG_BaoGia_BUS::thuMucBanKy() . DIRECTORY_SEPARATOR . $ten);
         return $r;
     }

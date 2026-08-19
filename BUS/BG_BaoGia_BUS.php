@@ -3,6 +3,7 @@ require_once __DIR__ . '/../DAL/BG_BaoGia_DAL.php';
 require_once __DIR__ . '/../DAL/BG_HangHoa_DAL.php';
 require_once __DIR__ . '/../DAL/BG_GoiThau_DAL.php';
 require_once __DIR__ . '/../DAL/DM_NhatKyHeThong_DAL.php';
+require_once __DIR__ . '/../DAL/BG_File_DAL.php';
 require_once __DIR__ . '/../PUBLIC/Common/ExcelHelper.php';
 require_once __DIR__ . '/BG_GoiThau_BUS.php';
 require_once __DIR__ . '/BG_HangHoa_BUS.php';
@@ -646,8 +647,10 @@ class BG_BaoGia_BUS
                 'ly_do_tu_choi'   => $r['ly_do_tu_choi'],
                 // Bản có dấu + chữ ký: chỉ trả tên gốc để hiển thị, KHÔNG trả
                 // tên file thật trên đĩa (tránh lộ đường dẫn lưu trữ)
-                'ten_file_goc'       => $r['ten_file_goc'],
-                'ngay_upload_ban_ky' => $r['ngay_upload_ban_ky'],
+                // ?? null: phòng trường hợp truy vấn nguồn chưa JOIN bg_file —
+                // thiếu key sẽ in Warning ra giữa JSON làm hỏng response.
+                'ten_file_goc'       => $r['ten_file_goc'] ?? null,
+                'ngay_upload_ban_ky' => $r['ngay_upload_ban_ky'] ?? null,
                 'tong_tien'       => (float)$r['tong_tien'],
                 'so_dong_chao'    => (int)$r['so_dong_chao'],
                 'chi_tiet'        => BG_BaoGia_DAL::getChiTiet($id),
@@ -665,18 +668,10 @@ class BG_BaoGia_BUS
     // BẢN BÁO GIÁ CÓ DẤU & CHỮ KÝ
     // =====================================================================
 
-    /** Đuôi file cho phép upload bản ký */
-    const BAN_KY_EXT = ['pdf', 'jpg', 'jpeg', 'png'];
-
-    /** MIME thật tương ứng — KHÔNG tin $_FILES['type'] do client gửi */
-    const BAN_KY_MIME = [
-        'application/pdf',
-        'image/jpeg',
-        'image/png',
-    ];
-
     /** Dung lượng tối đa cho bản ký (20MB — ảnh chụp/scan thường lớn) */
     const BAN_KY_MAX_SIZE = 20971520;
+
+    // Đuôi/MIME cho phép khai báo ở BG_File_PUBLIC (dùng chung cho mọi loại file)
 
     /** Thư mục lưu bản ký */
     public static function thuMucBanKy(): string
@@ -790,26 +785,21 @@ class BG_BaoGia_BUS
         }
 
         $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
-        if (!in_array($ext, self::BAN_KY_EXT, true)) {
+        if (!in_array($ext, BG_File_PUBLIC::EXT_CHO_PHEP, true)) {
             return ['success' => false, 'message' => 'Chỉ nhận file PDF hoặc ảnh (JPG, PNG)'];
         }
 
         // MIME thật, không tin phần mở rộng lẫn $_FILES['type']
+        $mime = null;
         if (function_exists('finfo_open')) {
             $fi = finfo_open(FILEINFO_MIME_TYPE);
             $mime = finfo_file($fi, $file['tmp_name']);
             finfo_close($fi);
-            if (!in_array($mime, self::BAN_KY_MIME, true)) {
+            if (!in_array($mime, BG_File_PUBLIC::MIME_CHO_PHEP, true)) {
                 return ['success' => false, 'message' => 'Nội dung file không phải PDF/ảnh hợp lệ'];
             }
             // Đuôi phải khớp nội dung thật (chặn đổi tên .php thành .pdf)
-            $khop = [
-                'pdf'  => ['application/pdf'],
-                'jpg'  => ['image/jpeg'],
-                'jpeg' => ['image/jpeg'],
-                'png'  => ['image/png'],
-            ];
-            if (!in_array($mime, $khop[$ext] ?? [], true)) {
+            if (!in_array($mime, BG_File_PUBLIC::EXT_MIME[$ext] ?? [], true)) {
                 return ['success' => false, 'message' => 'Đuôi file không khớp nội dung thật của file'];
             }
         }
@@ -833,20 +823,41 @@ class BG_BaoGia_BUS
                 return ['success' => false, 'message' => 'Không lưu được file tải lên'];
             }
 
-            // Xóa file cũ nếu upload đè
-            $fileCu = (string)$bg->file_ban_ky;
-            if ($fileCu !== '' && $fileCu !== $tenLuu) {
-                $duongDanCu = $dir . DIRECTORY_SEPARATOR . basename($fileCu);
-                if (is_file($duongDanCu)) @unlink($duongDanCu);
+            // Ghi vào bảng file rồi gán id sang báo giá — 2 bảng nên bọc transaction (§3.7)
+            $fileCuId = (int)($bg->file_ban_ky_id ?? 0);
+            $fileCu   = $fileCuId > 0 ? BG_File_DAL::getById($fileCuId) : null;
+
+            try {
+                Database::beginTransaction();
+
+                $ef = new BG_File_PUBLIC();
+                $ef->ten_file     = $tenLuu;
+                $ef->ten_file_goc = ExcelHelper::toText($file['name'], 255);
+                $ef->duong_dan    = 'ban_ky';
+                $ef->loai_file    = $ext;
+                $ef->mime_type    = $mime;
+                $ef->kich_thuoc   = (int)$file['size'];
+                $ef->nhom_file    = BG_File_PUBLIC::NHOM_BAN_KY;
+                $ef->nguoi_tao    = $u;
+                $fileId = BG_File_DAL::insert($ef);
+
+                BG_BaoGia_DAL::updateBanKy($baoGiaId, $fileId);
+
+                // Upload đè: bản ghi file cũ chuyển sang đã xóa
+                if ($fileCuId > 0) BG_File_DAL::softDelete($fileCuId, $u);
+
+                Database::commit();
+            } catch (Throwable $exDb) {
+                Database::rollBack();
+                @unlink($dich);   // DB hỏng thì bỏ luôn file vừa lưu, tránh mồ côi
+                return ['success' => false, 'message' => 'Lỗi: ' . $exDb->getMessage()];
             }
 
-            // Ghi DB + chuyển trạng thái trong 1 câu lệnh
-            BG_BaoGia_DAL::updateBanKy(
-                $baoGiaId,
-                $tenLuu,
-                ExcelHelper::toText($file['name'], 255),
-                (int)$file['size']
-            );
+            // Xóa file cũ trên đĩa SAU khi DB đã commit
+            if ($fileCu && $fileCu->ten_file !== '' && $fileCu->ten_file !== $tenLuu) {
+                $duongDanCu = $dir . DIRECTORY_SEPARATOR . basename($fileCu->ten_file);
+                if (is_file($duongDanCu)) @unlink($duongDanCu);
+            }
 
             DM_NhatKyHeThong_DAL::log(
                 $u, self::MODULE_LOG,
@@ -876,9 +887,21 @@ class BG_BaoGia_BUS
     public static function duongDanBanKy(int $baoGiaId): string
     {
         $bg = BG_BaoGia_DAL::getById($baoGiaId);
-        if (!$bg || empty($bg->file_ban_ky)) return '';
-        $p = self::thuMucBanKy() . DIRECTORY_SEPARATOR . basename((string)$bg->file_ban_ky);
+        if (!$bg || empty($bg->file_ban_ky_id)) return '';
+
+        $f = BG_File_DAL::getById((int)$bg->file_ban_ky_id);
+        if (!$f || $f->ten_file === '') return '';
+
+        $p = self::thuMucBanKy() . DIRECTORY_SEPARATOR . basename($f->ten_file);
         return is_file($p) ? $p : '';
+    }
+
+    /** Bản ghi file bản ký của 1 báo giá (null nếu chưa có) */
+    public static function fileBanKy(int $baoGiaId): ?BG_File_PUBLIC
+    {
+        $bg = BG_BaoGia_DAL::getById($baoGiaId);
+        if (!$bg || empty($bg->file_ban_ky_id)) return null;
+        return BG_File_DAL::getById((int)$bg->file_ban_ky_id);
     }
 
     /**
@@ -954,8 +977,10 @@ class BG_BaoGia_BUS
                 'ly_do_tu_choi'      => $r['ly_do_tu_choi'],
                 'tong_tien'          => (float)$r['tong_tien'],
                 'so_dong_chao'       => (int)$r['so_dong_chao'],
-                'ten_file_goc'       => $r['ten_file_goc'],
-                'ngay_upload_ban_ky' => $r['ngay_upload_ban_ky'],
+                // ?? null: phòng trường hợp truy vấn nguồn chưa JOIN bg_file —
+                // thiếu key sẽ in Warning ra giữa JSON làm hỏng response.
+                'ten_file_goc'       => $r['ten_file_goc'] ?? null,
+                'ngay_upload_ban_ky' => $r['ngay_upload_ban_ky'] ?? null,
             ];
         }
 

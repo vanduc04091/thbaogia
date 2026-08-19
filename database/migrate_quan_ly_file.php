@@ -6,7 +6,9 @@
  * (Theo quy tắc §8B trong CLAUDE.md: không tự động đổi cấu trúc DB.)
  *
  * Việc file này làm:
- *   1. Thêm cột `kich_thuoc_file` vào bg_bao_gia (để thống kê dung lượng)
+ *   1. (Cũ) Thêm cột `kich_thuoc_file` vào bg_bao_gia — CHỈ chạy nếu DB còn
+ *      cột file_ban_ky cũ. Từ bản tách bảng, dung lượng nằm ở bg_file.kich_thuoc
+ *      nên DB mới KHÔNG cần cột này. Xem migrate_bang_file.php.
  *   2. Khai báo form BG_QuanLyFile + cấp quyền cho các nhóm sẵn có
  *
  * Idempotent: chạy nhiều lần vẫn an toàn, phần nào đã có thì bỏ qua.
@@ -30,9 +32,12 @@ function coCot(PDO $pdo, string $bang, string $cot): bool
 }
 
 try {
-    say('→ 1. Cột lưu dung lượng file bản ký...');
+    say('→ 1. Cột lưu dung lượng file bản ký (chỉ với DB đời cũ)...');
 
-    if (coCot($pdo, 'bg_bao_gia', 'kich_thuoc_file')) {
+    // DB đã tách bảng bg_file thì bỏ qua hẳn bước này
+    if (!coCot($pdo, 'bg_bao_gia', 'file_ban_ky')) {
+        say('  = DB đã dùng bảng bg_file — bỏ qua (dung lượng nằm ở bg_file.kich_thuoc)');
+    } elseif (coCot($pdo, 'bg_bao_gia', 'kich_thuoc_file')) {
         say('  = cột kich_thuoc_file đã có');
     } else {
         $pdo->exec("ALTER TABLE bg_bao_gia
@@ -42,23 +47,26 @@ try {
         say('  + cột kich_thuoc_file');
     }
 
-    // Điền dung lượng cho các file đã upload trước đó
-    $dir = rtrim(AppConfig::UPLOAD_PATH, '/\\') . DIRECTORY_SEPARATOR . 'ban_ky';
-    $rows = $pdo->query(
-        "SELECT id, file_ban_ky FROM bg_bao_gia
-         WHERE file_ban_ky IS NOT NULL AND file_ban_ky <> '' AND kich_thuoc_file IS NULL"
-    )->fetchAll();
+    // Điền dung lượng cho file cũ — CHỈ khi DB còn cột đời cũ.
+    // DB đã tách bg_file thì các cột này không còn, truy vấn sẽ lỗi.
+    if (coCot($pdo, 'bg_bao_gia', 'file_ban_ky') && coCot($pdo, 'bg_bao_gia', 'kich_thuoc_file')) {
+        $dir = rtrim(AppConfig::UPLOAD_PATH, '/\\') . DIRECTORY_SEPARATOR . 'ban_ky';
+        $rows = $pdo->query(
+            "SELECT id, file_ban_ky FROM bg_bao_gia
+             WHERE file_ban_ky IS NOT NULL AND file_ban_ky <> '' AND kich_thuoc_file IS NULL"
+        )->fetchAll();
 
-    $soCapNhat = 0;
-    $upd = $pdo->prepare("UPDATE bg_bao_gia SET kich_thuoc_file = :kt WHERE id = :id");
-    foreach ($rows as $r) {
-        $p = $dir . DIRECTORY_SEPARATOR . basename((string)$r['file_ban_ky']);
-        if (is_file($p)) {
-            $upd->execute([':kt' => filesize($p), ':id' => (int)$r['id']]);
-            $soCapNhat++;
+        $soCapNhat = 0;
+        $upd = $pdo->prepare("UPDATE bg_bao_gia SET kich_thuoc_file = :kt WHERE id = :id");
+        foreach ($rows as $r) {
+            $p = $dir . DIRECTORY_SEPARATOR . basename((string)$r['file_ban_ky']);
+            if (is_file($p)) {
+                $upd->execute([':kt' => filesize($p), ':id' => (int)$r['id']]);
+                $soCapNhat++;
+            }
         }
+        if ($soCapNhat > 0) say("  ✓ Điền dung lượng cho {$soCapNhat} file đã có.");
     }
-    if ($soCapNhat > 0) say("  ✓ Điền dung lượng cho {$soCapNhat} file đã có.");
 
     say('');
     say('→ 2. Khai báo form + phân quyền...');

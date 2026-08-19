@@ -36,7 +36,11 @@ if ($id <= 0) loiXem('Thiếu mã báo giá');
 
 $bg = BG_BaoGia_BUS::getById($id);
 if (!$bg || (int)$bg->da_xoa === 1) loiXem('Không tìm thấy báo giá');
-if (empty($bg->file_ban_ky)) loiXem('Báo giá này chưa có bản ký');
+if (empty($bg->file_ban_ky_id)) loiXem('Báo giá này chưa có bản ký');
+
+// Thông tin file nằm ở bảng bg_file, bg_bao_gia chỉ giữ khóa
+$fileBk = BG_BaoGia_BUS::fileBanKy($id);
+if (!$fileBk) loiXem('Không tìm thấy bản ghi file');
 
 $path = BG_BaoGia_BUS::duongDanBanKy($id);
 if ($path === '') loiXem('File bản ký không còn trên hệ thống');
@@ -51,7 +55,7 @@ $mimeMap = [
 $mime = $mimeMap[$ext] ?? 'application/octet-stream';
 
 // Tên file gửi ra: dùng tên gốc nhà thầu đặt cho dễ nhận biết
-$tenGoc = (string)($bg->ten_file_goc ?: ('ban_ky_' . $id . '.' . $ext));
+$tenGoc = (string)($fileBk->ten_file_goc ?: ('ban_ky_' . $id . '.' . $ext));
 $ascii  = preg_replace('/[^A-Za-z0-9._-]/', '_', $tenGoc);
 
 if (ob_get_level()) ob_end_clean();

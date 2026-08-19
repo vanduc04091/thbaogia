@@ -448,3 +448,80 @@ migration lần 2 sẽ thấy file của chính bản ghi đó trên đĩa rồi
 
 Thứ tự xóa: **commit DB trước, xóa file sau** — nếu DB lỗi thì file vẫn còn,
 hơn là xóa file rồi DB rollback làm bản ghi trỏ tới file đã mất.
+
+---
+
+## TÁCH FILE RA BẢNG RIÊNG `bg_file`
+
+> Chạy: `php database/migrate_bang_file.php`
+> Dọn cột cũ (sau khi chạy ổn): `php database/migrate_go_cot_file_cu.php --that`
+
+### Trước / sau
+
+| | Trước | Sau |
+|---|---|---|
+| `bg_bao_gia` | 4 cột: `file_ban_ky`, `ten_file_goc`, `kich_thuoc_file`, `ngay_upload_ban_ky` | 1 cột: `file_ban_ky_id` |
+| Thông tin file | nằm rải trong bảng nghiệp vụ | tập trung ở `bg_file` |
+
+### Bảng `bg_file`
+
+| Cột | Kiểu | Ghi chú |
+|---|---|---|
+| `id` | INT PK | |
+| `ten_file` | VARCHAR(255) | Tên trên đĩa: `<mst>_<slug-goi-thau>.<ext>` |
+| `ten_file_goc` | VARCHAR(255) | Tên gốc người dùng đặt — chỉ hiển thị |
+| `duong_dan` | VARCHAR(100) | Thư mục con trong `assets/uploads` |
+| `loai_file` | VARCHAR(20) | pdf, jpg, png |
+| `mime_type` | VARCHAR(100) | MIME thật đọc bằng `finfo` |
+| `kich_thuoc` | INT | byte |
+| `nhom_file` | VARCHAR(50) | Phân loại nghiệp vụ, hiện có `ban_ky` |
+| + audit fields | | `ngay_tao` = thời điểm upload |
+
+**Lợi ích:** thêm loại file mới (hợp đồng, biên bản...) chỉ cần thêm giá trị
+`nhom_file` + 1 cột khóa ở bảng nghiệp vụ, không phải thêm 4 cột mỗi lần.
+
+### Điểm cần nhớ khi sửa code
+
+- `BG_BaoGia_DAL::selectSql()` **LEFT JOIN bg_file** và đặt alias
+  (`f.ten_file AS file_ban_ky`, `f.ngay_tao AS ngay_upload_ban_ky`...) nên GUI cũ
+  vẫn đọc được như trước. Đừng bỏ alias nếu chưa sửa hết GUI.
+- **`getPagedBanKy()` trả `id` là id của bg_file**, còn thao tác xem/tải/xóa đi
+  theo **`bao_gia_id`**. Nhầm 2 khóa này là nút bấm trỏ sai bản ghi (đã gặp).
+- Xóa file: soft delete `bg_file`, gỡ `file_ban_ky_id`, **commit DB rồi mới xóa
+  file vật lý**. Upload đè cũng vậy: bản ghi cũ chuyển `da_xoa = 1`.
+- `timFileMoCoi()` đối chiếu với **toàn bộ** `bg_file` (kể cả `da_xoa = 1`) —
+  file của bản ghi đã xóa mềm vẫn cần giữ để tra cứu, không phải mồ côi.
+
+
+---
+
+## SHEET "SoSanhGia" — 30 CỘT
+
+| Vùng | Cột | Nội dung |
+|---|---|---|
+| **Bên mời** (A-L) | A | STT |
+| | B | Tên phần |
+| | C | STT phần |
+| | D | STT TB mời chào giá |
+| | E | Tên hàng hoá |
+| | F | Tính năng, thông số kỹ thuật yêu cầu |
+| | G | Chứng nhận |
+| | H | Yêu cầu xuất xứ |
+| | I | ĐVT |
+| | J | Số lượng / Khối lượng |
+| | K | Yêu cầu về trợ cụ / máy phụ trợ |
+| | L | Số thông báo mời chào giá |
+| **Nhà thầu** (M-AD) | M-N | Nhà thầu, Mã số thuế |
+| | O-T | Tên TM, model, mã HS, hãng SX, xuất xứ, quy cách |
+| | U-X | Chi phí DV, VAT, **Đơn giá**, Thành tiền |
+| | Y-AD | Chứng nhận, giá trúng thầu gần nhất, tài liệu, QR, thông số chào, điểm không đạt |
+
+12 cột đầu **gộp dọc** khi 1 hàng hóa có nhiều nhà thầu; cột nhà thầu KHÔNG gộp.
+
+⚠️ **Phân biệt 2 cột dễ nhầm** (theo file mẫu gốc):
+- **Cột D** = `bg_hang_hoa.stt_thong_bao` — số thứ tự trong thông báo (1, 2, 3...)
+- **Cột L** = `bg_goi_thau.so_thong_bao` — số hiệu thông báo, mọi dòng như nhau
+  ("Thông báo số 5742/2026"). Không lưu ở bg_hang_hoa vì cả gói dùng chung.
+
+Sửa số cột thì phải sửa đồng bộ: `$soCot`, `$rowHeader`, dòng dữ liệu,
+vòng gộp dọc, chỉ số dòng tổng cộng, và mảng `$cols1` (độ rộng).

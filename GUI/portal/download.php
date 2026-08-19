@@ -89,11 +89,11 @@ try {
             loiTaiFile('Không tìm thấy file', 'Bản ký chưa được tải lên hoặc file không còn.', $token);
         }
 
-        $bgFile = BG_BaoGia_BUS::getById($baoGiaId);
+        $bgFile = BG_BaoGia_BUS::fileBanKy($baoGiaId);
         $ext = strtolower(pathinfo($duongDan, PATHINFO_EXTENSION));
         $mimeMap = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg',
                     'jpeg' => 'image/jpeg', 'png' => 'image/png'];
-        $tenGoc = (string)($bgFile->ten_file_goc ?: ('ban_ky.' . $ext));
+        $tenGoc = (string)(($bgFile->ten_file_goc ?? '') ?: ('ban_ky.' . $ext));
         $ascii  = preg_replace('/[^A-Za-z0-9._-]/', '_', $tenGoc);
 
         if (ob_get_level()) ob_end_clean();

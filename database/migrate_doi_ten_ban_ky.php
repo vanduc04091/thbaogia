@@ -14,6 +14,8 @@
  * Nếu trùng tên (1 MST nộp lại nhiều lần) thì thêm hậu tố -2, -3...
  *
  * Tên cũ dạng: bk_<id>_<ngay>_<random>.<ext>
+ *
+ * Đọc/ghi trên bảng `bg_file` — chạy SAU migrate_bang_file.php.
  */
 require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../BUS/BG_BaoGia_BUS.php';
@@ -28,13 +30,16 @@ $pdo = Database::getConnection();
 try {
     $dir = BG_BaoGia_BUS::thuMucBanKy();
 
+    // Đọc từ bảng bg_file (bg_bao_gia chỉ còn khóa file_ban_ky_id)
     $rows = $pdo->query(
-        "SELECT bg.id, bg.file_ban_ky, bg.ten_file_goc, bg.ma_so_thue,
+        "SELECT f.id AS file_id, f.ten_file, f.ten_file_goc,
+                bg.id, bg.ma_so_thue,
                 gt.so_thong_bao, gt.ten_goi_thau
-         FROM bg_bao_gia bg
+         FROM bg_file f
+         INNER JOIN bg_bao_gia bg ON bg.file_ban_ky_id = f.id
          INNER JOIN bg_goi_thau gt ON gt.id = bg.goi_thau_id
-         WHERE bg.file_ban_ky IS NOT NULL AND bg.file_ban_ky <> '' AND bg.da_xoa = 0
-         ORDER BY bg.id"
+         WHERE f.da_xoa = 0 AND bg.da_xoa = 0
+         ORDER BY f.id"
     )->fetchAll();
 
     if (empty($rows)) {
@@ -46,14 +51,15 @@ try {
     say('Số file: ' . count($rows));
     say('');
 
-    $upd = $pdo->prepare("UPDATE bg_bao_gia SET file_ban_ky = :f WHERE id = :id");
+    $upd = $pdo->prepare("UPDATE bg_file SET ten_file = :f, ngay_cap_nhat = NOW() WHERE id = :id");
     $daDung = [];      // tên đã dùng trong lượt chạy này
     $soDoi = 0;
     $soBoQua = 0;
 
     foreach ($rows as $r) {
-        $id      = (int)$r['id'];
-        $tenCu   = basename((string)$r['file_ban_ky']);
+        $id      = (int)$r['id'];          // id báo giá (để in ra cho dễ đối chiếu)
+        $fileId  = (int)$r['file_id'];     // id bản ghi trong bg_file
+        $tenCu   = basename((string)$r['ten_file']);
         $duongCu = $dir . DIRECTORY_SEPARATOR . $tenCu;
 
         if (!is_file($duongCu)) {
@@ -89,7 +95,7 @@ try {
                 $soBoQua++;
                 continue;
             }
-            $upd->execute([':f' => $tenMoi, ':id' => $id]);
+            $upd->execute([':f' => $tenMoi, ':id' => $fileId]);
         }
         $daDung[$tenMoi] = true;
         $soDoi++;

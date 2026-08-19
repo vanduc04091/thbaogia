@@ -8,7 +8,8 @@ class AppConfig
     // === Database Config ===
     const DB_HOST = 'localhost';
     const DB_PORT = 3306;
-    const DB_NAME = 'thbaogia';
+    const DB_NAME = 'th_bao_gia';
+//    const DB_NAME = 'thbaogia';
     const DB_USER = 'root';
     const DB_PASS = '';
     const DB_CHARSET = 'utf8mb4';
@@ -21,8 +22,9 @@ class AppConfig
 
     // === App Config ===
     const APP_NAME = 'Tổng Hợp Báo Giá';
-    const APP_VERSION = '2.6.0';
-    const APP_URL = 'https://thbg.bvnghean.vn';
+    const APP_VERSION = '2.8.0';
+    const APP_URL = 'http://thbg.bv';
+    // const APP_URL = 'https://thbg.bvnghean.vn';
     const APP_TIMEZONE = 'Asia/Ho_Chi_Minh';
     const APP_DEBUG = true;
 

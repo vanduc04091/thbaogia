@@ -98,6 +98,7 @@ class BG_TongHop_BUS
                 $tongGiaMin += $giaMin * $soLuong;
             }
 
+            // Giữ ĐỦ cột yêu cầu của bên mời (khớp bg_hang_hoa, cột A-K file mẫu)
             $rows[] = [
                 'id'                => $hhId,
                 'ten_phan'          => $hh['ten_phan'],
@@ -105,8 +106,11 @@ class BG_TongHop_BUS
                 'stt_thong_bao'     => $hh['stt_thong_bao'],
                 'ten_hang_hoa'      => $hh['ten_hang_hoa'],
                 'thong_so_ky_thuat' => $hh['thong_so_ky_thuat'],
+                'chung_nhan'        => $hh['chung_nhan'],
+                'yeu_cau_xuat_xu'   => $hh['yeu_cau_xuat_xu'],
                 'dvt'               => $hh['dvt'],
                 'so_luong'          => $soLuong,
+                'yeu_cau_tro_cu'    => $hh['yeu_cau_tro_cu'],
                 'chao'              => $chao,
                 'gia_min'           => $giaMin,
                 'nha_thau_min'      => $nhaThauMin,
@@ -173,7 +177,7 @@ class BG_TongHop_BUS
         // MST nằm thành CỘT trên chính dòng đó. Đọc theo chiều ngang là ra ngay
         // ai chào bao nhiêu; lọc / sắp xếp / PivotTable trong Excel đều dùng
         // được (bố cục cũ gộp mỗi nhà thầu thành 1 nhóm cột thì không lọc nổi).
-        $soCot = 24;   // khớp với $rowHeader bên dưới (6 bên mời + 18 nhà thầu)
+        $soCot = 30;   // khớp với $rowHeader bên dưới (12 bên mời + 18 nhà thầu)
         $colCuoi = ExcelHelper::colLetter($soCot - 1);
         $merges = [];
 
@@ -200,13 +204,20 @@ class BG_TongHop_BUS
         // --- Header 1 tầng, không gộp cột ---
         // Header: 6 cột bên mời + 18 cột nhà thầu (đủ mọi trường nhà thầu điền)
         $rowHeader = [
-            // --- Thông tin mời chào giá ---
+            // --- Thông tin mời chào giá (cột A-K file mẫu) ---
             ['v' => 'STT', 's' => $H],
+            ['v' => 'Tên phần', 's' => $H],
             ['v' => 'STT phần', 's' => $H],
+            ['v' => "STT TB
+mời chào giá", 's' => $H],
             ['v' => 'Tên hàng hoá', 's' => $H],
             ['v' => 'Tính năng, thông số kỹ thuật yêu cầu', 's' => $H],
+            ['v' => 'Chứng nhận', 's' => $H],
+            ['v' => 'Yêu cầu xuất xứ', 's' => $H],
             ['v' => 'ĐVT', 's' => $H],
-            ['v' => 'Số lượng', 's' => $H],
+            ['v' => "Số lượng /\nKhối lượng", 's' => $H],
+            ['v' => "Yêu cầu về trợ cụ /\nmáy phụ trợ", 's' => $H],
+            ['v' => "Số thông báo\nmời chào giá", 's' => $H],
             // --- Nhà thầu ---
             ['v' => 'Nhà thầu', 's' => $HA],
             ['v' => 'Mã số thuế', 's' => $HA],
@@ -247,11 +258,19 @@ class BG_TongHop_BUS
                 $laDongDau = ($soDong === 0);
                 $rows1[] = [
                     $laDongDau ? ['v' => $stt, 's' => $C, 't' => 'n'] : ['v' => '', 's' => $C],
+                    $laDongDau ? ['v' => (string)($hh['ten_phan'] ?? ''), 's' => $C] : ['v' => '', 's' => $C],
                     $laDongDau ? ['v' => (string)($hh['stt_theo_phan'] ?? ''), 's' => $C] : ['v' => '', 's' => $C],
+                    $laDongDau ? ['v' => (string)($hh['stt_thong_bao'] ?? ''), 's' => $C] : ['v' => '', 's' => $C],
                     $laDongDau ? ['v' => (string)$hh['ten_hang_hoa'], 's' => $W] : ['v' => '', 's' => $W],
                     $laDongDau ? ['v' => (string)($hh['thong_so_ky_thuat'] ?? ''), 's' => $W] : ['v' => '', 's' => $W],
+                    $laDongDau ? ['v' => (string)($hh['chung_nhan'] ?? ''), 's' => $W] : ['v' => '', 's' => $W],
+                    $laDongDau ? ['v' => (string)($hh['yeu_cau_xuat_xu'] ?? ''), 's' => $W] : ['v' => '', 's' => $W],
                     $laDongDau ? ['v' => (string)($hh['dvt'] ?? ''), 's' => $C] : ['v' => '', 's' => $C],
                     $laDongDau ? ['v' => (float)$hh['so_luong'], 's' => $N, 't' => 'n'] : ['v' => '', 's' => $N],
+                    $laDongDau ? ['v' => (string)($hh['yeu_cau_tro_cu'] ?? ''), 's' => $W] : ['v' => '', 's' => $W],
+                    // Cột K file mẫu = số thông báo của GÓI THẦU (mọi dòng như nhau),
+                    // khác cột C là số thứ tự trong thông báo.
+                    $laDongDau ? ['v' => 'Thông báo số ' . $gt->so_thong_bao, 's' => $W] : ['v' => '', 's' => $W],
                     // --- Phần nhà thầu: đủ mọi cột đã nộp ---
                     ['v' => (string)$nt['ten_cong_ty'], 's' => $W],
                     ['v' => (string)($nt['ma_so_thue'] ?? ''), 's' => $C],
@@ -282,10 +301,10 @@ class BG_TongHop_BUS
                 $dongHienTai++;
             }
 
-            // Gộp dọc 6 cột đầu khi hàng hóa có từ 2 nhà thầu trở lên
+            // Gộp dọc 12 cột thông tin hàng hóa khi có từ 2 nhà thầu trở lên
             if ($soDong > 1) {
                 $dongCuoi = $dongDau + $soDong - 1;
-                for ($c = 0; $c < 6; $c++) {
+                for ($c = 0; $c < 12; $c++) {
                     $L = ExcelHelper::colLetter($c);
                     $merges[] = $L . $dongDau . ':' . $L . $dongCuoi;
                 }
@@ -296,25 +315,25 @@ class BG_TongHop_BUS
         $rows1[] = array_fill(0, $soCot, null);
 
         $rowTieuDeTong = array_fill(0, $soCot, ['v' => '', 's' => $H]);
-        $rowTieuDeTong[6]  = ['v' => 'TỔNG CỘNG THEO NHÀ THẦU', 's' => $H];
-        $rowTieuDeTong[7]  = ['v' => 'Mã số thuế', 's' => $H];
-        $rowTieuDeTong[17] = ['v' => "Tổng tiền\n(VND)", 's' => $H];
+        $rowTieuDeTong[12] = ['v' => 'TỔNG CỘNG THEO NHÀ THẦU', 's' => $H];
+        $rowTieuDeTong[13] = ['v' => 'Mã số thuế', 's' => $H];
+        $rowTieuDeTong[22] = ['v' => "Tổng tiền\n(VND)", 's' => $H];
         $rows1[] = $rowTieuDeTong;
 
         foreach ($nhaThau as $nt) {
             $r = array_fill(0, $soCot, ['v' => '', 's' => $W]);
-            $r[6]  = ['v' => (string)$nt['ten_cong_ty'], 's' => $W];
-            $r[7]  = ['v' => (string)($nt['ma_so_thue'] ?? ''), 's' => $C];
-            $r[17] = ['v' => (float)$nt['tong_tien'], 's' => ExcelHelper::S_TOTAL, 't' => 'n'];
+            $r[12] = ['v' => (string)$nt['ten_cong_ty'], 's' => $W];
+            $r[13] = ['v' => (string)($nt['ma_so_thue'] ?? ''), 's' => $C];
+            $r[23] = ['v' => (float)$nt['tong_tien'], 's' => ExcelHelper::S_TOTAL, 't' => 'n'];
             $rows1[] = $r;
         }
 
-        // Độ rộng 24 cột — khớp thứ tự $rowHeader
+        // Độ rộng 30 cột — khớp thứ tự $rowHeader
         $cols1 = [
-            6, 10, 34, 40, 8, 10,                    // bên mời
-            30, 14, 26, 20, 12, 22, 16, 18,          // nhà thầu: tên..quy cách
-            14, 9, 16, 18,                           // chi phí, VAT, đơn giá, thành tiền
-            26, 18, 30, 22, 36, 32,                  // chứng nhận .. điểm không đạt
+            6, 12, 10, 11, 32, 40, 26, 24, 8, 11, 30, 20,   // bên mời (A-L)
+            30, 14, 26, 20, 12, 22, 16, 18,             // nhà thầu: tên..quy cách
+            14, 9, 16, 18,                              // chi phí, VAT, đơn giá, thành tiền
+            26, 18, 30, 22, 36, 32,                     // chứng nhận .. điểm không đạt
         ];
 
         // =============================================================
@@ -408,7 +427,7 @@ class BG_TongHop_BUS
         ExcelHelper::write($path, [
             'SoSanhGia' => [
                 'cols'    => $cols1,
-                'freeze'  => 'C6',
+                'freeze'  => 'D6',
                 'merges'  => $merges,
                 'heights' => [1 => 24, 5 => 44],
                 'rows'    => $rows1,
