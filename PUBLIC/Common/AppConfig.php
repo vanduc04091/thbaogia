@@ -8,7 +8,7 @@ class AppConfig
     // === Database Config ===
     const DB_HOST = 'localhost';
     const DB_PORT = 3306;
-    const DB_NAME = 'th_bao_gia';          // dev
+    const DB_NAME = 'th_bao_gia';
     //const DB_NAME = 'thbaogia';          // production
     const DB_USER = 'root';
     const DB_PASS = '';

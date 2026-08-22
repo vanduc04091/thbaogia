@@ -1727,7 +1727,7 @@ class BG_BaoGia_BUS
      * Dong goi TAT CA file nha thau da nop thanh 1 file .zip:
      * ban ky + catalog + bang chi dan.
      *
-     * Dung cho nut "Tai tat ca" o module Bao gia â ben moi khong phai bam
+     * Dung cho nut "Tai tat ca" o module Bao gia — ben moi khong phai bam
      * tung file mot.
      *
      * @return string Duong dan file zip tam (nguoi goi lo viec xoa sau khi gui)

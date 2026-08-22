@@ -127,61 +127,6 @@ class BG_QuanLyFile_BUS
         return ['success' => true, 'message' => 'Đã xóa file ' . $tenFile];
     }
 
-    public static function xoaFile(int $baoGiaId, int $u): array
-    {
-        $bg = BG_BaoGia_DAL::getById($baoGiaId);
-        if (!$bg || (int)$bg->da_xoa === 1) {
-            return ['success' => false, 'message' => 'Không tìm thấy báo giá'];
-        }
-        $fileId = (int)($bg->file_ban_ky_id ?? 0);
-        if ($fileId <= 0) {
-            return ['success' => false, 'message' => 'Báo giá này không có file bản ký'];
-        }
-
-        $f = BG_File_DAL::getById($fileId);
-        $tenFile = $f ? $f->ten_file : '';
-        $tenGoc  = $f ? (string)$f->ten_file_goc : '';
-
-        try {
-            Database::beginTransaction();
-
-            // Nhà thầu tự xác nhận bằng bản ký (nguoi_xac_nhan = NULL) → bỏ xác nhận
-            $tuKy = $bg->nguoi_xac_nhan === null
-                 && (int)$bg->trang_thai === BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN;
-
-            BG_BaoGia_DAL::xoaBanKy($baoGiaId, $u);
-            BG_File_DAL::softDelete($fileId, $u);
-            if ($tuKy) {
-                BG_BaoGia_DAL::updateXacNhan($baoGiaId, BG_BaoGia_PUBLIC::TT_CHO_XAC_NHAN, null, $u);
-            }
-
-            DM_NhatKyHeThong_DAL::log(
-                $u, self::MODULE_LOG,
-                "Xóa file bản ký của {$bg->ten_cong_ty} (MST {$bg->ma_so_thue}), file: {$tenGoc}"
-                . ($tuKy ? ' — báo giá trở lại Chờ xác nhận' : ''),
-                'bg_file', $fileId
-            );
-
-            Database::commit();
-        } catch (Throwable $ex) {
-            Database::rollBack();
-            return ['success' => false, 'message' => 'Lỗi: ' . $ex->getMessage()];
-        }
-
-        // Xóa file vật lý SAU khi DB đã commit — nếu DB lỗi thì file vẫn còn,
-        // hơn là xóa file trước rồi DB rollback làm mất file mà bản ghi vẫn trỏ tới.
-        if ($tenFile !== '') {
-            $duongDan = BG_BaoGia_BUS::thuMucBanKy() . DIRECTORY_SEPARATOR . basename($tenFile);
-            if (is_file($duongDan)) @unlink($duongDan);
-        }
-
-        return [
-            'success' => true,
-            'message' => $tuKy
-                ? 'Đã xóa file bản ký. Báo giá trở lại trạng thái Chờ xác nhận.'
-                : 'Đã xóa file bản ký.',
-        ];
-    }
 
     /**
      * Dò file mồ côi: nằm trong thư mục ban_ky nhưng KHÔNG bản ghi bg_file nào trỏ tới.
@@ -293,18 +238,4 @@ class BG_QuanLyFile_BUS
         ];
     }
 
-    public static function getById(int $baoGiaId): ?array
-    {
-        $r = BG_File_DAL::getBanKyByBaoGia($baoGiaId);
-        if (!$r) return null;
-
-        $ten = basename((string)$r['ten_file']);
-        $r['la_anh']         = in_array(strtolower((string)$r['loai_file']), ['jpg', 'jpeg', 'png'], true);
-        $r['kich_thuoc_dep'] = BG_File_PUBLIC::dinhDangDungLuong((int)$r['kich_thuoc']);
-        $r['file_ton_tai']   = is_file(
-            self::thuMucTheoNhom($r['nhom_file'] ?? null, $r['duong_dan'] ?? null)
-            . DIRECTORY_SEPARATOR . $ten
-        );
-        return $r;
-    }
 }

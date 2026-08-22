@@ -187,23 +187,6 @@ class BG_File_DAL
         ];
     }
 
-    /** 1 dòng file kèm thông tin báo giá — dùng cho màn hình chi tiết */
-    public static function getBanKyByBaoGia(int $baoGiaId): ?array
-    {
-        $stmt = Database::getConnection()->prepare(
-            "SELECT f.*,
-                    bg.id AS bao_gia_id, bg.goi_thau_id, bg.ten_cong_ty, bg.ma_so_thue,
-                    bg.trang_thai, bg.nguoi_xac_nhan,
-                    gt.so_thong_bao, gt.ten_goi_thau
-             FROM bg_file f
-             INNER JOIN bg_bao_gia bg ON bg.file_ban_ky_id = f.id
-             INNER JOIN bg_goi_thau gt ON gt.id = bg.goi_thau_id
-             WHERE bg.id = :id AND f.da_xoa = 0 AND bg.da_xoa = 0"
-        );
-        $stmt->execute([':id' => $baoGiaId]);
-        $r = $stmt->fetch();
-        return $r ?: null;
-    }
 
     /**
      * Mọi tên file đang được tham chiếu (kể cả bản ghi đã soft delete),
@@ -253,13 +236,4 @@ class BG_File_DAL
         return $out;
     }
 
-    /** Đếm số báo giá đang trỏ tới 1 file (chặn xóa file còn dùng) */
-    public static function demBaoGiaDungFile(int $fileId): int
-    {
-        $stmt = Database::getConnection()->prepare(
-            "SELECT COUNT(*) FROM bg_bao_gia WHERE file_ban_ky_id = :fid AND da_xoa = 0"
-        );
-        $stmt->execute([':fid' => $fileId]);
-        return (int)$stmt->fetchColumn();
-    }
 }

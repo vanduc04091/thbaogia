@@ -31,12 +31,6 @@ try {
             ResponseHelper::success('OK', BG_QuanLyFile_BUS::thongKe(Helper::postInt('goi_thau_id', 0)));
             break;
 
-        case 'getById':
-            PhanQuyenHelper::requireQuyen($MODULE, PhanQuyenHelper::QUYEN_XEM);
-            $r = BG_QuanLyFile_BUS::getById(Helper::postInt('id'));
-            if (!$r) ResponseHelper::error('Không tìm thấy file');
-            ResponseHelper::success('OK', $r);
-            break;
 
         /** Chi tiết 1 file theo ID FILE (mọi nhóm: bản ký, catalog, Excel) */
         case 'getFile':
