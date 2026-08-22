@@ -184,23 +184,154 @@ try {
 
             $hangHoaId = Helper::postInt('hang_hoa_id');
             $input = [
-                'ten_thuong_mai'      => Helper::post('ten_thuong_mai', ''),
-                'model'               => Helper::post('model', ''),
-                'ma_hs'               => Helper::post('ma_hs', ''),
-                'hang_san_xuat'       => Helper::post('hang_san_xuat', ''),
-                'xuat_xu'             => Helper::post('xuat_xu', ''),
-                'quy_cach'            => Helper::post('quy_cach', ''),
-                'chi_phi_dich_vu'     => Helper::post('chi_phi_dich_vu', 0),
-                'thue_vat'            => Helper::post('thue_vat', 0),
-                'don_gia'             => Helper::post('don_gia', 0),
-                'chung_nhan_chao'     => Helper::post('chung_nhan_chao', ''),
-                'don_gia_trung_thau'  => Helper::post('don_gia_trung_thau', 0),
-                'tai_lieu_tham_chieu' => Helper::post('tai_lieu_tham_chieu', ''),
-                'ma_qr_hang_hoa'      => Helper::post('ma_qr_hang_hoa', ''),
-                'thong_so_chao_gia'   => Helper::post('thong_so_chao_gia', ''),
-                'diem_khong_dat'      => Helper::post('diem_khong_dat', ''),
+                // Mẫu 1: Bảng đáp ứng kỹ thuật
+                'thong_so_chao_gia'     => Helper::post('thong_so_chao_gia', ''),
+                'diem_khong_dat'        => Helper::post('diem_khong_dat', ''),
+                // Mẫu 2: Bảng chào giá
+                'ten_thuong_mai'        => Helper::post('ten_thuong_mai', ''),
+                'model'                 => Helper::post('model', ''),
+                'hang_san_xuat'         => Helper::post('hang_san_xuat', ''),
+                'xuat_xu'               => Helper::post('xuat_xu', ''),
+                'quy_cach'              => Helper::post('quy_cach', ''),
+                'don_gia'               => Helper::post('don_gia', 0),
+                'don_gia_trung_thau'    => Helper::post('don_gia_trung_thau', 0),
+                'tai_lieu_tham_chieu'   => Helper::post('tai_lieu_tham_chieu', ''),
             ];
             $res = BG_BaoGia_BUS::luuDongChaoGia($id, $hangHoaId, $input, $u);
+            $res['success']
+                ? ResponseHelper::success($res['message'], $res['data'] ?? null)
+                : ResponseHelper::error($res['message']);
+            break;
+
+        /**
+         * Lưu NHIỀU dòng cùng lúc — nút "Lưu và tiếp tục" ở Bước 2/3.
+         * Nhận mảng dong[] gửi kèm dạng JSON để tránh hàng trăm field POST.
+         */
+        case 'luuNhieuDong':
+            $id = Helper::postInt('bao_gia_id');
+            kiemTraBaoGiaThuocPhien($id, $gt);
+
+            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
+            if (!$conNhan['ok']) ResponseHelper::error($conNhan['message'], 403);
+
+            $json = (string)Helper::post('dong', '');
+            $dong = json_decode($json, true);
+            if (!is_array($dong)) ResponseHelper::error('Dữ liệu gửi lên không hợp lệ');
+
+            $res = BG_BaoGia_BUS::luuNhieuDong($id, $dong, $u);
+            $res['success']
+                ? ResponseHelper::success($res['message'], $res['data'] ?? null)
+                : ResponseHelper::error($res['message']);
+            break;
+
+        /** Bước 5 — bảng chỉ dẫn vị trí tài liệu */
+        case 'getBangCatalog':
+            $id = Helper::postInt('bao_gia_id');
+            kiemTraBaoGiaThuocPhien($id, $gt);
+            ResponseHelper::success('OK', [
+                'dong'        => BG_BaoGia_BUS::getBangCatalog($id),
+                'file'        => BG_BaoGia_BUS::fileCatalog($id),
+                // Bước 4 dùng chung action này để biết đã có bản ký chưa
+                'file_excel'  => BG_BaoGia_BUS::fileCatalogExcel($id),
+                'file_ban_ky' => BG_BaoGia_BUS::fileBanKy($id),
+                // UI dùng cờ này để chuyển sang chế độ CHỈ XEM
+                'da_hoan_thanh' => (int)(BG_BaoGia_BUS::getById($id)->da_hoan_thanh ?? 0),
+            ]);
+            break;
+
+        /** Bước 5 — lưu bảng chỉ dẫn vị trí tài liệu */
+        case 'luuCatalog':
+            $id = Helper::postInt('bao_gia_id');
+            kiemTraBaoGiaThuocPhien($id, $gt);
+
+            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
+            if (!$conNhan['ok']) ResponseHelper::error($conNhan['message'], 403);
+
+            $json = (string)Helper::post('dong', '');
+            $dong = json_decode($json, true);
+            if (!is_array($dong)) ResponseHelper::error('Dữ liệu gửi lên không hợp lệ');
+
+            $res = BG_BaoGia_BUS::luuCatalog($id, $dong, $u);
+            $res['success']
+                ? ResponseHelper::success($res['message'], $res['data'] ?? null)
+                : ResponseHelper::error($res['message']);
+            break;
+
+        /** Bước 5 — upload file Excel chỉ dẫn vị trí tài liệu */
+        case 'uploadCatalogExcel':
+            $id = Helper::postInt('bao_gia_id');
+
+            $duocPhep = false;
+            $idsCuaToi = SessionHelper::get(SS_BAO_GIA_CUA_TOI, []);
+            if (is_array($idsCuaToi) && in_array($id, $idsCuaToi, true)) {
+                $duocPhep = true;
+            }
+            if (!$duocPhep) {
+                $mst = (string)SessionHelper::get('portal_mst_tra_cuu', '');
+                if ($mst !== '' && BG_BaoGia_BUS::baoGiaCuaMst($id, $mst)) {
+                    $duocPhep = true;
+                }
+            }
+            if (!$duocPhep) {
+                ResponseHelper::error(
+                    'Bạn không có quyền tải file cho báo giá này. Hãy tra cứu bằng mã số thuế của công ty trước.',
+                    403
+                );
+            }
+
+            $bgKt = BG_BaoGia_BUS::getById($id);
+            if (!$bgKt || (int)$bgKt->da_xoa === 1) {
+                ResponseHelper::error('Không tìm thấy báo giá', 404);
+            }
+            if (!isset($_FILES['file'])) ResponseHelper::error('Chưa chọn file');
+
+            $res = BG_BaoGia_BUS::uploadCatalogExcel($id, $_FILES['file'], $u);
+            $res['success']
+                ? ResponseHelper::success($res['message'], $res['data'] ?? null)
+                : ResponseHelper::error($res['message']);
+            break;
+
+        /** Bước 5 — nhà thầu chốt hoàn thành, khóa mọi chỉnh sửa */
+        case 'hoanThanh':
+            $id = Helper::postInt('bao_gia_id');
+            kiemTraBaoGiaThuocPhien($id, $gt);
+
+            $res = BG_BaoGia_BUS::hoanThanh($id, $u);
+            $res['success']
+                ? ResponseHelper::success($res['message'], $res['data'] ?? null)
+                : ResponseHelper::error($res['message']);
+            break;
+
+        /** Bước 5 — upload file catalog đã ký */
+        case 'uploadCatalog':
+            $id = Helper::postInt('bao_gia_id');
+
+            // Cùng quy tắc quyền như uploadBanKy: của phiên này HOẶC đúng MST đã tra cứu
+            $duocPhep = false;
+            $idsCuaToi = SessionHelper::get(SS_BAO_GIA_CUA_TOI, []);
+            if (is_array($idsCuaToi) && in_array($id, $idsCuaToi, true)) {
+                $duocPhep = true;
+            }
+            if (!$duocPhep) {
+                $mst = (string)SessionHelper::get('portal_mst_tra_cuu', '');
+                if ($mst !== '' && BG_BaoGia_BUS::baoGiaCuaMst($id, $mst)) {
+                    $duocPhep = true;
+                }
+            }
+            if (!$duocPhep) {
+                ResponseHelper::error(
+                    'Bạn không có quyền tải file cho báo giá này. Hãy tra cứu bằng mã số thuế của công ty trước.',
+                    403
+                );
+            }
+
+            $bgKt = BG_BaoGia_BUS::getById($id);
+            if (!$bgKt || (int)$bgKt->da_xoa === 1) {
+                ResponseHelper::error('Không tìm thấy báo giá', 404);
+            }
+            if (!isset($_FILES['file'])) ResponseHelper::error('Chưa chọn file');
+
+            $res = BG_BaoGia_BUS::uploadCatalog($id, $_FILES['file'], $u);
             $res['success']
                 ? ResponseHelper::success($res['message'], $res['data'] ?? null)
                 : ResponseHelper::error($res['message']);

@@ -557,4 +557,71 @@ class QrHelper
 
         return $p;
     }
+
+    /**
+     * Xuat QR ra anh PNG (chuoi nhi phan) — dung de nhung vao file Word.
+     *
+     * Tu viet encoder PNG vi may chu khong bat extension GD. QR chi co 2 mau
+     * nen dung anh xam 8-bit, nen bang gzcompress (zlib co san trong PHP).
+     *
+     * @param string $text   Noi dung QR
+     * @param int    $scale  So diem anh cho moi o QR
+     * @param int    $margin So o trong vien (chuan ISO khuyen nghi 4)
+     */
+    public static function png(string $text, int $scale = 8, int $margin = 4): string
+    {
+        $m = self::matrix($text);
+        $n = count($m);
+        if ($n === 0) throw new RuntimeException('Khong sinh duoc ma QR');
+
+        $scale  = max(1, min(40, $scale));
+        $margin = max(0, min(16, $margin));
+
+        $o = $n + $margin * 2;           // so o ke ca vien
+        $px = $o * $scale;               // kich thuoc anh (diem anh)
+
+        // --- Du lieu tho: moi dong bat dau bang 1 byte filter (0 = None) ---
+        $raw = '';
+        for ($y = 0; $y < $o; $y++) {
+            $oy = $y - $margin;                       // toa do o theo truc doc
+            $dong = '';
+            for ($x = 0; $x < $o; $x++) {
+                $ox = $x - $margin;
+                $den = ($oy >= 0 && $oy < $n && $ox >= 0 && $ox < $n && $m[$oy][$ox]);
+                $dong .= str_repeat($den ? "\x00" : "\xFF", $scale);
+            }
+            // Lap lai dong do $scale lan (phong to theo chieu doc)
+            for ($k = 0; $k < $scale; $k++) {
+                $raw .= "\x00" . $dong;
+            }
+        }
+
+        // --- Ghep cac chunk PNG ---
+        $png = "\x89PNG\r\n\x1a\n";
+
+        // IHDR: rong, cao, 8 bit, mau xam (type 0)
+        $ihdr = pack('NN', $px, $px) . "\x08\x00\x00\x00\x00";
+        $png .= self::chunkPng('IHDR', $ihdr);
+        $png .= self::chunkPng('IDAT', gzcompress($raw, 9));
+        $png .= self::chunkPng('IEND', '');
+
+        return $png;
+    }
+
+    /** Dong goi 1 chunk PNG: [do dai][ten][du lieu][CRC] */
+    private static function chunkPng(string $ten, string $data): string
+    {
+        return pack('N', strlen($data)) . $ten . $data
+             . pack('N', crc32($ten . $data));
+    }
+
+    /** Ghi thang QR ra file PNG, tra ve duong dan */
+    public static function pngFile(string $text, string $path, int $scale = 8, int $margin = 4): string
+    {
+        if (file_put_contents($path, self::png($text, $scale, $margin)) === false) {
+            throw new RuntimeException('Khong ghi duoc file QR: ' . $path);
+        }
+        return $path;
+    }
+
 }

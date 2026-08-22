@@ -213,9 +213,9 @@ require __DIR__ . '/../layouts/header.php';
                         <button type="button" class="btn btn-sm btn-outline-primary" onclick="copyUrl()">
                             <?= IconHelper::svg('copy', 15) ?><span class="btn-label">Sao chép link</span>
                         </button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="inQr()">
-                            <?= IconHelper::svg('printer', 15) ?><span class="btn-label">In mã QR</span>
-                        </button>
+                        <a class="btn btn-sm btn-primary" id="btnThuMoi" href="#">
+                            <?= IconHelper::svg('printer', 15) ?><span class="btn-label">In Thư mời (Word)</span>
+                        </a>
                         <?php if ($canEdit): ?>
                         <?php endif; ?>
                     </div>
@@ -237,6 +237,7 @@ var AJAX_URL = <?= json_encode($AJAX) ?>;
 var URL_HANG_HOA = <?= json_encode(AppConfig::baseUrl('GUI/BG_HangHoa/index.php')) ?>;
 var URL_BAO_GIA  = <?= json_encode(AppConfig::baseUrl('GUI/BG_BaoGia/index.php')) ?>;
 var URL_TONG_HOP = <?= json_encode(AppConfig::baseUrl('GUI/BG_TongHop/index.php')) ?>;
+var URL_TAI_THU_MOI = <?= json_encode(AppConfig::baseUrl('GUI/BG_GoiThau/download.php')) ?>;
 var CAN = { add: <?= $canAdd ? 'true' : 'false' ?>, edit: <?= $canEdit ? 'true' : 'false' ?>, del: <?= $canDel ? 'true' : 'false' ?> };
 var TT = <?= json_encode(BG_GoiThau_PUBLIC::danhSachTrangThai(), JSON_UNESCAPED_UNICODE) ?>;
 var TT_DANG_MO = <?= (int)BG_GoiThau_PUBLIC::TT_DANG_MO ?>;
@@ -499,6 +500,9 @@ function showQr(id) {
                        '</strong> — chưa nhận báo giá. Hãy chuyển sang "Đang mở".</div>';
             }
             $('#qrWarn').html(warn);
+            // Link tải Thư mời Word (đã tự điền QR, đường dẫn, tài khoản)
+            $('#btnThuMoi').attr('href',
+                URL_TAI_THU_MOI + '?goi_thau_id=' + id);
             $('#qrModal').addClass('open');
         }
     });

@@ -195,7 +195,7 @@ function render() {
         if (!dsChao.length) {
             html += '<tr>' +
                 '<td class="col-id">' + stt + '</td>' +
-                '<td>' + APP.escape(r.stt_theo_phan || r.ten_phan || '—') + '</td>' +
+                '<td>' + APP.escape(r.ma_hh || '—') + '</td>' +
                 '<td class="sticky-col"><span class="cell-main">' + APP.escape(r.ten_hang_hoa) + '</span></td>' +
                 '<td>' + APP.escape(r.dvt || '—') + '</td>' +
                 '<td class="col-qty">' + Number(r.so_luong || 0).toLocaleString('vi-VN') + '</td>' +
@@ -215,7 +215,7 @@ function render() {
 
             if (laDongDau) {
                 html += '<td class="col-id"' + rs + '>' + stt + '</td>' +
-                    '<td' + rs + '>' + APP.escape(r.stt_theo_phan || r.ten_phan || '—') + '</td>' +
+                    '<td' + rs + '>' + APP.escape(r.ma_hh || '—') + '</td>' +
                     '<td class="sticky-col"' + rs + '><span class="cell-main">' +
                         APP.escape(r.ten_hang_hoa) + '</span>' +
                         '<span class="cell-sub">' + dsChao.length + '/' + nt.length + ' nhà thầu chào</span></td>' +

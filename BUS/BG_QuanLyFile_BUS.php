@@ -28,10 +28,13 @@ class BG_QuanLyFile_BUS
         $res = BG_File_DAL::getPagedBanKy($page, $pageSize, $goiThauId, $search, $loaiFile, $sapXep);
 
         // Bổ sung thông tin suy ra để GUI khỏi tự tính
-        $dir = BG_BaoGia_BUS::thuMucBanKy();
         foreach ($res['data'] as &$r) {
             $ten = basename((string)$r['ten_file']);
+            // Thư mục tùy NHÓM file: ban_ky/ hay catalog/ — không dùng chung
+            // một thư mục, nếu không catalog sẽ bị báo nhầm là "Mất file".
+            $dir = self::thuMucTheoNhom($r['nhom_file'] ?? null, $r['duong_dan'] ?? null);
             $r['la_anh']         = in_array(strtolower((string)$r['loai_file']), ['jpg', 'jpeg', 'png'], true);
+            $r['la_excel']       = in_array(strtolower((string)$r['loai_file']), ['xlsx', 'xls'], true);
             $r['kich_thuoc_dep'] = BG_File_PUBLIC::dinhDangDungLuong((int)$r['kich_thuoc']);
             // Cảnh báo khi DB có bản ghi nhưng file đã biến mất khỏi đĩa
             $r['file_ton_tai']   = is_file($dir . DIRECTORY_SEPARATOR . $ten);
@@ -61,6 +64,69 @@ class BG_QuanLyFile_BUS
      * "Chờ xác nhận" nếu trước đó do chính bản ký xác nhận (nguoi_xac_nhan = NULL).
      * Nếu nhân viên đã tích tay xác nhận thì giữ nguyên trạng thái.
      */
+    /**
+     * Xoa 1 file theo ID FILE — dung cho ca 3 nhom (ban_ky, catalog, catalog_excel).
+     *
+     * Rieng ban ky: neu nha thau tu xac nhan bang chinh file do (nguoi_xac_nhan
+     * = NULL) thi xoa file phai keo bao gia ve "Cho xac nhan", neu khong bao gia
+     * se dung "Da xac nhan" ma khong con bang chung nao.
+     */
+    public static function xoaFileTheoId(int $fileId, int $u): array
+    {
+        $f = BG_File_DAL::getById($fileId);
+        if (!$f || (int)$f->da_xoa === 1) {
+            return ['success' => false, 'message' => 'Không tìm thấy file'];
+        }
+
+        // Tìm báo giá đang trỏ tới file này
+        $bg = BG_File_DAL::baoGiaDungFile($fileId);
+        if (!$bg) {
+            return ['success' => false, 'message' => 'Không tìm thấy báo giá dùng file này'];
+        }
+
+        $baoGiaId = (int)$bg['id'];
+        $nhom     = (string)$f->nhom_file;
+        $tenFile  = (string)$f->ten_file;
+        $dir      = self::thuMucTheoNhom($nhom, $f->duong_dan);
+
+        try {
+            Database::beginTransaction();
+
+            if ($nhom === BG_File_PUBLIC::NHOM_CATALOG) {
+                BG_BaoGia_DAL::updateCatalog($baoGiaId, null);
+            } elseif ($nhom === BG_File_PUBLIC::NHOM_CATALOG_EXCEL) {
+                BG_BaoGia_DAL::updateCatalogExcel($baoGiaId, null);
+            } else {
+                // Bản ký — giữ nguyên nghiệp vụ cũ
+                $tuKy = ($bg['nguoi_xac_nhan'] === null)
+                     && (int)$bg['trang_thai'] === BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN;
+                BG_BaoGia_DAL::xoaBanKy($baoGiaId, $u);
+                if ($tuKy) {
+                    BG_BaoGia_DAL::updateXacNhan($baoGiaId, BG_BaoGia_PUBLIC::TT_CHO_XAC_NHAN, null, $u);
+                }
+            }
+
+            BG_File_DAL::softDelete($fileId, $u);
+
+            DM_NhatKyHeThong_DAL::log(
+                $u, self::MODULE_LOG,
+                "Xóa file [{$nhom}] {$tenFile} của {$bg['ten_cong_ty']}",
+                'bg_file', $fileId
+            );
+
+            Database::commit();
+        } catch (Throwable $ex) {
+            Database::rollBack();
+            return ['success' => false, 'message' => 'Lỗi: ' . $ex->getMessage()];
+        }
+
+        // Xóa file trên đĩa SAU khi DB đã commit
+        $path = $dir . DIRECTORY_SEPARATOR . basename($tenFile);
+        if (is_file($path)) @unlink($path);
+
+        return ['success' => true, 'message' => 'Đã xóa file ' . $tenFile];
+    }
+
     public static function xoaFile(int $baoGiaId, int $u): array
     {
         $bg = BG_BaoGia_DAL::getById($baoGiaId);
@@ -187,6 +253,46 @@ class BG_QuanLyFile_BUS
     }
 
     /** Thông tin 1 file để hiển thị chi tiết (theo id BÁO GIÁ) */
+    /**
+     * Thu muc luu file theo nhom.
+     * ban_ky -> assets/uploads/ban_ky ; catalog & catalog_excel -> .../catalog
+     */
+    public static function thuMucTheoNhom(?string $nhom, ?string $duongDan = null): string
+    {
+        $key = (string)($duongDan ?: $nhom);
+        return $key === 'catalog'
+            ? BG_BaoGia_BUS::thuMucCatalog()
+            : BG_BaoGia_BUS::thuMucBanKy();
+    }
+
+    /**
+     * Lay 1 file theo ID FILE (khong phai id bao gia).
+     * Can thiet vi 1 bao gia gio co nhieu file: ban ky, catalog, Excel chi dan.
+     */
+    public static function getFileById(int $fileId): ?array
+    {
+        $f = BG_File_DAL::getById($fileId);
+        if (!$f || (int)$f->da_xoa === 1) return null;
+
+        $ten  = basename((string)$f->ten_file);
+        $dir  = self::thuMucTheoNhom($f->nhom_file, $f->duong_dan);
+
+        return [
+            'id'             => (int)$f->id,
+            'ten_file'       => $ten,
+            'ten_file_goc'   => $f->ten_file_goc,
+            'loai_file'      => $f->loai_file,
+            'mime_type'      => $f->mime_type,
+            'kich_thuoc'     => (int)$f->kich_thuoc,
+            'nhom_file'      => $f->nhom_file,
+            'duong_dan_day'  => $dir . DIRECTORY_SEPARATOR . $ten,
+            'la_anh'         => in_array(strtolower((string)$f->loai_file), ['jpg', 'jpeg', 'png'], true),
+            'la_excel'       => in_array(strtolower((string)$f->loai_file), ['xlsx', 'xls'], true),
+            'kich_thuoc_dep' => BG_File_PUBLIC::dinhDangDungLuong((int)$f->kich_thuoc),
+            'file_ton_tai'   => is_file($dir . DIRECTORY_SEPARATOR . $ten),
+        ];
+    }
+
     public static function getById(int $baoGiaId): ?array
     {
         $r = BG_File_DAL::getBanKyByBaoGia($baoGiaId);
@@ -195,7 +301,10 @@ class BG_QuanLyFile_BUS
         $ten = basename((string)$r['ten_file']);
         $r['la_anh']         = in_array(strtolower((string)$r['loai_file']), ['jpg', 'jpeg', 'png'], true);
         $r['kich_thuoc_dep'] = BG_File_PUBLIC::dinhDangDungLuong((int)$r['kich_thuoc']);
-        $r['file_ton_tai']   = is_file(BG_BaoGia_BUS::thuMucBanKy() . DIRECTORY_SEPARATOR . $ten);
+        $r['file_ton_tai']   = is_file(
+            self::thuMucTheoNhom($r['nhom_file'] ?? null, $r['duong_dan'] ?? null)
+            . DIRECTORY_SEPARATOR . $ten
+        );
         return $r;
     }
 }

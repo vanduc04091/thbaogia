@@ -153,19 +153,10 @@ require __DIR__ . '/../layouts/header.php';
 
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="ten_phan">Tên phần</label>
-                            <input type="text" id="ten_phan" name="ten_phan" class="form-control"
-                                   maxlength="200" placeholder="VD: Phần 1">
-                        </div>
-                        <div class="form-group">
-                            <label for="stt_theo_phan">STT theo phần</label>
-                            <input type="text" id="stt_theo_phan" name="stt_theo_phan" class="form-control"
-                                   maxlength="50" placeholder="VD: P1.1">
-                        </div>
-                        <div class="form-group">
-                            <label for="stt_thong_bao">STT thông báo</label>
-                            <input type="text" id="stt_thong_bao" name="stt_thong_bao" class="form-control"
-                                   maxlength="50" placeholder="VD: 1">
+                            <label for="ma_hh">Mã HH</label>
+                            <input type="text" id="ma_hh" name="ma_hh" class="form-control"
+                                   maxlength="50" placeholder="VD: VT001">
+                            <div class="form-hint">Bỏ trống để hệ thống tự sinh (HH001, HH002...).</div>
                         </div>
                     </div>
 
@@ -194,22 +185,8 @@ require __DIR__ . '/../layouts/header.php';
                         </div>
                     </div>
 
-                    <div class="form-group">
-                        <label for="chung_nhan">Chứng nhận yêu cầu</label>
-                        <textarea id="chung_nhan" name="chung_nhan" class="form-control" rows="2"
-                                  placeholder="VD: FDA (Mỹ) hoặc MHLW/PMDA (Nhật Bản) hoặc CE (MDR)"></textarea>
-                    </div>
 
-                    <div class="form-group">
-                        <label for="yeu_cau_xuat_xu">Yêu cầu xuất xứ</label>
-                        <textarea id="yeu_cau_xuat_xu" name="yeu_cau_xuat_xu" class="form-control" rows="2"
-                                  placeholder="VD: Nhóm G7, Liên minh Châu Âu (EU), Úc"></textarea>
-                    </div>
 
-                    <div class="form-group">
-                        <label for="yeu_cau_tro_cu">Yêu cầu về trợ cụ / máy phụ trợ</label>
-                        <textarea id="yeu_cau_tro_cu" name="yeu_cau_tro_cu" class="form-control" rows="2"></textarea>
-                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeModal()">Hủy</button>
@@ -332,8 +309,7 @@ function renderTable(rows) {
         if (!actions) actions = '<span class="text-muted">—</span>';
 
         var phan = '';
-        if (r.ten_phan) phan += APP.escape(r.ten_phan);
-        if (r.stt_theo_phan) phan += (phan ? '<span class="cell-sub">' + APP.escape(r.stt_theo_phan) + '</span>' : APP.escape(r.stt_theo_phan));
+        phan = r.ma_hh ? '<span class="text-mono">' + APP.escape(r.ma_hh) + '</span>' : '<span class="text-muted">—</span>';
         if (!phan) phan = '<span class="text-muted">—</span>';
 
         var tskt = r.thong_so_ky_thuat
@@ -373,17 +349,11 @@ function edit(id) {
             $('#id').val(d.id);
             $('#goi_thau_id').val(d.goi_thau_id);
             $('#thu_tu').val(d.thu_tu || 0);
-            $('#ten_phan').val(d.ten_phan || '');
-            $('#stt_theo_phan').val(d.stt_theo_phan || '');
-            $('#stt_thong_bao').val(d.stt_thong_bao || '');
+            $('#ma_hh').val(d.ma_hh || '');
             $('#ten_hang_hoa').val(d.ten_hang_hoa || '');
             $('#thong_so_ky_thuat').val(d.thong_so_ky_thuat || '');
             $('#dvt').val(d.dvt || '');
-            $('#so_luong').val(d.so_luong || 0);
-            $('#chung_nhan').val(d.chung_nhan || '');
-            $('#yeu_cau_xuat_xu').val(d.yeu_cau_xuat_xu || '');
-            $('#yeu_cau_tro_cu').val(d.yeu_cau_tro_cu || '');
-            APP.clearFieldErrors('#form');
+            $('#so_luong').val(d.so_luong || 0);            APP.clearFieldErrors('#form');
             $('#modal').addClass('open');
         }
     });
@@ -494,7 +464,7 @@ function doPreview() {
             var r = rows[i];
             html += '<tr>' +
                 '<td class="col-id">' + APP.escape(r.row) + '</td>' +
-                '<td>' + APP.escape(r.stt_theo_phan || r.ten_phan || '—') + '</td>' +
+                '<td>' + APP.escape(r.ma_hh || '—') + '</td>' +
                 '<td>' + APP.escape(r.ten_hang_hoa) + '</td>' +
                 '<td>' + APP.escape(r.dvt || '—') + '</td>' +
                 '<td class="col-qty">' + Number(r.so_luong || 0).toLocaleString('vi-VN') + '</td>' +

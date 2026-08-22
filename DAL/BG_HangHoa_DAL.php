@@ -14,57 +14,50 @@ class BG_HangHoa_DAL
     public static function insert(BG_HangHoa_PUBLIC $e): int
     {
         $sql = "INSERT INTO bg_hang_hoa
-                    (goi_thau_id, ten_phan, stt_theo_phan, stt_thong_bao, ten_hang_hoa,
-                     thong_so_ky_thuat, chung_nhan, yeu_cau_xuat_xu, dvt, so_luong,
-                     yeu_cau_tro_cu, thu_tu, ngay_tao, ngay_cap_nhat, nguoi_tao, nguoi_cap_nhat, da_xoa)
-                VALUES (:gt, :tp, :stp, :stb, :thh, :tskt, :cn, :ycxx, :dvt, :sl,
-                        :yctc, :ttu, NOW(), NOW(), :nt1, :nt2, 0)";
+                    (goi_thau_id, ma_hh, ten_hang_hoa, thong_so_ky_thuat, dvt, so_luong,
+                     thu_tu, ngay_tao, ngay_cap_nhat, nguoi_tao, nguoi_cap_nhat, da_xoa)
+                VALUES (:gt, :ma, :thh, :tskt, :dvt, :sl, :ttu, NOW(), NOW(), :nt1, :nt2, 0)";
         $stmt = Database::getConnection()->prepare($sql);
-        $stmt->execute(self::bindParams($e) + [':nt1' => $e->nguoi_tao, ':nt2' => $e->nguoi_tao]);
+        $stmt->execute([
+            ':gt'   => $e->goi_thau_id,
+            ':ma'   => $e->ma_hh,
+            ':thh'  => $e->ten_hang_hoa,
+            ':tskt' => $e->thong_so_ky_thuat,
+            ':dvt'  => $e->dvt,
+            ':sl'   => $e->so_luong,
+            ':ttu'  => $e->thu_tu,
+            ':nt1'  => $e->nguoi_tao,
+            ':nt2'  => $e->nguoi_tao,
+        ]);
         return (int)Database::getConnection()->lastInsertId();
     }
 
     public static function update(BG_HangHoa_PUBLIC $e): int
     {
         $sql = "UPDATE bg_hang_hoa SET
-                    goi_thau_id = :gt,
-                    ten_phan = :tp,
-                    stt_theo_phan = :stp,
-                    stt_thong_bao = :stb,
+                    ma_hh = :ma,
                     ten_hang_hoa = :thh,
                     thong_so_ky_thuat = :tskt,
-                    chung_nhan = :cn,
-                    yeu_cau_xuat_xu = :ycxx,
                     dvt = :dvt,
                     so_luong = :sl,
-                    yeu_cau_tro_cu = :yctc,
                     thu_tu = :ttu,
                     ngay_cap_nhat = NOW(),
                     nguoi_cap_nhat = :ncn
                 WHERE id = :id AND da_xoa = 0";
         $stmt = Database::getConnection()->prepare($sql);
-        $stmt->execute(self::bindParams($e) + [':ncn' => $e->nguoi_cap_nhat, ':id' => $e->id]);
+        $stmt->execute([
+            ':ma'   => $e->ma_hh,
+            ':thh'  => $e->ten_hang_hoa,
+            ':tskt' => $e->thong_so_ky_thuat,
+            ':dvt'  => $e->dvt,
+            ':sl'   => $e->so_luong,
+            ':ttu'  => $e->thu_tu,
+            ':ncn'  => $e->nguoi_cap_nhat,
+            ':id'   => $e->id,
+        ]);
         return $stmt->rowCount();
     }
 
-    /** Tham số dùng chung cho insert/update */
-    private static function bindParams(BG_HangHoa_PUBLIC $e): array
-    {
-        return [
-            ':gt'   => $e->goi_thau_id,
-            ':tp'   => $e->ten_phan,
-            ':stp'  => $e->stt_theo_phan,
-            ':stb'  => $e->stt_thong_bao,
-            ':thh'  => $e->ten_hang_hoa,
-            ':tskt' => $e->thong_so_ky_thuat,
-            ':cn'   => $e->chung_nhan,
-            ':ycxx' => $e->yeu_cau_xuat_xu,
-            ':dvt'  => $e->dvt,
-            ':sl'   => $e->so_luong,
-            ':yctc' => $e->yeu_cau_tro_cu,
-            ':ttu'  => $e->thu_tu,
-        ];
-    }
 
     /**
      * Đếm số nhà thầu ĐÃ CHÀO GIÁ (đơn giá > 0) cho 1 hàng hóa.
@@ -83,6 +76,40 @@ class BG_HangHoa_DAL
         );
         $stmt->execute([':id' => $hangHoaId]);
         return (int)$stmt->fetchColumn();
+    }
+
+    /**
+     * Mã HH đã tồn tại trong gói thầu chưa (không tính chính dòng đang sửa).
+     * Mã trùng làm nhà thầu không biết chào cho hàng nào.
+     */
+    public static function maHhExists(string $maHh, int $goiThauId, int $excludeId = 0): bool
+    {
+        $maHh = trim($maHh);
+        if ($maHh === '' || $goiThauId <= 0) return false;
+
+        $stmt = Database::getConnection()->prepare(
+            "SELECT COUNT(*) FROM bg_hang_hoa
+             WHERE ma_hh = :ma AND goi_thau_id = :gt AND da_xoa = 0 AND id <> :id"
+        );
+        $stmt->execute([':ma' => $maHh, ':gt' => $goiThauId, ':id' => $excludeId]);
+        return (int)$stmt->fetchColumn() > 0;
+    }
+
+    /** Mã HH lớn nhất dạng HHxxx trong gói thầu — dùng để sinh mã kế tiếp */
+    public static function soThuTuMaLonNhat(int $goiThauId): int
+    {
+        $stmt = Database::getConnection()->prepare(
+            "SELECT ma_hh FROM bg_hang_hoa
+             WHERE goi_thau_id = :gt AND da_xoa = 0 AND ma_hh REGEXP '^HH[0-9]+$'"
+        );
+        $stmt->execute([':gt' => $goiThauId]);
+
+        $max = 0;
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $ma) {
+            $n = (int)substr((string)$ma, 2);
+            if ($n > $max) $max = $n;
+        }
+        return $max;
     }
 
     public static function softDelete(int $id, int $u): int
@@ -161,12 +188,11 @@ class BG_HangHoa_DAL
         if ($search !== '') {
             // :s1..:s4 — không reuse placeholder
             $where .= ' AND (hh.ten_hang_hoa LIKE :s1 OR hh.thong_so_ky_thuat LIKE :s2
-                             OR hh.ten_phan LIKE :s3 OR hh.stt_theo_phan LIKE :s4) ';
+                             OR hh.ma_hh LIKE :s3) ';
             $like = "%{$search}%";
             $params[':s1'] = $like;
             $params[':s2'] = $like;
             $params[':s3'] = $like;
-            $params[':s4'] = $like;
         }
 
         $stmt = Database::getConnection()->prepare("SELECT COUNT(*) FROM bg_hang_hoa hh" . $where);
@@ -209,27 +235,21 @@ class BG_HangHoa_DAL
     {
         if (empty($items)) return 0;
 
-        $cols = '(goi_thau_id, ten_phan, stt_theo_phan, stt_thong_bao, ten_hang_hoa,
-                  thong_so_ky_thuat, chung_nhan, yeu_cau_xuat_xu, dvt, so_luong,
-                  yeu_cau_tro_cu, thu_tu, ngay_tao, ngay_cap_nhat, nguoi_tao, nguoi_cap_nhat, da_xoa)';
+        $cols = '(goi_thau_id, ma_hh, ten_hang_hoa, thong_so_ky_thuat, dvt, so_luong,
+                  thu_tu, ngay_tao, ngay_cap_nhat, nguoi_tao, nguoi_cap_nhat, da_xoa)';
 
         $rows = [];
         $params = [];
         foreach ($items as $i => $e) {
-            $rows[] = "(:gt_{$i}, :tp_{$i}, :stp_{$i}, :stb_{$i}, :thh_{$i}, :tskt_{$i}, :cn_{$i},
-                        :ycxx_{$i}, :dvt_{$i}, :sl_{$i}, :yctc_{$i}, :ttu_{$i},
-                        NOW(), NOW(), :ntao_{$i}, :ncn_{$i}, 0)";
+            // Placeholder PHẢI có dấu ngăn `_` (§3.3): :ma{$i} + :ma2{$i} sẽ đụng nhau
+            $rows[] = "(:gt_{$i}, :ma_{$i}, :thh_{$i}, :tskt_{$i}, :dvt_{$i}, :sl_{$i},
+                        :ttu_{$i}, NOW(), NOW(), :ntao_{$i}, :ncn_{$i}, 0)";
             $params[":gt_{$i}"]   = $e->goi_thau_id;
-            $params[":tp_{$i}"]   = $e->ten_phan;
-            $params[":stp_{$i}"]  = $e->stt_theo_phan;
-            $params[":stb_{$i}"]  = $e->stt_thong_bao;
+            $params[":ma_{$i}"]   = $e->ma_hh;
             $params[":thh_{$i}"]  = $e->ten_hang_hoa;
             $params[":tskt_{$i}"] = $e->thong_so_ky_thuat;
-            $params[":cn_{$i}"]   = $e->chung_nhan;
-            $params[":ycxx_{$i}"] = $e->yeu_cau_xuat_xu;
             $params[":dvt_{$i}"]  = $e->dvt;
             $params[":sl_{$i}"]   = $e->so_luong;
-            $params[":yctc_{$i}"] = $e->yeu_cau_tro_cu;
             $params[":ttu_{$i}"]  = $e->thu_tu;
             $params[":ntao_{$i}"] = $e->nguoi_tao;
             $params[":ncn_{$i}"]  = $e->nguoi_tao;

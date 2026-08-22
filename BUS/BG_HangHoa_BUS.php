@@ -17,25 +17,40 @@ class BG_HangHoa_BUS
     const BATCH_SIZE = 100;
 
     /** Chỉ số cột (0-based) trong file mẫu — phần bên mời điền: A..K */
-    const COL_TEN_PHAN      = 0;  // A
-    const COL_STT_PHAN      = 1;  // B
-    const COL_STT_TB        = 2;  // C
-    const COL_TEN_HANG_HOA  = 3;  // D
-    const COL_THONG_SO      = 4;  // E
-    const COL_CHUNG_NHAN    = 5;  // F
-    const COL_XUAT_XU       = 6;  // G
-    const COL_DVT           = 7;  // H
-    const COL_SO_LUONG      = 8;  // I
-    const COL_TRO_CU        = 9;  // J
+    // Cột file mẫu theo **Phụ lục III — Bảng mô tả yêu cầu kỹ thuật cơ bản**:
+    //   A: STT | B: Mã HH | C: Tên hàng hóa chào giá
+    //   D: Yêu cầu kỹ thuật mời chào giá | E: ĐVT | F: Số lượng
+    const COL_STT           = 0;  // A
+    const COL_MA_HH         = 1;  // B
+    const COL_TEN_HANG_HOA  = 2;  // C
+    const COL_THONG_SO      = 3;  // D
+    const COL_DVT           = 4;  // E
+    const COL_SO_LUONG      = 5;  // F
 
-    private static function validate(BG_HangHoa_PUBLIC $e): string
+    private static function validate(BG_HangHoa_PUBLIC $e, bool $isUpdate = false): string
     {
         $e->ten_hang_hoa = trim($e->ten_hang_hoa);
+        $e->ma_hh        = trim((string)$e->ma_hh);
+
         if ($e->goi_thau_id <= 0) return 'Chưa chọn gói thầu';
         if ($e->ten_hang_hoa === '') return 'Tên hàng hóa không được để trống';
         if (mb_strlen($e->ten_hang_hoa) > 1000) return 'Tên hàng hóa tối đa 1000 ký tự';
         if ($e->so_luong < 0) return 'Số lượng không được âm';
         if ($e->so_luong > 99999999) return 'Số lượng quá lớn';
+
+        // Mã HH bỏ trống → tự sinh HH001, HH002... theo gói thầu
+        if ($e->ma_hh === '') {
+            $e->ma_hh = 'HH' . str_pad(
+                (string)(BG_HangHoa_DAL::soThuTuMaLonNhat($e->goi_thau_id) + 1), 3, '0', STR_PAD_LEFT
+            );
+        }
+        if (mb_strlen($e->ma_hh) > 50) return 'Mã HH tối đa 50 ký tự';
+
+        // Trùng mã trong cùng gói thầu → nhà thầu không biết chào cho hàng nào
+        $excludeId = $isUpdate ? (int)$e->id : 0;
+        if (BG_HangHoa_DAL::maHhExists($e->ma_hh, $e->goi_thau_id, $excludeId)) {
+            return 'Mã HH "' . $e->ma_hh . '" đã tồn tại trong gói thầu này';
+        }
         return '';
     }
 
@@ -71,7 +86,7 @@ class BG_HangHoa_BUS
         // Không cho chuyển hàng hóa sang gói thầu khác (giữ toàn vẹn chi tiết báo giá đã có)
         $e->goi_thau_id = (int)$cu->goi_thau_id;
 
-        $err = self::validate($e);
+        $err = self::validate($e, true);
         if ($err !== '') return ['success' => false, 'message' => $err];
 
         try {
@@ -164,27 +179,37 @@ class BG_HangHoa_BUS
             return ['success' => false, 'message' => 'File không có dữ liệu'];
         }
 
-        // Kiểm tra file có đúng định dạng mẫu: dòng 1 phải có header quen thuộc
-        $header = $rows[1] ?? [];
-        $tenCotD = ExcelHelper::toText($header[self::COL_TEN_HANG_HOA] ?? '');
-        if (mb_stripos($tenCotD, 'hàng ho') === false && mb_stripos($tenCotD, 'hang ho') === false) {
+        // Kiểm tra đúng định dạng Phụ lục III: dò header ở 5 dòng đầu
+        // (file thật có thể có 1-2 dòng tiêu đề phía trên).
+        $dongHeader = 0;
+        for ($d = 1; $d <= 5; $d++) {
+            $ten = ExcelHelper::toText($rows[$d][self::COL_TEN_HANG_HOA] ?? '');
+            if (mb_stripos($ten, 'hàng ho') !== false || mb_stripos($ten, 'hang ho') !== false) {
+                $dongHeader = $d;
+                break;
+            }
+        }
+        if ($dongHeader === 0) {
             return [
                 'success' => false,
-                'message' => 'File không đúng định dạng mẫu. Cột D (dòng 1) phải là "Tên hàng hoá". '
+                'message' => 'File không đúng định dạng Phụ lục III. Cần các cột: '
+                           . 'STT | Mã HH | Tên hàng hóa chào giá | Yêu cầu kỹ thuật | ĐVT | Số lượng. '
                            . 'Hãy tải file mẫu và điền theo đúng cấu trúc.',
             ];
         }
+        // Dữ liệu bắt đầu ngay sau dòng header
+        $dongBatDau = $dongHeader + 1;
 
         $data = [];
         $loi = [];
         foreach ($rows as $rowNo => $cells) {
-            if ($rowNo < self::EXCEL_DATA_ROW) continue;   // bỏ header + 3 dòng hướng dẫn
+            if ($rowNo < $dongBatDau) continue;   // bỏ tiêu đề + header
 
             $tenHangHoa = ExcelHelper::toText($cells[self::COL_TEN_HANG_HOA] ?? '', 1000);
             // Dòng trắng → bỏ qua im lặng
             if ($tenHangHoa === '') {
                 $coDuLieu = false;
-                foreach ([self::COL_TEN_PHAN, self::COL_STT_PHAN, self::COL_THONG_SO, self::COL_SO_LUONG] as $c) {
+                foreach ([self::COL_MA_HH, self::COL_THONG_SO, self::COL_DVT, self::COL_SO_LUONG] as $c) {
                     if (ExcelHelper::toText($cells[$c] ?? '') !== '') { $coDuLieu = true; break; }
                 }
                 if ($coDuLieu) {
@@ -204,16 +229,11 @@ class BG_HangHoa_BUS
 
             $data[] = [
                 'row'               => $rowNo,
-                'ten_phan'          => ExcelHelper::toText($cells[self::COL_TEN_PHAN] ?? '', 200),
-                'stt_theo_phan'     => ExcelHelper::toText($cells[self::COL_STT_PHAN] ?? '', 50),
-                'stt_thong_bao'     => self::chuanHoaStt($cells[self::COL_STT_TB] ?? ''),
+                'ma_hh'             => ExcelHelper::toText($cells[self::COL_MA_HH] ?? '', 50),
                 'ten_hang_hoa'      => $tenHangHoa,
                 'thong_so_ky_thuat' => ExcelHelper::toText($cells[self::COL_THONG_SO] ?? ''),
-                'chung_nhan'        => ExcelHelper::toText($cells[self::COL_CHUNG_NHAN] ?? ''),
-                'yeu_cau_xuat_xu'   => ExcelHelper::toText($cells[self::COL_XUAT_XU] ?? ''),
                 'dvt'               => ExcelHelper::toText($cells[self::COL_DVT] ?? '', 50),
                 'so_luong'          => $soLuong,
-                'yeu_cau_tro_cu'    => ExcelHelper::toText($cells[self::COL_TRO_CU] ?? ''),
             ];
         }
 
@@ -234,15 +254,6 @@ class BG_HangHoa_BUS
         ];
     }
 
-    /** "1.0" → "1" ; giữ nguyên nếu là chuỗi khác */
-    private static function chuanHoaStt($raw): string
-    {
-        $s = ExcelHelper::toText($raw, 50);
-        if ($s === '') return '';
-        // Excel hay lưu 1 thành "1.0"
-        if (preg_match('/^(\d+)\.0+$/', $s, $m)) return $m[1];
-        return $s;
-    }
 
     /**
      * Import hàng hóa từ file Excel vào gói thầu.
@@ -283,19 +294,20 @@ class BG_HangHoa_BUS
 
             $tong = 0;
             $lo = [];
+            // Bộ đếm sinh Mã HH cho dòng bỏ trống mã
+            $soTiepTheo = BG_HangHoa_DAL::soThuTuMaLonNhat($goiThauId);
             foreach ($rows as $r) {
                 $e = new BG_HangHoa_PUBLIC();
                 $e->goi_thau_id       = $goiThauId;
-                $e->ten_phan          = $r['ten_phan'] !== '' ? $r['ten_phan'] : null;
-                $e->stt_theo_phan     = $r['stt_theo_phan'] !== '' ? $r['stt_theo_phan'] : null;
-                $e->stt_thong_bao     = $r['stt_thong_bao'] !== '' ? $r['stt_thong_bao'] : null;
-                $e->ten_hang_hoa      = $r['ten_hang_hoa'];
+                // Mã HH bỏ trống → sinh tiếp theo mã lớn nhất đang có trong gói
+                $maHh = $r['ma_hh'];
+                if ($maHh === '') {
+                    $soTiepTheo++;
+                    $maHh = 'HH' . str_pad((string)$soTiepTheo, 3, '0', STR_PAD_LEFT);
+                }
+                $e->ma_hh             = $maHh;
                 $e->thong_so_ky_thuat = $r['thong_so_ky_thuat'] !== '' ? $r['thong_so_ky_thuat'] : null;
-                $e->chung_nhan        = $r['chung_nhan'] !== '' ? $r['chung_nhan'] : null;
-                $e->yeu_cau_xuat_xu   = $r['yeu_cau_xuat_xu'] !== '' ? $r['yeu_cau_xuat_xu'] : null;
                 $e->dvt               = $r['dvt'] !== '' ? $r['dvt'] : null;
-                $e->so_luong          = (float)$r['so_luong'];
-                $e->yeu_cau_tro_cu    = $r['yeu_cau_tro_cu'] !== '' ? $r['yeu_cau_tro_cu'] : null;
                 $e->thu_tu            = ++$thuTu;
                 $e->nguoi_tao         = $u;
 
@@ -329,118 +341,147 @@ class BG_HangHoa_BUS
     }
 
     /**
-     * Sinh file Excel mẫu cho nhà thầu tải xuống — giữ đúng 30 cột của file mẫu gốc,
-     * cột A-K đã điền sẵn dữ liệu yêu cầu, cột L-AD để trống cho nhà thầu điền.
+     * Sinh file Excel mẫu cho nhà thầu — MỖI MẪU MỘT FILE RIÊNG.
      *
-     * @return string đường dẫn file tạm đã tạo
+     * Tách riêng (thay vì 2 sheet trong 1 file) để nhà thầu tải đúng phần
+     * đang làm ở bước hiện tại, đỡ nhầm sang sheet kia.
+     *
+     * @param string $mau 'mau1' = Bảng đáp ứng kỹ thuật (Mẫu 1)
+     *                    'mau2' = Bảng chào giá (Mẫu 2)
      */
-    public static function xuatFileMau(int $goiThauId): string
+    public static function xuatFileMau(int $goiThauId, string $mau = 'mau2'): string
     {
         $gt = BG_GoiThau_DAL::getById($goiThauId);
         if (!$gt) throw new RuntimeException('Không tìm thấy gói thầu');
 
         $hangHoa = BG_HangHoa_DAL::getByGoiThau($goiThauId);
-        if (empty($hangHoa)) throw new RuntimeException('Gói thầu chưa có hàng hóa');
+        if (empty($hangHoa)) throw new RuntimeException('Gói thầu chưa có danh mục hàng hóa');
 
-        $H = ExcelHelper::S_HEADER;      // cột bên mời (A-K)
-        $HA = ExcelHelper::S_HEADER_ALT; // cột nhà thầu điền (L-AD)
+        return $mau === 'mau1'
+            ? self::xuatMau1($gt, $hangHoa)
+            : self::xuatMau2($gt, $hangHoa);
+    }
 
-        // === Dòng 1: header 30 cột ===
-        $header = [
-            ['v' => 'Tên phần', 's' => $H],
-            ['v' => 'STT theo phần', 's' => $H],
-            ['v' => 'STT TB mời chào giá', 's' => $H],
-            ['v' => 'Tên hàng hoá', 's' => $H],
-            ['v' => 'Tính năng, thông số kỹ thuật', 's' => $H],
-            ['v' => 'Chứng nhận', 's' => $H],
-            ['v' => 'Yêu cầu xuất xứ', 's' => $H],
-            ['v' => 'ĐVT', 's' => $H],
-            ['v' => "Số lượng/ Khối lượng", 's' => $H],
-            ['v' => "Yêu cầu về trợ cụ/ máy phụ trợ", 's' => $H],
-            ['v' => 'Số thông báo mời chào giá', 's' => $H],
-            // --- Nhà thầu điền từ đây ---
-            ['v' => 'Tên thương mại', 's' => $HA],
-            ['v' => "Ký, mã, nhãn hiệu, model", 's' => $HA],
-            ['v' => 'Mã HS', 's' => $HA],
-            ['v' => 'Hãng sản xuất', 's' => $HA],
-            ['v' => 'Xuất xứ', 's' => $HA],
-            ['v' => "Số lượng/ khối lượng", 's' => $HA],
-            ['v' => 'Quy cách', 's' => $HA],
-            ['v' => 'Đơn vị tính', 's' => $HA],
-            ['v' => "Chi phí cho các dịch vụ liên quan\n(VND)", 's' => $HA],
-            ['v' => "Thuế, VAT (nếu có)\n(%)", 's' => $HA],
-            ['v' => "Đơn giá (đã bao gồm thuế phí, lệ phí và các dịch vụ liên quan (nếu có))\n(VND)", 's' => $HA],
-            ['v' => "Thành tiền\n(VND)", 's' => $HA],
-            ['v' => 'Chứng nhận hàng hoá chào', 's' => $HA],
-            ['v' => "Đơn giá trúng thầu gần nhất\n(VNĐ)", 's' => $HA],
-            ['v' => 'Tài liệu tham chiếu đơn giá trúng thầu gần nhất', 's' => $HA],
-            ['v' => 'Mã QR hoặc BarCode định danh hàng hóa', 's' => $HA],
-            ['v' => 'Tính năng, thông số Mời chào giá', 's' => $H],
-            ['v' => 'Thông số kỹ thuật chào giá', 's' => $HA],
-            ['v' => 'Các điểm không đạt kèm thuyết minh', 's' => $HA],
+    /** MẪU 1 — Bảng đáp ứng kỹ thuật (Phụ lục II) */
+    private static function xuatMau1(BG_GoiThau_PUBLIC $gt, array $hangHoa): string
+    {
+        $H  = ExcelHelper::S_HEADER;
+        $HA = ExcelHelper::S_HEADER_ALT;
+        $S  = ExcelHelper::S_TEXT_WRAP;
+        $C  = ExcelHelper::S_CENTER;
+
+        $rows = [
+            [['v' => 'MẪU 1: BẢNG ĐÁP ỨNG KỸ THUẬT HÀNG HÓA CHÀO GIÁ', 's' => ExcelHelper::S_TITLE]],
+            [['v' => 'Thư mời số ' . $gt->so_thong_bao . ' — ' . $gt->ten_goi_thau,
+              's' => ExcelHelper::S_SUBTITLE]],
+            [null],
+            [
+                ['v' => 'Mã HH', 's' => $H],
+                ['v' => 'Tên hàng hóa mời chào giá', 's' => $H],
+                ['v' => 'Yêu cầu kỹ thuật mời chào giá', 's' => $H],
+                ['v' => 'Yêu cầu kỹ thuật chào giá', 's' => $HA],
+                ['v' => 'Các điểm không đạt kèm thuyết minh', 's' => $HA],
+            ],
+            [
+                ['v' => '', 's' => $S],
+                ['v' => '', 's' => $S],
+                ['v' => 'KHÔNG SỬA 3 cột đầu', 's' => $S],
+                ['v' => 'Nêu các thông số kỹ thuật của hàng hóa tương ứng với yêu cầu kỹ thuật', 's' => $S],
+                ['v' => 'Nêu rõ thông số không đáp ứng (nếu có) kèm thuyết minh/lý giải', 's' => $S],
+            ],
         ];
 
-        // === Dòng 2: hướng dẫn ngắn ===
-        $S = ExcelHelper::S_TEXT_WRAP;
-        $huongDan = array_fill(0, 30, ['v' => '', 's' => $S]);
-        $huongDan[0]  = ['v' => 'KHÔNG SỬA các cột A-K (thông tin mời chào giá)', 's' => $S];
-        $huongDan[11] = ['v' => 'Điền tên thương mại đầy đủ (nếu có)', 's' => $S];
-        $huongDan[12] = ['v' => 'Điền mã tham chiếu (REF) hoặc model', 's' => $S];
-        $huongDan[13] = ['v' => 'Điền mã HS theo đúng cú pháp', 's' => $S];
-        $huongDan[14] = ['v' => 'Theo CO / giấy phép NK / FSC / ISO13485', 's' => $S];
-        $huongDan[15] = ['v' => 'Theo CO / giấy phép NK / FSC / ISO13485', 's' => $S];
-        $huongDan[16] = ['v' => 'Không cần điền', 's' => $S];
-        $huongDan[17] = ['v' => 'Quy cách đóng gói thực tế', 's' => $S];
-        $huongDan[18] = ['v' => 'Không cần điền', 's' => $S];
-        $huongDan[19] = ['v' => 'Chi phí lắp đặt, vận chuyển... Ghi 10000, KHÔNG ghi 10.000,00', 's' => $S];
-        $huongDan[20] = ['v' => 'Tỷ lệ VAT %. VD: 0 hoặc 5 hoặc 10', 's' => $S];
-        $huongDan[21] = ['v' => 'Đơn giá đã gồm thuế, phí. Ghi 10000, KHÔNG ghi 10.000,00', 's' => $S];
-        $huongDan[22] = ['v' => 'Không cần điền — hệ thống tự tính', 's' => $S];
-        $huongDan[23] = ['v' => 'VD: FDA (510(k)) / CE (MDD) / CE (MDR) / ISO13485', 's' => $S];
-        $huongDan[24] = ['v' => 'Đơn giá trúng thầu trong 360 ngày (nếu có)', 's' => $S];
-        $huongDan[25] = ['v' => 'Loại VB; số VB; ngày; tên cơ sở y tế ban hành', 's' => $S];
-        $huongDan[26] = ['v' => 'TH1: QR trên từng SP / TH2: QR trên hộp / TH3: Không có', 's' => $S];
-        $huongDan[28] = ['v' => 'Nêu thông số kỹ thuật tương ứng yêu cầu', 's' => $S];
-        $huongDan[29] = ['v' => 'Nêu rõ thông số không đáp ứng (nếu có) kèm thuyết minh', 's' => $S];
-
-        $rows = [$header, $huongDan];
-
-        // === Từ dòng 3: dữ liệu hàng hóa ===
         foreach ($hangHoa as $hh) {
-            $r = array_fill(0, 30, ['v' => '', 's' => $S]);
-            $r[0]  = ['v' => (string)($hh['ten_phan'] ?? ''), 's' => $S];
-            $r[1]  = ['v' => (string)($hh['stt_theo_phan'] ?? ''), 's' => ExcelHelper::S_CENTER];
-            $r[2]  = ['v' => (string)($hh['stt_thong_bao'] ?? ''), 's' => ExcelHelper::S_CENTER];
-            $r[3]  = ['v' => (string)$hh['ten_hang_hoa'], 's' => $S];
-            $r[4]  = ['v' => (string)($hh['thong_so_ky_thuat'] ?? ''), 's' => $S];
-            $r[5]  = ['v' => (string)($hh['chung_nhan'] ?? ''), 's' => $S];
-            $r[6]  = ['v' => (string)($hh['yeu_cau_xuat_xu'] ?? ''), 's' => $S];
-            $r[7]  = ['v' => (string)($hh['dvt'] ?? ''), 's' => ExcelHelper::S_CENTER];
-            $r[8]  = ['v' => (float)$hh['so_luong'], 's' => ExcelHelper::S_NUMBER, 't' => 'n'];
-            $r[9]  = ['v' => (string)($hh['yeu_cau_tro_cu'] ?? ''), 's' => $S];
-            $r[10] = ['v' => 'Thông báo số ' . $gt->so_thong_bao, 's' => $S];
-            // AB (index 27): nhắc lại thông số mời chào giá để nhà thầu đối chiếu
-            $r[27] = ['v' => (string)($hh['thong_so_ky_thuat'] ?? ''), 's' => $S];
-            // Cột dành cho nhà thầu điền: để trống nhưng giữ viền
-            $rows[] = $r;
+            $rows[] = [
+                ['v' => (string)($hh['ma_hh'] ?? ''), 's' => $C],
+                ['v' => (string)$hh['ten_hang_hoa'], 's' => $S],
+                ['v' => (string)($hh['thong_so_ky_thuat'] ?? ''), 's' => $S],
+                ['v' => '', 's' => $S],
+                ['v' => '', 's' => $S],
+            ];
         }
 
-        $cols = [14, 12, 12, 34, 45, 22, 20, 8, 11, 30, 20,
-                 26, 20, 12, 20, 16, 12, 18, 11, 16, 12, 20, 16, 24, 16, 28, 24, 40, 34, 34];
-
-        $fileName = 'BaoGia_' . preg_replace('/[^A-Za-z0-9]/', '', $gt->so_thong_bao)
-                  . '_' . date('Ymd_His') . '.xlsx';
-        $path = self::tempDir() . '/' . $fileName;
+        $path = self::tempDir() . '/Mau1_DapUngKyThuat_'
+              . preg_replace('/[^0-9A-Za-z]/', '_', $gt->so_thong_bao) . '_' . date('Ymd_His') . '.xlsx';
 
         ExcelHelper::write($path, [
-            'BảngGiá' => [
-                'cols'    => $cols,
-                'freeze'  => 'E3',
-                'heights' => [1 => 60, 2 => 46],
+            'Mau1_DapUngKyThuat' => [
+                'cols'    => [12, 40, 50, 46, 44],
+                'freeze'  => 'A5',
+                'heights' => [4 => 40, 5 => 44],
                 'rows'    => $rows,
             ],
         ]);
+        return $path;
+    }
 
+    /** MẪU 2 — Bảng chào giá (Phụ lục II) */
+    private static function xuatMau2(BG_GoiThau_PUBLIC $gt, array $hangHoa): string
+    {
+        $H  = ExcelHelper::S_HEADER;
+        $HA = ExcelHelper::S_HEADER_ALT;
+        $S  = ExcelHelper::S_TEXT_WRAP;
+        $C  = ExcelHelper::S_CENTER;
+        $N  = ExcelHelper::S_NUMBER;
+
+        $rows = [
+            [['v' => 'MẪU 2: BẢNG CHÀO GIÁ', 's' => ExcelHelper::S_TITLE]],
+            [['v' => 'Thư mời số ' . $gt->so_thong_bao . ' — ' . $gt->ten_goi_thau,
+              's' => ExcelHelper::S_SUBTITLE]],
+            [['v' => 'Đơn giá ĐÃ bao gồm thuế, phí, lệ phí và các dịch vụ liên quan (nếu có).',
+              's' => ExcelHelper::S_SUBTITLE]],
+            [
+                ['v' => 'TT', 's' => $H],
+                ['v' => 'Mã HH', 's' => $H],
+                ['v' => 'Tên hàng hóa mời chào giá', 's' => $H],
+                ['v' => 'Tên thương mại', 's' => $HA],
+                ['v' => "Ký, mã, nhãn hiệu,\nmodel", 's' => $HA],
+                ['v' => 'Hãng sản xuất', 's' => $HA],
+                ['v' => 'Xuất xứ', 's' => $HA],
+                ['v' => "Số lượng /\nkhối lượng", 's' => $H],
+                ['v' => 'Quy cách', 's' => $HA],
+                ['v' => 'Đơn vị tính', 's' => $H],
+                ['v' => "Đơn giá\n(VND)", 's' => $HA],
+                ['v' => "Thành tiền\n(VND)", 's' => $HA],
+                ['v' => "Đơn giá trúng thầu\ngần nhất (VNĐ)", 's' => $HA],
+                ['v' => "Tài liệu tham chiếu\nđơn giá trúng thầu", 's' => $HA],
+                ['v' => "Số thông báo\nmời thầu", 's' => $HA],
+            ],
+        ];
+
+        $stt = 0;
+        foreach ($hangHoa as $hh) {
+            $stt++;
+            $rows[] = [
+                ['v' => $stt, 's' => $C, 't' => 'n'],
+                ['v' => (string)($hh['ma_hh'] ?? ''), 's' => $C],
+                ['v' => (string)$hh['ten_hang_hoa'], 's' => $S],
+                ['v' => '', 's' => $S],
+                ['v' => '', 's' => $S],
+                ['v' => '', 's' => $S],
+                ['v' => '', 's' => $S],
+                ['v' => (float)$hh['so_luong'], 's' => $N, 't' => 'n'],
+                ['v' => '', 's' => $S],
+                ['v' => (string)($hh['dvt'] ?? ''), 's' => $C],
+                ['v' => '', 's' => ExcelHelper::S_MONEY],
+                ['v' => '', 's' => ExcelHelper::S_MONEY],
+                ['v' => '', 's' => ExcelHelper::S_MONEY],
+                ['v' => '', 's' => $S],
+                ['v' => '', 's' => $S],
+            ];
+        }
+
+        $path = self::tempDir() . '/Mau2_BangChaoGia_'
+              . preg_replace('/[^0-9A-Za-z]/', '_', $gt->so_thong_bao) . '_' . date('Ymd_His') . '.xlsx';
+
+        ExcelHelper::write($path, [
+            'Mau2_BangChaoGia' => [
+                'cols'    => [6, 12, 38, 26, 20, 22, 16, 12, 18, 11, 18, 18, 20, 30, 18],
+                'freeze'  => 'D5',
+                'heights' => [4 => 46],
+                'rows'    => $rows,
+            ],
+        ]);
         return $path;
     }
 

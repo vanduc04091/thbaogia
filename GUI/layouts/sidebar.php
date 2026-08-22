@@ -35,7 +35,10 @@ $menuHeThong = $locQuyen($menuHeThong);
 
 <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-        <span class="sidebar-logo"><?= IconHelper::svg('shield-check', 22) ?></span>
+        <span class="sidebar-logo">
+            <img src="<?= AppConfig::baseUrl('assets/images/logo_bv.png') ?>?v=<?= AppConfig::APP_VERSION ?>"
+                 alt="Logo Bệnh viện Hữu nghị Đa khoa Nghệ An">
+        </span>
         <h2><?= Helper::h(AppConfig::APP_NAME) ?></h2>
     </div>
 

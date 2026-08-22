@@ -72,6 +72,90 @@ try {
         ExcelHelper::download($path, basename($path));
     }
 
+    if ($loai === 'word_catalog') {
+        // Bảng chỉ dẫn vị trí tài liệu (Word) để in ra ký
+        $baoGiaId = (int)Helper::get('id', 0);
+        $mst = (string)SessionHelper::get('portal_mst_tra_cuu', '');
+        $laCuaPhien = in_array($baoGiaId, (array)SessionHelper::get('portal_bao_gia_ids', []), true);
+        if (!$laCuaPhien && ($mst === '' || !BG_BaoGia_BUS::baoGiaCuaMst($baoGiaId, $mst))) {
+            loiTaiFile('Không có quyền tải file này',
+                'Vui lòng tra cứu lại bằng mã số thuế của công ty rồi tải file.', $token);
+        }
+        $path = BG_BaoGia_BUS::xuatWordCatalog($baoGiaId);
+        WordHelper::download($path, basename($path));
+    }
+
+    if ($loai === 'catalog_excel') {
+        // Bảng chỉ dẫn vị trí tài liệu (Word/PDF) — cùng quy tắc quyền như loai=catalog
+        $baoGiaId = (int)Helper::get('id', 0);
+        $mst = (string)SessionHelper::get('portal_mst_tra_cuu', '');
+        $laCuaPhien = in_array($baoGiaId, (array)SessionHelper::get('portal_bao_gia_ids', []), true);
+        if (!$laCuaPhien && ($mst === '' || !BG_BaoGia_BUS::baoGiaCuaMst($baoGiaId, $mst))) {
+            loiTaiFile('Không có quyền xem file này',
+                'Vui lòng tra cứu lại bằng mã số thuế của công ty rồi mở file.', $token);
+        }
+
+        $duongDan = BG_BaoGia_BUS::duongDanCatalogExcel($baoGiaId);
+        if ($duongDan === '') {
+            loiTaiFile('Không tìm thấy file', 'Bảng chỉ dẫn chưa được tải lên hoặc file không còn.', $token);
+        }
+
+        $bgFile = BG_BaoGia_BUS::fileCatalogExcel($baoGiaId);
+        $tenGoc = (string)(($bgFile->ten_file_goc ?? '') ?: basename($duongDan));
+        $ascii  = preg_replace('/[^A-Za-z0-9._-]/', '_', $tenGoc);
+
+        // KHÔNG dùng ExcelHelper::download() — hàm đó xóa file sau khi gửi
+        // (dành cho file tạm), sẽ làm mất luôn file nhà thầu đã tải lên.
+        if (ob_get_level()) ob_end_clean();
+        $ext = strtolower(pathinfo($duongDan, PATHINFO_EXTENSION));
+        $mapCd = [
+            'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'doc'  => 'application/msword',
+            'pdf'  => 'application/pdf',
+        ];
+        header('Content-Type: ' . ($mapCd[$ext] ?? 'application/octet-stream'));
+        header('Content-Disposition: attachment; filename="' . $ascii . '"; '
+             . "filename*=UTF-8''" . rawurlencode($tenGoc));
+        header('Content-Length: ' . filesize($duongDan));
+        header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: private, no-store');
+        readfile($duongDan);
+        exit;
+    }
+
+    if ($loai === 'catalog') {
+        // File catalog đã ký (Bước 5) — cùng quy tắc quyền như loai=ban_ky
+        $baoGiaId = (int)Helper::get('id', 0);
+        $mst = (string)SessionHelper::get('portal_mst_tra_cuu', '');
+        $laCuaPhien = in_array($baoGiaId, (array)SessionHelper::get('portal_bao_gia_ids', []), true);
+        if (!$laCuaPhien && ($mst === '' || !BG_BaoGia_BUS::baoGiaCuaMst($baoGiaId, $mst))) {
+            loiTaiFile('Không có quyền xem file này',
+                'Vui lòng tra cứu lại bằng mã số thuế của công ty rồi mở file.', $token);
+        }
+
+        $duongDan = BG_BaoGia_BUS::duongDanCatalog($baoGiaId);
+        if ($duongDan === '') {
+            loiTaiFile('Không tìm thấy file', 'File catalog chưa được tải lên hoặc file không còn.', $token);
+        }
+
+        $bgFile = BG_BaoGia_BUS::fileCatalog($baoGiaId);
+        $ext = strtolower(pathinfo($duongDan, PATHINFO_EXTENSION));
+        $mimeMap = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg',
+                    'jpeg' => 'image/jpeg', 'png' => 'image/png'];
+        $tenGoc = (string)(($bgFile->ten_file_goc ?? '') ?: ('catalog.' . $ext));
+        $ascii  = preg_replace('/[^A-Za-z0-9._-]/', '_', $tenGoc);
+
+        if (ob_get_level()) ob_end_clean();
+        header('Content-Type: ' . ($mimeMap[$ext] ?? 'application/octet-stream'));
+        header('Content-Disposition: inline; filename="' . $ascii . '"; '
+             . "filename*=UTF-8''" . rawurlencode($tenGoc));
+        header('Content-Length: ' . filesize($duongDan));
+        header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: private, no-store');
+        readfile($duongDan);
+        exit;
+    }
+
     if ($loai === 'ban_ky') {
         // Xem lại bản ký đã tải lên — cùng quy tắc quyền như loai=bao_gia
         $baoGiaId = (int)Helper::get('id', 0);
@@ -107,7 +191,25 @@ try {
         exit;
     }
 
-    $path = BG_HangHoa_BUS::xuatFileMau((int)$goiThau->id);
+    if ($loai === 'word_ban_ky') {
+        // File Word BÁO GIÁ để nhà thầu in ra ký + đóng dấu.
+        // Cùng quy tắc quyền như loai=bao_gia: phải tra cứu đúng MST trong phiên.
+        $baoGiaId = (int)Helper::get('id', 0);
+        $mst = (string)SessionHelper::get('portal_mst_tra_cuu', '');
+        if ($mst === '' || !BG_BaoGia_BUS::baoGiaCuaMst($baoGiaId, $mst)) {
+            loiTaiFile(
+                'Không có quyền tải báo giá này',
+                'Vui lòng tra cứu lại bằng mã số thuế của công ty rồi tải file.',
+                $token
+            );
+        }
+        $path = BG_BaoGia_BUS::xuatWordBanKy($baoGiaId);
+        WordHelper::download($path, basename($path));
+    }
+
+    // loai=mau&mau=mau1|mau2 — mỗi mẫu 1 file riêng
+    $mau = Helper::get('mau', 'mau2') === 'mau1' ? 'mau1' : 'mau2';
+    $path = BG_HangHoa_BUS::xuatFileMau((int)$goiThau->id, $mau);
     ExcelHelper::download($path, basename($path));
 } catch (Throwable $ex) {
     loiTaiFile(

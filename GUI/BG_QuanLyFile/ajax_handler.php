@@ -38,10 +38,36 @@ try {
             ResponseHelper::success('OK', $r);
             break;
 
-        /** Xóa file bản ký của 1 báo giá */
+        /** Chi tiết 1 file theo ID FILE (mọi nhóm: bản ký, catalog, Excel) */
+        case 'getFile':
+            PhanQuyenHelper::requireQuyen($MODULE, PhanQuyenHelper::QUYEN_XEM);
+            $r = BG_QuanLyFile_BUS::getFileById(Helper::postInt('id'));
+            if (!$r) ResponseHelper::error('Không tìm thấy file');
+
+            // Bổ sung thông tin nhà thầu + tên nhóm cho hộp thoại xem
+            $bgF = BG_File_DAL::baoGiaDungFile((int)$r['id']);
+            $tenNhom = [
+                'ban_ky'        => 'Bản báo giá đã ký',
+                'catalog'       => 'Catalog đã ký',
+                'catalog_excel' => 'Excel chỉ dẫn vị trí tài liệu',
+            ];
+            $r['ten_cong_ty'] = $bgF['ten_cong_ty'] ?? '';
+            $r['ma_so_thue']  = $bgF['ma_so_thue'] ?? '';
+            $r['bao_gia_id']  = (int)($bgF['id'] ?? 0);
+
+            // Số thông báo gói thầu — hộp thoại xem có hiển thị
+            $gtF = !empty($bgF['goi_thau_id'])
+                 ? BG_GoiThau_BUS::getById((int)$bgF['goi_thau_id']) : null;
+            $r['so_thong_bao'] = $gtF->so_thong_bao ?? '';
+            $r['ten_goi_thau'] = $gtF->ten_goi_thau ?? '';
+            $r['ten_nhom']    = $tenNhom[$r['nhom_file']] ?? $r['nhom_file'];
+            ResponseHelper::success('OK', $r);
+            break;
+
+        /** Xóa 1 file theo ID FILE */
         case 'xoaFile':
             PhanQuyenHelper::requireQuyen($MODULE, PhanQuyenHelper::QUYEN_XOA);
-            $res = BG_QuanLyFile_BUS::xoaFile(Helper::postInt('id'), $u);
+            $res = BG_QuanLyFile_BUS::xoaFileTheoId(Helper::postInt('id'), $u);
             $res['success'] ? ResponseHelper::success($res['message']) : ResponseHelper::error($res['message']);
             break;
 

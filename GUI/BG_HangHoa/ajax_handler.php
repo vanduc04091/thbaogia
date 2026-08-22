@@ -94,16 +94,11 @@ try {
             PhanQuyenHelper::requireQuyen($MODULE, PhanQuyenHelper::QUYEN_THEM);
             $e = new BG_HangHoa_PUBLIC();
             $e->goi_thau_id       = Helper::postInt('goi_thau_id');
-            $e->ten_phan          = Helper::postStr('ten_phan');
-            $e->stt_theo_phan     = Helper::postStr('stt_theo_phan');
-            $e->stt_thong_bao     = Helper::postStr('stt_thong_bao');
+            $e->ma_hh             = Helper::postStr('ma_hh');
             $e->ten_hang_hoa      = Helper::postStr('ten_hang_hoa');
             $e->thong_so_ky_thuat = (string)Helper::post('thong_so_ky_thuat', '');
-            $e->chung_nhan        = (string)Helper::post('chung_nhan', '');
-            $e->yeu_cau_xuat_xu   = (string)Helper::post('yeu_cau_xuat_xu', '');
             $e->dvt               = Helper::postStr('dvt');
-            $e->so_luong          = (float)Helper::post('so_luong', 0);
-            $e->yeu_cau_tro_cu    = (string)Helper::post('yeu_cau_tro_cu', '');
+            $e->so_luong          = (float)ExcelHelper::toNumber(Helper::post('so_luong', 0));
             $e->nguoi_tao         = $u;
             $res = BG_HangHoa_BUS::insert($e);
             $res['success']
@@ -115,16 +110,11 @@ try {
             PhanQuyenHelper::requireQuyen($MODULE, PhanQuyenHelper::QUYEN_SUA);
             $e = new BG_HangHoa_PUBLIC();
             $e->id                = Helper::postInt('id');
-            $e->ten_phan          = Helper::postStr('ten_phan');
-            $e->stt_theo_phan     = Helper::postStr('stt_theo_phan');
-            $e->stt_thong_bao     = Helper::postStr('stt_thong_bao');
+            $e->ma_hh             = Helper::postStr('ma_hh');
             $e->ten_hang_hoa      = Helper::postStr('ten_hang_hoa');
             $e->thong_so_ky_thuat = (string)Helper::post('thong_so_ky_thuat', '');
-            $e->chung_nhan        = (string)Helper::post('chung_nhan', '');
-            $e->yeu_cau_xuat_xu   = (string)Helper::post('yeu_cau_xuat_xu', '');
             $e->dvt               = Helper::postStr('dvt');
-            $e->so_luong          = (float)Helper::post('so_luong', 0);
-            $e->yeu_cau_tro_cu    = (string)Helper::post('yeu_cau_tro_cu', '');
+            $e->so_luong          = (float)ExcelHelper::toNumber(Helper::post('so_luong', 0));
             $e->thu_tu            = Helper::postInt('thu_tu', 0);
             $e->nguoi_cap_nhat    = $u;
             $res = BG_HangHoa_BUS::update($e);

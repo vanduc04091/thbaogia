@@ -64,24 +64,20 @@ class BG_TongHop_BUS
                 $donGia = $ct ? (float)$ct['don_gia'] : 0.0;
                 // Giữ ĐỦ mọi cột nhà thầu điền (khớp bg_bao_gia_chi_tiet)
                 // để bảng tổng hợp xuất ra không thiếu thông tin nào.
+                // Giữ ĐỦ cột nhà thầu điền theo Phụ lục II (Mẫu 1 + Mẫu 2)
                 $chao[$bgId] = [
-                    'don_gia'             => $donGia,
-                    'thanh_tien'          => $ct ? (float)$ct['thanh_tien'] : 0.0,
-                    'thue_vat'            => $ct ? (float)$ct['thue_vat'] : 0.0,
-                    'chi_phi_dich_vu'     => $ct ? (float)$ct['chi_phi_dich_vu'] : 0.0,
-                    'ten_thuong_mai'      => $ct['ten_thuong_mai'] ?? '',
-                    'model'               => $ct['model'] ?? '',
-                    'ma_hs'               => $ct['ma_hs'] ?? '',
-                    'hang_san_xuat'       => $ct['hang_san_xuat'] ?? '',
-                    'xuat_xu'             => $ct['xuat_xu'] ?? '',
-                    'quy_cach'            => $ct['quy_cach'] ?? '',
-                    'chung_nhan_chao'     => $ct['chung_nhan_chao'] ?? '',
-                    'don_gia_trung_thau'  => $ct ? (float)$ct['don_gia_trung_thau'] : 0.0,
-                    'tai_lieu_tham_chieu' => $ct['tai_lieu_tham_chieu'] ?? '',
-                    'ma_qr_hang_hoa'      => $ct['ma_qr_hang_hoa'] ?? '',
-                    'thong_so_chao_gia'   => $ct['thong_so_chao_gia'] ?? '',
-                    'diem_khong_dat'      => $ct['diem_khong_dat'] ?? '',
-                    'co_chao'             => $donGia > 0,
+                    'don_gia'               => $donGia,
+                    'thanh_tien'            => $ct ? (float)$ct['thanh_tien'] : 0.0,
+                    'ten_thuong_mai'        => $ct['ten_thuong_mai'] ?? '',
+                    'model'                 => $ct['model'] ?? '',
+                    'hang_san_xuat'         => $ct['hang_san_xuat'] ?? '',
+                    'xuat_xu'               => $ct['xuat_xu'] ?? '',
+                    'quy_cach'              => $ct['quy_cach'] ?? '',
+                    'don_gia_trung_thau'    => $ct ? (float)$ct['don_gia_trung_thau'] : 0.0,
+                    'tai_lieu_tham_chieu'   => $ct['tai_lieu_tham_chieu'] ?? '',
+                    'thong_so_chao_gia'     => $ct['thong_so_chao_gia'] ?? '',
+                    'diem_khong_dat'        => $ct['diem_khong_dat'] ?? '',
+                    'co_chao'               => $donGia > 0,
                 ];
 
                 if ($donGia > 0) {
@@ -98,19 +94,14 @@ class BG_TongHop_BUS
                 $tongGiaMin += $giaMin * $soLuong;
             }
 
-            // Giữ ĐỦ cột yêu cầu của bên mời (khớp bg_hang_hoa, cột A-K file mẫu)
+            // Cột yêu cầu theo Phụ lục III (Mã HH thay cho cách đánh số cũ)
             $rows[] = [
                 'id'                => $hhId,
-                'ten_phan'          => $hh['ten_phan'],
-                'stt_theo_phan'     => $hh['stt_theo_phan'],
-                'stt_thong_bao'     => $hh['stt_thong_bao'],
+                'ma_hh'             => $hh['ma_hh'],
                 'ten_hang_hoa'      => $hh['ten_hang_hoa'],
                 'thong_so_ky_thuat' => $hh['thong_so_ky_thuat'],
-                'chung_nhan'        => $hh['chung_nhan'],
-                'yeu_cau_xuat_xu'   => $hh['yeu_cau_xuat_xu'],
                 'dvt'               => $hh['dvt'],
                 'so_luong'          => $soLuong,
-                'yeu_cau_tro_cu'    => $hh['yeu_cau_tro_cu'],
                 'chao'              => $chao,
                 'gia_min'           => $giaMin,
                 'nha_thau_min'      => $nhaThauMin,
@@ -177,7 +168,7 @@ class BG_TongHop_BUS
         // MST nằm thành CỘT trên chính dòng đó. Đọc theo chiều ngang là ra ngay
         // ai chào bao nhiêu; lọc / sắp xếp / PivotTable trong Excel đều dùng
         // được (bố cục cũ gộp mỗi nhà thầu thành 1 nhóm cột thì không lọc nổi).
-        $soCot = 30;   // khớp với $rowHeader bên dưới (12 bên mời + 18 nhà thầu)
+        $soCot = 19;   // 6 bên mời (Phụ lục III) + 13 nhà thầu (Mẫu 1+2)
         $colCuoi = ExcelHelper::colLetter($soCot - 1);
         $merges = [];
 
@@ -202,41 +193,31 @@ class BG_TongHop_BUS
         $merges[] = 'A3:' . $colCuoi . '3';
 
         // --- Header 1 tầng, không gộp cột ---
-        // Header: 6 cột bên mời + 18 cột nhà thầu (đủ mọi trường nhà thầu điền)
+        // Header: 6 cột bên mời (Phụ lục III) + 13 cột nhà thầu (Mẫu 1 + Mẫu 2)
         $rowHeader = [
-            // --- Thông tin mời chào giá (cột A-K file mẫu) ---
+            // --- Thông tin mời chào giá (Phụ lục III) ---
             ['v' => 'STT', 's' => $H],
-            ['v' => 'Tên phần', 's' => $H],
-            ['v' => 'STT phần', 's' => $H],
-            ['v' => "STT TB
-mời chào giá", 's' => $H],
-            ['v' => 'Tên hàng hoá', 's' => $H],
-            ['v' => 'Tính năng, thông số kỹ thuật yêu cầu', 's' => $H],
-            ['v' => 'Chứng nhận', 's' => $H],
-            ['v' => 'Yêu cầu xuất xứ', 's' => $H],
+            ['v' => 'Mã HH', 's' => $H],
+            ['v' => 'Tên hàng hóa mời chào giá', 's' => $H],
+            ['v' => 'Yêu cầu kỹ thuật mời chào giá', 's' => $H],
             ['v' => 'ĐVT', 's' => $H],
-            ['v' => "Số lượng /\nKhối lượng", 's' => $H],
-            ['v' => "Yêu cầu về trợ cụ /\nmáy phụ trợ", 's' => $H],
-            ['v' => "Số thông báo\nmời chào giá", 's' => $H],
+            ['v' => "Số lượng /\nkhối lượng", 's' => $H],
             // --- Nhà thầu ---
             ['v' => 'Nhà thầu', 's' => $HA],
             ['v' => 'Mã số thuế', 's' => $HA],
+            // --- Mẫu 1: Bảng đáp ứng kỹ thuật (để cạnh yêu cầu kỹ thuật cho dễ đối chiếu) ---
+            ['v' => 'Yêu cầu kỹ thuật chào giá', 's' => $HA],
+            ['v' => 'Các điểm không đạt', 's' => $HA],
+            // --- Mẫu 2: Bảng chào giá ---
             ['v' => 'Tên thương mại', 's' => $HA],
-            ['v' => "Ký, mã, nhãn hiệu, model", 's' => $HA],
-            ['v' => 'Mã HS', 's' => $HA],
+            ['v' => "Ký, mã, nhãn hiệu,\nmodel", 's' => $HA],
             ['v' => 'Hãng sản xuất', 's' => $HA],
             ['v' => 'Xuất xứ', 's' => $HA],
             ['v' => 'Quy cách', 's' => $HA],
-            ['v' => "Chi phí dịch vụ\n(VND)", 's' => $HA],
-            ['v' => "Thuế VAT\n(%)", 's' => $HA],
             ['v' => "Đơn giá\n(VND)", 's' => $HA],
             ['v' => "Thành tiền\n(VND)", 's' => $HA],
-            ['v' => 'Chứng nhận hàng hoá chào', 's' => $HA],
-            ['v' => "Đơn giá trúng thầu gần nhất\n(VND)", 's' => $HA],
+            ['v' => "Đơn giá trúng thầu\ngần nhất (VNĐ)", 's' => $HA],
             ['v' => 'Tài liệu tham chiếu', 's' => $HA],
-            ['v' => 'Mã QR / Barcode', 's' => $HA],
-            ['v' => 'Thông số kỹ thuật chào giá', 's' => $HA],
-            ['v' => 'Các điểm không đạt', 's' => $HA],
         ];
 
         $rows1 = [$r1, $r2, $r3, $r4, $rowHeader];
@@ -258,53 +239,38 @@ mời chào giá", 's' => $H],
                 $laDongDau = ($soDong === 0);
                 $rows1[] = [
                     $laDongDau ? ['v' => $stt, 's' => $C, 't' => 'n'] : ['v' => '', 's' => $C],
-                    $laDongDau ? ['v' => (string)($hh['ten_phan'] ?? ''), 's' => $C] : ['v' => '', 's' => $C],
-                    $laDongDau ? ['v' => (string)($hh['stt_theo_phan'] ?? ''), 's' => $C] : ['v' => '', 's' => $C],
-                    $laDongDau ? ['v' => (string)($hh['stt_thong_bao'] ?? ''), 's' => $C] : ['v' => '', 's' => $C],
+                    $laDongDau ? ['v' => (string)($hh['ma_hh'] ?? ''), 's' => $C] : ['v' => '', 's' => $C],
                     $laDongDau ? ['v' => (string)$hh['ten_hang_hoa'], 's' => $W] : ['v' => '', 's' => $W],
                     $laDongDau ? ['v' => (string)($hh['thong_so_ky_thuat'] ?? ''), 's' => $W] : ['v' => '', 's' => $W],
-                    $laDongDau ? ['v' => (string)($hh['chung_nhan'] ?? ''), 's' => $W] : ['v' => '', 's' => $W],
-                    $laDongDau ? ['v' => (string)($hh['yeu_cau_xuat_xu'] ?? ''), 's' => $W] : ['v' => '', 's' => $W],
                     $laDongDau ? ['v' => (string)($hh['dvt'] ?? ''), 's' => $C] : ['v' => '', 's' => $C],
                     $laDongDau ? ['v' => (float)$hh['so_luong'], 's' => $N, 't' => 'n'] : ['v' => '', 's' => $N],
-                    $laDongDau ? ['v' => (string)($hh['yeu_cau_tro_cu'] ?? ''), 's' => $W] : ['v' => '', 's' => $W],
-                    // Cột K file mẫu = số thông báo của GÓI THẦU (mọi dòng như nhau),
-                    // khác cột C là số thứ tự trong thông báo.
-                    $laDongDau ? ['v' => 'Thông báo số ' . $gt->so_thong_bao, 's' => $W] : ['v' => '', 's' => $W],
-                    // --- Phần nhà thầu: đủ mọi cột đã nộp ---
+                    // --- Phần nhà thầu ---
                     ['v' => (string)$nt['ten_cong_ty'], 's' => $W],
                     ['v' => (string)($nt['ma_so_thue'] ?? ''), 's' => $C],
+                    ['v' => (string)($ch['thong_so_chao_gia'] ?? ''), 's' => $W],
+                    ['v' => (string)($ch['diem_khong_dat'] ?? ''), 's' => $W],
                     ['v' => (string)($ch['ten_thuong_mai'] ?? ''), 's' => $W],
                     ['v' => (string)($ch['model'] ?? ''), 's' => $W],
-                    ['v' => (string)($ch['ma_hs'] ?? ''), 's' => $C],
                     ['v' => (string)($ch['hang_san_xuat'] ?? ''), 's' => $W],
                     ['v' => (string)($ch['xuat_xu'] ?? ''), 's' => $W],
                     ['v' => (string)($ch['quy_cach'] ?? ''), 's' => $W],
-                    $coChao ? ['v' => (float)($ch['chi_phi_dich_vu'] ?? 0), 's' => $M, 't' => 'n']
-                            : ['v' => '', 's' => $M],
-                    $coChao ? ['v' => (float)($ch['thue_vat'] ?? 0), 's' => $C, 't' => 'n']
-                            : ['v' => '', 's' => $C],
                     // Đơn giá: tô vàng khi là GIÁ THẤP NHẤT của CHÍNH hàng hóa này
                     $coChao ? ['v' => $ch['don_gia'], 's' => $laMin ? $B : $M, 't' => 'n']
                             : ['v' => 'Không chào', 's' => $C],
                     $coChao ? ['v' => $ch['thanh_tien'], 's' => $M, 't' => 'n']
                             : ['v' => '', 's' => $M],
-                    ['v' => (string)($ch['chung_nhan_chao'] ?? ''), 's' => $W],
                     $coChao ? ['v' => (float)($ch['don_gia_trung_thau'] ?? 0), 's' => $M, 't' => 'n']
                             : ['v' => '', 's' => $M],
                     ['v' => (string)($ch['tai_lieu_tham_chieu'] ?? ''), 's' => $W],
-                    ['v' => (string)($ch['ma_qr_hang_hoa'] ?? ''), 's' => $W],
-                    ['v' => (string)($ch['thong_so_chao_gia'] ?? ''), 's' => $W],
-                    ['v' => (string)($ch['diem_khong_dat'] ?? ''), 's' => $W],
                 ];
                 $soDong++;
                 $dongHienTai++;
             }
 
-            // Gộp dọc 12 cột thông tin hàng hóa khi có từ 2 nhà thầu trở lên
+            // Gộp dọc 6 cột thông tin hàng hóa khi có từ 2 nhà thầu trở lên
             if ($soDong > 1) {
                 $dongCuoi = $dongDau + $soDong - 1;
-                for ($c = 0; $c < 12; $c++) {
+                for ($c = 0; $c < 6; $c++) {
                     $L = ExcelHelper::colLetter($c);
                     $merges[] = $L . $dongDau . ':' . $L . $dongCuoi;
                 }
@@ -315,25 +281,26 @@ mời chào giá", 's' => $H],
         $rows1[] = array_fill(0, $soCot, null);
 
         $rowTieuDeTong = array_fill(0, $soCot, ['v' => '', 's' => $H]);
-        $rowTieuDeTong[12] = ['v' => 'TỔNG CỘNG THEO NHÀ THẦU', 's' => $H];
-        $rowTieuDeTong[13] = ['v' => 'Mã số thuế', 's' => $H];
-        $rowTieuDeTong[22] = ['v' => "Tổng tiền\n(VND)", 's' => $H];
+        $rowTieuDeTong[6]  = ['v' => 'TỔNG CỘNG THEO NHÀ THẦU', 's' => $H];
+        $rowTieuDeTong[7]  = ['v' => 'Mã số thuế', 's' => $H];
+        $rowTieuDeTong[16] = ['v' => "Tổng tiền\n(VND)", 's' => $H];
         $rows1[] = $rowTieuDeTong;
 
         foreach ($nhaThau as $nt) {
             $r = array_fill(0, $soCot, ['v' => '', 's' => $W]);
-            $r[12] = ['v' => (string)$nt['ten_cong_ty'], 's' => $W];
-            $r[13] = ['v' => (string)($nt['ma_so_thue'] ?? ''), 's' => $C];
-            $r[23] = ['v' => (float)$nt['tong_tien'], 's' => ExcelHelper::S_TOTAL, 't' => 'n'];
+            $r[6]  = ['v' => (string)$nt['ten_cong_ty'], 's' => $W];
+            $r[7]  = ['v' => (string)($nt['ma_so_thue'] ?? ''), 's' => $C];
+            $r[16] = ['v' => (float)$nt['tong_tien'], 's' => ExcelHelper::S_TOTAL, 't' => 'n'];
             $rows1[] = $r;
         }
 
-        // Độ rộng 30 cột — khớp thứ tự $rowHeader
+        // Độ rộng 19 cột — khớp thứ tự $rowHeader
         $cols1 = [
-            6, 12, 10, 11, 32, 40, 26, 24, 8, 11, 30, 20,   // bên mời (A-L)
-            30, 14, 26, 20, 12, 22, 16, 18,             // nhà thầu: tên..quy cách
-            14, 9, 16, 18,                              // chi phí, VAT, đơn giá, thành tiền
-            26, 18, 30, 22, 36, 32,                     // chứng nhận .. điểm không đạt
+            6, 12, 36, 44, 8, 11,               // bên mời (Phụ lục III)
+            30, 14,                             // nhà thầu: tên, MST
+            36, 32,                             // Mẫu 1: YCKT chào giá, điểm không đạt
+            26, 20, 22, 16, 18,                 // Mẫu 2: tên TM..quy cách
+            17, 18, 20, 38,                     // đơn giá, thành tiền, giá TT, tài liệu (kèm số TB mời thầu)
         ];
 
         // =============================================================
@@ -480,27 +447,22 @@ mời chào giá", 's' => $H],
             [null],
             [
                 ['v' => 'STT', 's' => $H],
-                ['v' => 'STT phần', 's' => $H],
+                ['v' => 'Mã HH', 's' => $H],
                 ['v' => 'Tên hàng hoá', 's' => $H],
                 ['v' => 'Thông số KT yêu cầu', 's' => $H],
                 ['v' => 'ĐVT', 's' => $H],
                 ['v' => 'Số lượng', 's' => $H],
                 ['v' => 'Tên thương mại', 's' => $HA],
-                ['v' => 'Model', 's' => $HA],
-                ['v' => 'Mã HS', 's' => $HA],
+                ['v' => "Ký, mã, nhãn hiệu,\nmodel", 's' => $HA],
                 ['v' => 'Hãng sản xuất', 's' => $HA],
                 ['v' => 'Xuất xứ', 's' => $HA],
                 ['v' => 'Quy cách', 's' => $HA],
-                ['v' => "Chi phí DV\n(VND)", 's' => $HA],
-                ['v' => "VAT\n(%)", 's' => $HA],
                 ['v' => "Đơn giá\n(VND)", 's' => $HA],
                 ['v' => "Thành tiền\n(VND)", 's' => $HA],
-                ['v' => 'Chứng nhận hàng chào', 's' => $HA],
-                ['v' => "Giá trúng thầu gần nhất\n(VND)", 's' => $HA],
+                ['v' => "Đơn giá trúng thầu\ngần nhất (VNĐ)", 's' => $HA],
                 ['v' => 'Tài liệu tham chiếu', 's' => $HA],
-                ['v' => 'Mã QR/Barcode', 's' => $HA],
-                ['v' => 'Thông số kỹ thuật chào giá', 's' => $HA],
-                ['v' => 'Điểm không đạt', 's' => $HA],
+                ['v' => 'Yêu cầu kỹ thuật chào giá', 's' => $HA],
+                ['v' => 'Các điểm không đạt', 's' => $HA],
             ],
         ];
 
@@ -511,33 +473,28 @@ mời chào giá", 's' => $H],
             $tong += (float)$r['thanh_tien'];
             $out[] = [
                 ['v' => $stt, 's' => $C, 't' => 'n'],
-                ['v' => (string)($r['stt_theo_phan'] ?? ''), 's' => $C],
+                ['v' => (string)($r['ma_hh'] ?? ''), 's' => $C],
                 ['v' => (string)$r['ten_hang_hoa'], 's' => $W],
                 ['v' => (string)($r['thong_so_ky_thuat'] ?? ''), 's' => $W],
                 ['v' => (string)($r['dvt'] ?? ''), 's' => $C],
                 ['v' => (float)$r['so_luong'], 's' => $N, 't' => 'n'],
                 ['v' => (string)($r['ten_thuong_mai'] ?? ''), 's' => $W],
                 ['v' => (string)($r['model'] ?? ''), 's' => $W],
-                ['v' => (string)($r['ma_hs'] ?? ''), 's' => $C],
                 ['v' => (string)($r['hang_san_xuat'] ?? ''), 's' => $W],
                 ['v' => (string)($r['xuat_xu'] ?? ''), 's' => $W],
                 ['v' => (string)($r['quy_cach'] ?? ''), 's' => $W],
-                ['v' => (float)$r['chi_phi_dich_vu'], 's' => $M, 't' => 'n'],
-                ['v' => (float)$r['thue_vat'], 's' => $C, 't' => 'n'],
                 ['v' => (float)$r['don_gia'], 's' => $M, 't' => 'n'],
                 ['v' => (float)$r['thanh_tien'], 's' => $M, 't' => 'n'],
-                ['v' => (string)($r['chung_nhan_chao'] ?? ''), 's' => $W],
                 ['v' => (float)$r['don_gia_trung_thau'], 's' => $M, 't' => 'n'],
                 ['v' => (string)($r['tai_lieu_tham_chieu'] ?? ''), 's' => $W],
-                ['v' => (string)($r['ma_qr_hang_hoa'] ?? ''), 's' => $W],
                 ['v' => (string)($r['thong_so_chao_gia'] ?? ''), 's' => $W],
                 ['v' => (string)($r['diem_khong_dat'] ?? ''), 's' => $W],
             ];
         }
 
-        $rowTong = array_fill(0, 22, ['v' => '', 's' => $H]);
+        $rowTong = array_fill(0, 18, ['v' => '', 's' => $H]);
         $rowTong[2] = ['v' => 'TỔNG CỘNG', 's' => $H];
-        $rowTong[15] = ['v' => $tong, 's' => ExcelHelper::S_BEST, 't' => 'n'];
+        $rowTong[12] = ['v' => $tong, 's' => ExcelHelper::S_BEST, 't' => 'n'];
         $out[] = $rowTong;
 
         $fileName = 'BaoGia_' . preg_replace('/[^A-Za-z0-9]/', '', (string)$bg->ma_so_thue)
@@ -546,7 +503,7 @@ mời chào giá", 's' => $H],
 
         ExcelHelper::write($path, [
             'ChiTietBaoGia' => [
-                'cols'    => [6, 10, 36, 40, 8, 10, 26, 18, 12, 22, 16, 18, 14, 8, 16, 18, 26, 18, 30, 20, 36, 32],
+                'cols'    => [6, 12, 36, 42, 8, 11, 26, 20, 22, 16, 18, 17, 18, 20, 38, 36, 32],
                 'freeze'  => 'C5',
                 'heights' => [1 => 24, 4 => 44],
                 'rows'    => $out,

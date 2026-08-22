@@ -14,6 +14,9 @@ class BG_BaoGia_PUBLIC
     public int $hieu_luc_bao_gia = 0;
     public ?string $ghi_chu = null;
     public int $trang_thai = 0;
+    /** Nhà thầu đã chốt xong 5 bước → khóa mọi chỉnh sửa, chỉ còn xem */
+    public int $da_hoan_thanh = 0;
+    public ?string $ngay_hoan_thanh = null;
     public ?string $ngay_nop = null;
     public ?string $ngay_xac_nhan = null;
     public ?int $nguoi_xac_nhan = null;
@@ -24,6 +27,8 @@ class BG_BaoGia_PUBLIC
      * bảng này chỉ giữ khóa để không phình cột khi thêm loại file mới.
      */
     public ?int $file_ban_ky_id = null;
+    public ?int $file_catalog_id = null;   // Bước 5 — file catalog đã ký
+    public ?int $file_catalog_excel_id = null;   // Bước 5 — file Excel chỉ dẫn
     public float $tong_tien = 0;
     public ?string $ip_nop = null;
     public ?string $ngay_tao = null;

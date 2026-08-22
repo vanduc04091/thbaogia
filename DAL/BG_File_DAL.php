@@ -65,7 +65,8 @@ class BG_File_DAL
         int $goiThauId = 0,
         string $search = '',
         string $loaiFile = '',
-        string $sapXep = 'moi_nhat'
+        string $sapXep = 'moi_nhat',
+        string $nhomFile = ''
     ): array {
         [$page, $pageSize, $offset] = PaginationHelper::normalize($page, $pageSize);
 
@@ -92,6 +93,14 @@ class BG_File_DAL
             $where .= " AND f.loai_file = 'pdf' ";
         } elseif ($loaiFile === 'anh') {
             $where .= " AND f.loai_file IN ('jpg','jpeg','png') ";
+        } elseif ($loaiFile === 'excel') {
+            $where .= " AND f.loai_file IN ('xlsx','xls') ";
+        }
+
+        // Lọc theo nhóm file: ban_ky | catalog | catalog_excel
+        if ($nhomFile !== '') {
+            $where .= ' AND f.nhom_file = :nhom ';
+            $params[':nhom'] = $nhomFile;
         }
 
         $mapSapXep = [
@@ -103,8 +112,13 @@ class BG_File_DAL
         ];
         $orderBy = $mapSapXep[$sapXep] ?? $mapSapXep['moi_nhat'];
 
+        // Gộp CẢ 3 loại file nhà thầu tải lên (bản ký, catalog, Excel chỉ dẫn)
+        // — trước đây chỉ JOIN file_ban_ky_id nên module chỉ thấy bản ký.
         $from = " FROM bg_file f
-                  INNER JOIN bg_bao_gia bg ON bg.file_ban_ky_id = f.id
+                  INNER JOIN bg_bao_gia bg
+                          ON (bg.file_ban_ky_id = f.id
+                           OR bg.file_catalog_id = f.id
+                           OR bg.file_catalog_excel_id = f.id)
                   INNER JOIN bg_goi_thau gt ON gt.id = bg.goi_thau_id ";
 
         $pdo = Database::getConnection();
@@ -139,11 +153,20 @@ class BG_File_DAL
                     COUNT(*) AS tong_file,
                     COALESCE(SUM(f.kich_thuoc), 0) AS tong_dung_luong,
                     SUM(CASE WHEN f.loai_file = 'pdf' THEN 1 ELSE 0 END) AS so_pdf,
-                    SUM(CASE WHEN f.loai_file = 'pdf' THEN 0 ELSE 1 END) AS so_anh,
+                    -- Đếm ảnh theo ĐÚNG đuôi ảnh, không lấy 'mọi thứ không phải pdf'
+                    -- vì giờ còn có file Excel chỉ dẫn.
+                    SUM(CASE WHEN f.loai_file IN ('jpg','jpeg','png') THEN 1 ELSE 0 END) AS so_anh,
+                    SUM(CASE WHEN f.loai_file IN ('xlsx','xls') THEN 1 ELSE 0 END) AS so_excel,
+                    SUM(CASE WHEN f.nhom_file = 'ban_ky' THEN 1 ELSE 0 END) AS so_ban_ky,
+                    SUM(CASE WHEN f.nhom_file = 'catalog' THEN 1 ELSE 0 END) AS so_catalog,
+                    SUM(CASE WHEN f.nhom_file = 'catalog_excel' THEN 1 ELSE 0 END) AS so_catalog_excel,
                     COUNT(DISTINCT bg.goi_thau_id) AS so_goi_thau,
                     COUNT(DISTINCT bg.ma_so_thue) AS so_nha_thau
                 FROM bg_file f
-                INNER JOIN bg_bao_gia bg ON bg.file_ban_ky_id = f.id
+                INNER JOIN bg_bao_gia bg
+                        ON (bg.file_ban_ky_id = f.id
+                         OR bg.file_catalog_id = f.id
+                         OR bg.file_catalog_excel_id = f.id)
                 INNER JOIN bg_goi_thau gt ON gt.id = bg.goi_thau_id" . $where;
 
         $stmt = Database::getConnection()->prepare($sql);
@@ -155,6 +178,10 @@ class BG_File_DAL
             'tong_dung_luong' => (int)($r['tong_dung_luong'] ?? 0),
             'so_pdf'          => (int)($r['so_pdf'] ?? 0),
             'so_anh'          => (int)($r['so_anh'] ?? 0),
+            'so_excel'        => (int)($r['so_excel'] ?? 0),
+            'so_ban_ky'       => (int)($r['so_ban_ky'] ?? 0),
+            'so_catalog'      => (int)($r['so_catalog'] ?? 0),
+            'so_catalog_excel'=> (int)($r['so_catalog_excel'] ?? 0),
             'so_goi_thau'     => (int)($r['so_goi_thau'] ?? 0),
             'so_nha_thau'     => (int)($r['so_nha_thau'] ?? 0),
         ];
@@ -182,6 +209,37 @@ class BG_File_DAL
      * Mọi tên file đang được tham chiếu (kể cả bản ghi đã soft delete),
      * để dò file mồ côi trên đĩa mà không xóa nhầm file còn tra cứu được.
      */
+    /** Báo giá đang trỏ tới file này (bất kể nhóm nào) */
+    public static function baoGiaDungFile(int $fileId): ?array
+    {
+        $sql = "SELECT id, ten_cong_ty, ma_so_thue, trang_thai, nguoi_xac_nhan, goi_thau_id
+                FROM bg_bao_gia
+                WHERE da_xoa = 0
+                  AND (file_ban_ky_id = :f1 OR file_catalog_id = :f2 OR file_catalog_excel_id = :f3)
+                LIMIT 1";
+        $stmt = Database::getConnection()->prepare($sql);
+        // KHÔNG reuse named placeholder (EMULATE_PREPARES = false)
+        $stmt->execute([':f1' => $fileId, ':f2' => $fileId, ':f3' => $fileId]);
+        $r = $stmt->fetch();
+        return $r ?: null;
+    }
+
+    /** Tất cả file của 1 báo giá (bản ký + catalog + Excel chỉ dẫn) */
+    public static function getAllByBaoGia(int $baoGiaId): array
+    {
+        $sql = "SELECT f.*
+                FROM bg_file f
+                INNER JOIN bg_bao_gia bg
+                        ON (bg.file_ban_ky_id = f.id
+                         OR bg.file_catalog_id = f.id
+                         OR bg.file_catalog_excel_id = f.id)
+                WHERE bg.id = :id AND f.da_xoa = 0
+                ORDER BY FIELD(f.nhom_file, 'ban_ky', 'catalog', 'catalog_excel'), f.id";
+        $stmt = Database::getConnection()->prepare($sql);
+        $stmt->execute([':id' => $baoGiaId]);
+        return $stmt->fetchAll();
+    }
+
     public static function tatCaTenFile(): array
     {
         $rows = Database::getConnection()->query(

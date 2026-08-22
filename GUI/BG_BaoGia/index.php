@@ -73,6 +73,8 @@ require __DIR__ . '/../layouts/header.php';
                     <th class="col-price">Tổng tiền</th>
                     <th>Ngày nộp</th>
                     <th>Bản ký</th>
+                    <th>Catalog</th>
+                    <th>Chỉ dẫn vị trí</th>
                     <th>Trạng thái</th>
                     <th class="col-actions">Thao tác</th>
                 </tr>
@@ -294,6 +296,12 @@ function renderTable(rows) {
             if (CAN.del)  actions += '<button class="btn btn-sm btn-outline-danger" onclick="delForever(' + r.id + ')" title="Xóa vĩnh viễn">' + APP.icon('trash', 15) + '</button>';
         } else {
             actions += '<button class="btn btn-sm btn-outline-secondary" onclick="showCt(' + r.id + ')" title="Xem chi tiết">' + APP.icon('eye', 15) + '</button>';
+            // Tải TẤT CẢ tài liệu (bản ký + catalog + bảng chỉ dẫn) trong 1 file .zip
+            if (r.ten_file_goc || r.ten_file_catalog || r.ten_file_catalog_excel) {
+                actions += '<a class="btn btn-sm btn-outline-primary" href="' + URL_BAN_KY +
+                    '?id=' + r.id + '&loai=tat_ca" title="Tải tất cả tài liệu (.zip)">' +
+                    APP.icon('download', 15) + '</a>';
+            }
             if (CAN.edit) {
                 if (tt === TT_XN) {
                     actions += '<button class="btn btn-sm btn-outline-secondary" onclick="boXacNhan(' + r.id + ')" title="Bỏ xác nhận">' + APP.icon('rotate-ccw', 15) + '</button>';
@@ -330,6 +338,29 @@ function renderTable(rows) {
             oBanKy = '<span class="text-muted">Chưa có</span>';
         }
 
+        /**
+         * Ô file phụ (catalog / Excel chỉ dẫn).
+         * Excel không xem được trên trình duyệt nên chỉ có nút tải.
+         */
+        function oFile(coFile, loai, nhan, chiTai) {
+            if (!coFile) return '<span class="text-muted">Chưa có</span>';
+            var u = URL_BAN_KY + '?id=' + r.id + '&loai=' + loai;
+            var h = '<span class="row-actions" style="justify-content:flex-start">';
+            if (!chiTai) {
+                h += '<button type="button" class="btn btn-sm btn-outline-primary js-xem-file"' +
+                     ' data-id="' + r.id + '" data-loai="' + loai + '"' +
+                     ' data-ten="' + APP.escape(coFile) + '"' +
+                     ' title="Xem ' + nhan + ': ' + APP.escape(coFile) + '">' +
+                     APP.icon('eye', 15) + '</button>';
+            }
+            h += '<a class="btn btn-sm btn-outline-secondary" href="' + u + '&tai_ve=1"' +
+                 ' title="Tải ' + nhan + ' về máy">' + APP.icon('download', 15) + '</a>';
+            return h + '</span>';
+        }
+
+        var oCatalog = oFile(r.ten_file_catalog, 'catalog', 'catalog', false);
+        var oChiDan  = oFile(r.ten_file_catalog_excel, 'catalog_excel', 'file chỉ dẫn', true);
+
         html += '<tr>' +
             '<td class="col-id">' + r.id + '</td>' +
             '<td><span class="cell-main">' + APP.escape(r.ten_cong_ty) + '</span>' +
@@ -343,6 +374,8 @@ function renderTable(rows) {
                 ? APP.escape(APP.formatDateTime(r.ngay_nop))
                 : '<span class="text-muted">Chưa nộp</span>') + '</td>' +
             '<td>' + oBanKy + '</td>' +
+            '<td>' + oCatalog + '</td>' +
+            '<td>' + oChiDan + '</td>' +
             '<td>' + badgeTrangThai(tt) + lyDo + '</td>' +
             '<td class="col-actions"><span class="row-actions">' + actions + '</span></td>' +
             '</tr>';
@@ -394,7 +427,7 @@ function showCt(id) {
                     html += '<tr>' +
                         '<td class="col-id">' + (i + 1) + '</td>' +
                         '<td><span class="cell-main">' + APP.escape(r.ten_hang_hoa) + '</span>' +
-                            (r.stt_theo_phan ? '<span class="cell-sub">' + APP.escape(r.stt_theo_phan) + '</span>' : '') + '</td>' +
+                            (r.ma_hh ? '<span class="cell-sub text-mono">' + APP.escape(r.ma_hh) + '</span>' : '') + '</td>' +
                         '<td>' + (tenModel || '<span class="text-muted">—</span>') + '</td>' +
                         '<td>' + (hangXx || '<span class="text-muted">—</span>') + '</td>' +
                         '<td class="col-qty">' + Number(r.so_luong || 0).toLocaleString('vi-VN') + '</td>' +
@@ -532,8 +565,12 @@ function delForever(id) {
  * PDF -> nhúng <iframe>; ảnh -> <img>. Cả 2 đều đi qua xem_ban_ky.php
  * (có kiểm tra đăng nhập + quyền), không trỏ thẳng vào file trong uploads.
  */
-function moXemBanKy(id, tenFile) {
-    var u = URL_BAN_KY + '?id=' + id;
+/**
+ * @param {string} loai 'ban_ky' (mặc định) | 'catalog' — Excel không xem được
+ *                      nên không gọi hàm này, chỉ có nút tải.
+ */
+function moXemBanKy(id, tenFile, loai) {
+    var u = URL_BAN_KY + '?id=' + id + '&loai=' + (loai || 'ban_ky');
     var laAnh = /\.(jpg|jpeg|png)$/i.test(tenFile || '');
 
     $('#bkvTenFile').html(APP.icon('file-spreadsheet', 17) +
@@ -571,6 +608,12 @@ function closeXemBanKy() {
 $(document).on('click', '.js-xem-bk', function () {
     var $b = $(this);
     moXemBanKy(parseInt($b.data('id'), 10), String($b.data('ten') || ''));
+});
+// Xem file phụ (catalog) — dùng chung hộp thoại với bản ký
+$(document).on('click', '.js-xem-file', function () {
+    var $b = $(this);
+    moXemBanKy(parseInt($b.data('id'), 10), String($b.data('ten') || ''),
+               String($b.data('loai') || 'ban_ky'));
 });
 
 function closeCt() { $('#ctModal').removeClass('open'); }

@@ -73,6 +73,9 @@ $laPortal = $portalToken !== '';
 <body>
 <div class="login-wrap">
     <div class="login-header">
+        <img class="login-logo"
+             src="<?= AppConfig::baseUrl('assets/images/logo_bv.png') ?>?v=<?= AppConfig::APP_VERSION ?>"
+             alt="Logo Bệnh viện Hữu nghị Đa khoa Nghệ An">
         <h1><?= $laPortal ? 'Đăng nhập chào giá' : 'Đăng nhập hệ thống' ?></h1>
         <p><?= $laPortal ? 'Dành cho nhà thầu tham gia chào giá' : Helper::h(AppConfig::APP_NAME) ?></p>
     </div>

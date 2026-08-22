@@ -1742,3 +1742,371 @@ input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
     .stat-box .stat-icon { width: 34px; height: 34px; }
     .stat-box .stat-body b { font-size: 16px; }
 }
+
+/* ============================================================
+   HƯỚNG DẪN CHÀO GIÁ — dùng cho popup lần đầu + trang xem lại
+   ============================================================ */
+
+.hd-noi-dung { font-size: 14.5px; color: var(--gray-800); line-height: 1.65; }
+
+.hd-mo-dau { margin: 0 0 14px; }
+
+.hd-danh-sach {
+    margin: 0;
+    padding-left: 22px;
+    display: grid;
+    gap: 12px;
+}
+.hd-danh-sach > li { padding-left: 4px; }
+.hd-danh-sach strong { color: var(--gray-900); }
+
+/* Dòng giải thích thêm dưới mỗi mục */
+.hd-phu {
+    display: block;
+    font-size: 13px;
+    color: var(--gray-600);
+    margin-top: 3px;
+}
+
+/* Bảng ví dụ file Excel chỉ dẫn tài liệu */
+.hd-bang {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 4px;
+    font-size: 13px;
+    background: var(--surface);
+}
+.hd-bang th,
+.hd-bang td {
+    border: 1px solid var(--gray-300);
+    padding: 7px 10px;
+    text-align: left;
+    vertical-align: middle;
+}
+.hd-bang th {
+    background: var(--gray-100);
+    font-weight: 600;
+    color: var(--gray-700);
+}
+.hd-bang em { color: var(--gray-700); font-style: italic; }
+
+/* Khối lưu ý cuối trang */
+.hd-luu-y {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 18px;
+    padding: 12px 14px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-left: 3px solid var(--warning);
+    border-radius: var(--radius-sm);
+    font-size: 13.5px;
+    color: #78350f;
+}
+.hd-luu-y .icon { flex: none; color: var(--warning); margin-top: 1px; }
+
+/* Trang hướng dẫn riêng: giới hạn bề ngang cho dễ đọc */
+.hd-trang { max-width: 880px; margin: 0 auto; }
+
+/* Popup hướng dẫn: cho phép cuộn khi màn hình thấp */
+#hdModal .modal-content { max-width: 720px; }
+#hdModal .modal-body { max-height: 70vh; overflow-y: auto; }
+
+@media (max-width: 560px) {
+    .hd-noi-dung { font-size: 14px; }
+    .hd-danh-sach { padding-left: 18px; }
+    /* Bảng ví dụ cuộn ngang thay vì vỡ layout */
+    .hd-bang { display: block; overflow-x: auto; white-space: nowrap; }
+}
+
+@media print {
+    .portal-header, .portal-footer, .btn { display: none !important; }
+    .hd-trang { max-width: none; border: 0; box-shadow: none; }
+}
+
+/* ============================================================
+   TAB MẪU 1 / MẪU 2 ở cổng nhà thầu
+   ============================================================ */
+.mau-tabs {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 14px 16px 0;
+}
+.mau-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 16px;
+    background: var(--gray-100);
+    border: 1px solid var(--gray-200);
+    border-bottom: 2px solid transparent;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    cursor: pointer;
+    text-align: left;
+    color: var(--gray-600);
+    transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.mau-tab:hover { background: var(--gray-200); }
+.mau-tab.is-active {
+    background: var(--surface);
+    color: var(--gray-900);
+    border-bottom-color: var(--primary);
+}
+.mau-tab .mt-no {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--gray-300);
+    color: var(--gray-700);
+    font-size: 12.5px;
+    font-weight: 700;
+}
+.mau-tab.is-active .mt-no { background: var(--primary); color: #fff; }
+.mau-tab strong { display: block; font-size: 14px; }
+.mau-tab .mt-sub { display: block; font-size: 11.5px; color: var(--gray-500); margin-top: 1px; }
+.mau-tab .mt-dem {
+    flex: none;
+    margin-left: 4px;
+    padding: 2px 9px;
+    border-radius: var(--radius-pill);
+    background: var(--gray-200);
+    color: var(--gray-700);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+.mau-tab.is-active .mt-dem { background: var(--primary-light); color: var(--primary-dark); }
+
+/* Dòng đã điền xong — nền xanh nhạt để thấy tiến độ */
+.table tbody tr.row-done > td { background: var(--primary-subtle); }
+
+/* Ô textarea nhập trong bảng */
+.table textarea.input-inline {
+    min-width: 200px;
+    resize: vertical;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+    .mau-tabs { padding: 12px 12px 0; }
+    .mau-tab { flex: 1 1 100%; }
+}
+
+/* Thanh bước BẤM ĐƯỢC để quay lại sửa (dùng <button> thay <span>) */
+.step-btn {
+    font: inherit;
+    cursor: pointer;
+    border: 1px solid var(--gray-200);
+    transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.step-btn:hover { background: var(--gray-100); border-color: var(--gray-300); }
+.step-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.step-btn.is-active { cursor: default; }
+
+/* Ô nhập ở Mẫu 1 cao gấp đôi — đủ chỗ ghi thông số kỹ thuật dài */
+#bangM1 textarea.input-inline { min-height: 118px; min-width: 260px; }
+
+/* Bộ đếm tiến độ gắn trên thanh bước (trước đây nằm ở thanh .mau-tabs đã bỏ) */
+.step-btn .mt-dem {
+    margin-left: 6px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--gray-200);
+    color: var(--gray-700);
+    font-size: 11px;
+    font-weight: 600;
+}
+.step-btn.is-active .mt-dem { background: var(--primary); color: #fff; }
+
+/* Callout "chọn 1 trong 2 cách" — cố tình nổi hơn .alert thường vì đây là
+   chỗ nhà thầu hay bỏ sót, tưởng bắt buộc phải import Excel mới nộp được. */
+.callout-cach {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 18px;
+    margin-bottom: 4px;
+    border: 2px solid var(--primary);
+    border-left-width: 6px;
+    border-radius: var(--radius);
+    background: linear-gradient(135deg, var(--primary-subtle) 0%, #fff 70%);
+    box-shadow: 0 2px 10px rgba(22, 163, 74, .14);
+    color: var(--gray-800);
+    font-size: 15px;
+    line-height: 1.55;
+}
+.callout-cach > .icon { flex: none; margin-top: 1px; color: var(--primary); }
+
+#ghiChuMau { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
+#ghiChuMau .chon-cach {
+    flex-shrink: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--primary-darker);
+    text-transform: uppercase;
+    letter-spacing: .3px;
+}
+#ghiChuMau .cach {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px 6px 6px;
+    border: 2px solid var(--primary);
+    border-radius: 999px;
+    background: #fff;
+    font-size: 15px;
+    box-shadow: 0 1px 4px rgba(22, 163, 74, .12);
+}
+#ghiChuMau .cach-no {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+}
+#ghiChuMau .cach-hoac {
+    color: var(--primary-darker);
+    font-weight: 700;
+    font-size: 14px;
+    text-transform: uppercase;
+}
+/* Phần chi tiết riêng của từng mẫu — xuống dòng cho dễ đọc */
+#ghiChuMau .cach-chi-tiet {
+    flex-basis: 100%;
+    margin-top: 2px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--primary);
+    color: var(--gray-700);
+    font-size: 13.5px;
+}
+
+/* ===== Menu trên cùng cổng nhà thầu =====
+   Trước đây dùng .btn-outline-secondary (thiết kế cho nền sáng) đặt trên nền
+   xanh đen -> chữ xám trên nền tối, nhìn mờ. Nay dùng bộ màu riêng cho nền tối. */
+.portal-nav {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.portal-nav .pnav-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 14px;
+    border: 1px solid rgba(255, 255, 255, .22);
+    border-radius: var(--radius);
+    background: rgba(255, 255, 255, .06);
+    color: #fff;                       /* trắng hẳn, không còn mờ */
+    font-size: 13.5px;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.portal-nav .pnav-item:hover {
+    background: rgba(255, 255, 255, .16);
+    border-color: rgba(255, 255, 255, .4);
+}
+.portal-nav .pnav-item:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+/* Nút chính "Tra cứu báo giá của tôi" — nổi bằng màu thương hiệu */
+.portal-nav .pnav-item:first-child {
+    background: var(--primary);
+    border-color: var(--primary);
+}
+.portal-nav .pnav-item:first-child:hover { background: var(--primary-dark, #15803d); }
+
+.portal-nav .pnav-user {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 6px 0 10px;
+    color: var(--gray-300);
+    font-size: 13px;
+}
+.portal-nav .pnav-out { color: #fecaca; border-color: rgba(254, 202, 202, .3); }
+.portal-nav .pnav-out:hover { background: rgba(220, 38, 38, .25); border-color: #fca5a5; }
+
+@media (max-width: 720px) {
+    .portal-nav .pnav-item span { display: none; }   /* hẹp thì chỉ còn icon */
+    .portal-nav .pnav-user { display: none; }
+}
+
+/* Ghi chú "chưa lưu" ở thanh tổng */
+.tb-note.is-dirty { color: #b45309; font-weight: 600; }
+.tb-note.is-dirty::before { content: '● '; color: #f59e0b; }
+
+/* ===== Logo bệnh viện ===== */
+.sidebar-logo img,
+.portal-logo img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+.sidebar-logo {
+    width: 34px;
+    height: 34px;
+    background: #fff;           /* logo nền trong suốt, đặt nền trắng cho rõ */
+    border-radius: 8px;
+    padding: 3px;
+}
+.portal-logo {
+    width: 38px;
+    height: 38px;
+    background: #fff;
+    border-radius: 8px;
+    padding: 3px;
+}
+
+/* ===== Báo giá đã hoàn thành → chỉ xem ===== */
+.banner-khoa {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    border: 2px solid #f59e0b;
+    border-left-width: 6px;
+    border-radius: var(--radius);
+    background: #fffbeb;
+    color: #92400e;
+    font-size: 14.5px;
+    line-height: 1.55;
+}
+.banner-khoa > .icon { flex: none; margin-top: 1px; color: #b45309; }
+
+/* Bảng bị khóa — nền xám để nhận biết ngay là không sửa được */
+.table.is-locked tbody td { background: var(--gray-50, #f8fafc); }
+.table.is-locked input:disabled,
+.table.is-locked textarea:disabled {
+    background: transparent;
+    border-color: transparent;
+    color: var(--gray-700);
+    cursor: default;
+    opacity: 1;              /* bỏ mờ mặc định của trình duyệt cho dễ đọc */
+}
+
+/* Trang tra cứu MST dùng chung .portal-header — chỉ cần cho nó bám dính
+   khi cuộn vì danh sách kết quả có thể rất dài. */
+.tracuu-overlay .portal-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+.tracuu-overlay .portal-header h1 { font-size: 16px; }

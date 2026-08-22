@@ -8,7 +8,8 @@ class AppConfig
     // === Database Config ===
     const DB_HOST = 'localhost';
     const DB_PORT = 3306;
-    const DB_NAME = 'th_bao_gia';
+    const DB_NAME = 'th_bao_gia';          // dev
+    //const DB_NAME = 'thbaogia';          // production
     const DB_USER = 'root';
     const DB_PASS = '';
     const DB_CHARSET = 'utf8mb4';
@@ -21,13 +22,19 @@ class AppConfig
 
     // === App Config ===
     const APP_NAME = 'Tổng Hợp Báo Giá';
-    const APP_VERSION = '3.0.0';
+    const APP_VERSION = '5.5.0';
+
     //const APP_URL = 'http://thbg.bv';
     const APP_URL = 'https://thbg.bvnghean.vn';
     const APP_TIMEZONE = 'Asia/Ho_Chi_Minh';
     const APP_DEBUG = true;
 
     // === Session ===
+    // === Tài khoản chung cho nhà thầu (in trong Thư mời) ===
+    // Đổi ở đây thì Thư mời in ra cũng đổi theo — không hardcode trong file mẫu.
+    const PORTAL_TAI_KHOAN = 'guest';
+    const PORTAL_MAT_KHAU  = '123456';
+
     const SESSION_NAME = 'THBG_SESSION1';
     const SESSION_LIFETIME = 7200; // 2 giờ
 

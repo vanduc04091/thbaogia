@@ -31,14 +31,15 @@ function loiXemFile(string $msg): void
     exit;
 }
 
-if ($id <= 0) loiXemFile('Thiếu mã báo giá');
+if ($id <= 0) loiXemFile('Thiếu mã file');
 
-$r = BG_QuanLyFile_BUS::getById($id);
-if (!$r) loiXemFile('Không tìm thấy bản ghi');
-if (empty($r['ten_file'])) loiXemFile('Báo giá này chưa có file bản ký');
+// Nhận ID FILE (không phải id báo giá) — 1 báo giá giờ có nhiều file:
+// bản ký, catalog, Excel chỉ dẫn.
+$r = BG_QuanLyFile_BUS::getFileById($id);
+if (!$r) loiXemFile('Không tìm thấy file');
 
-// basename() chặn path traversal nếu DB bị chèn giá trị lạ
-$path = BG_BaoGia_BUS::thuMucBanKy() . DIRECTORY_SEPARATOR . basename((string)$r['ten_file']);
+// Đường dẫn do BUS dựng theo nhóm file (ban_ky/ hay catalog/), đã basename()
+$path = $r['duong_dan_day'];
 if (!is_file($path)) loiXemFile('File không còn trên hệ thống');
 
 $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
@@ -47,7 +48,14 @@ $mimeMap = [
     'jpg'  => 'image/jpeg',
     'jpeg' => 'image/jpeg',
     'png'  => 'image/png',
+    'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'xls'  => 'application/vnd.ms-excel',
+    'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'doc'  => 'application/msword',
 ];
+
+// Excel không xem được trên trình duyệt -> luôn tải về
+if (in_array($ext, ['xlsx', 'xls', 'docx', 'doc'], true)) $taiVe = true;
 
 // Tên gửi ra: dùng chính tên đã chuẩn hóa (mst_slug.ext) cho dễ lưu trữ
 $tenGui = basename((string)$r['ten_file']);

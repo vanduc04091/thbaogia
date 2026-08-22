@@ -33,6 +33,7 @@ class BG_File_PUBLIC
     public int $da_xoa = 0;
 
     const NHOM_BAN_KY = 'ban_ky';
+    const NHOM_CATALOG = 'catalog';   // Bước 5 — chỉ dẫn vị trí tài liệu
 
     /** Đuôi file được phép tải lên */
     const EXT_CHO_PHEP = ['pdf', 'jpg', 'jpeg', 'png'];
@@ -47,6 +48,28 @@ class BG_File_PUBLIC
         'jpeg' => ['image/jpeg'],
         'png'  => ['image/png'],
     ];
+
+    /**
+     * Bảng chỉ dẫn vị trí tài liệu (Bước 5) — nhà thầu điền vào file Word mẫu.
+     * Nhận thêm PDF vì nhiều đơn vị in ký rồi scan lại thành PDF.
+     * KHÔNG gộp vào EXT_CHO_PHEP vì bản ký chỉ nhận PDF/ảnh.
+     */
+    const EXT_CHI_DAN = ['docx', 'doc', 'pdf'];
+
+    const EXT_MIME_CHI_DAN = [
+        'docx' => [
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/zip',            // .docx là zip — finfo hay nhận diện thế này
+            'application/octet-stream',
+        ],
+        'doc'  => [
+            'application/msword',
+            'application/octet-stream',
+        ],
+        'pdf'  => ['application/pdf'],
+    ];
+
+    const NHOM_CATALOG_EXCEL = 'catalog_excel';
 
     public function laAnh(): bool
     {

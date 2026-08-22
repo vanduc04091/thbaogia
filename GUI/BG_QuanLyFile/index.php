@@ -69,6 +69,7 @@ require __DIR__ . '/../layouts/header.php';
                     <th>Nhà thầu</th>
                     <th>Gói thầu</th>
                     <th>Tên file lưu trữ</th>
+                    <th>Nhóm</th>
                     <th>Loại</th>
                     <th>Dung lượng</th>
                     <th>Ngày tải lên</th>
@@ -193,21 +194,33 @@ function renderTable(rows) {
 
         var loai = r.la_anh
             ? '<span class="badge badge-info">Ảnh</span>'
-            : '<span class="badge badge-neutral">PDF</span>';
+            : (['xlsx', 'xls'].indexOf(String(r.loai_file).toLowerCase()) > -1
+                ? '<span class="badge badge-success">Excel</span>'
+                : '<span class="badge badge-neutral">PDF</span>');
+
+        // Nhóm file: nhà thầu tải lên ở bước nào
+        var NHOM = {
+            ban_ky:        ['Bản ký', 'badge-success'],
+            catalog:       ['Catalog', 'badge-info'],
+            catalog_excel: ['Excel chỉ dẫn', 'badge-warning']
+        };
+        var nh = NHOM[r.nhom_file] || ['—', 'badge-neutral'];
+        var nhom = '<span class="badge ' + nh[1] + '">' + nh[0] + '</span>';
 
         // File mất trên đĩa nhưng DB vẫn trỏ tới -> cảnh báo rõ
         var canhBao = r.file_ton_tai ? '' :
             '<span class="badge badge-danger badge-quote" title="Bản ghi còn nhưng file đã mất khỏi thư mục">' +
             APP.icon('alert-triangle', 12) + 'Mất file</span>';
 
-        // r.id là id của bg_file; mọi thao tác xem/tải/xóa đều đi theo id BÁO GIÁ
+        // Dùng ID FILE (r.id) — 1 báo giá giờ có nhiều file (bản ký, catalog,
+        // Excel chỉ dẫn) nên không định danh theo id báo giá được nữa.
         var bgId = r.bao_gia_id;
 
         var actions = '';
         if (r.file_ton_tai) {
             actions += '<button type="button" class="btn btn-sm btn-outline-primary js-xem"' +
-                ' data-id="' + bgId + '" title="Xem file">' + APP.icon('eye', 15) + '</button>';
-            actions += '<a class="btn btn-sm btn-outline-secondary" href="' + URL_XEM + '?id=' + bgId +
+                ' data-id="' + r.id + '" title="Xem file">' + APP.icon('eye', 15) + '</button>';
+            actions += '<a class="btn btn-sm btn-outline-secondary" href="' + URL_XEM + '?id=' + r.id +
                 '&tai_ve=1" title="Tải về máy">' + APP.icon('download', 15) + '</a>';
         }
         actions += '<a class="btn btn-sm btn-outline-secondary" href="' + URL_BAO_GIA +
@@ -215,7 +228,7 @@ function renderTable(rows) {
             APP.icon('external-link', 15) + '</a>';
         if (CAN.del) {
             actions += '<button type="button" class="btn btn-sm btn-outline-danger js-xoa"' +
-                ' data-id="' + bgId + '" data-cty="' + APP.escape(r.ten_cong_ty) + '"' +
+                ' data-id="' + r.id + '" data-cty="' + APP.escape(r.ten_cong_ty) + '"' +
                 ' title="Xóa file">' + APP.icon('trash', 15) + '</button>';
         }
 
@@ -226,6 +239,7 @@ function renderTable(rows) {
             '<td><span class="text-mono">' + APP.escape(r.so_thong_bao || '—') + '</span></td>' +
             '<td><span class="text-mono" style="font-size:12px;word-break:break-all">' +
                 APP.escape(r.ten_file) + '</span>' + canhBao + '</td>' +
+            '<td>' + nhom + '</td>' +
             '<td>' + loai + '</td>' +
             '<td>' + APP.escape(r.kich_thuoc_dep || '—') + '</td>' +
             '<td>' + (r.ngay_tao ? APP.escape(APP.formatDateTime(r.ngay_tao)) : '—') + '</td>' +
@@ -237,24 +251,34 @@ function renderTable(rows) {
 
 /* ============ XEM FILE ============ */
 function xemFile(id) {
-    APP.ajax(AJAX_URL, { action: 'getById', id: id }, {
+    APP.ajax(AJAX_URL, { action: 'getFile', id: id }, {
         success: function (res) {
             var d = res.data;
-            var u = URL_XEM + '?id=' + d.bao_gia_id;   // endpoint nhận id BÁO GIÁ
+            var u = URL_XEM + '?id=' + d.id;   // endpoint nhận ID FILE
 
             $('#vThongTin').html(
                 dItem('Nhà thầu', d.ten_cong_ty) +
                 dItem('Mã số thuế', d.ma_so_thue) +
                 dItem('Gói thầu', d.so_thong_bao) +
                 dItem('Dung lượng', d.kich_thuoc_dep) +
-                dItem('Mã file / Mã báo giá', '#' + d.id + ' / #' + d.bao_gia_id) +
+                dItem('Mã file', '#' + d.id) +
+                dItem('Loại', d.ten_nhom || '—') +
                 dItem('Tên file lưu trữ', d.ten_file, 'span-2') +
                 dItem('Tên file gốc nhà thầu đặt', d.ten_file_goc, 'span-2')
             );
             $('#vTaiVe').attr('href', u + '&tai_ve=1');
             $('#vTabMoi').attr('href', u);
 
-            if (d.la_anh) {
+            if (d.la_excel) {
+                // Trình duyệt không hiển thị được Excel — chỉ mời tải về
+                $('#vKhung').html(
+                    '<div class="state-card" style="margin:0">' +
+                    '<span class="state-icon">' + APP.icon('file-spreadsheet', 40) + '</span>' +
+                    '<h2 style="font-size:16px">File Excel chỉ dẫn vị trí tài liệu</h2>' +
+                    '<p>Không xem trực tiếp được trên trình duyệt. Bấm <strong>Tải về máy</strong> ' +
+                    'rồi mở bằng Excel.</p></div>'
+                );
+            } else if (d.la_anh) {
                 $('#vKhung').html('<img src="' + u + '" alt="Bản ký" style="max-width:100%;display:block;' +
                     'margin:0 auto;border:1px solid var(--gray-200);border-radius:var(--radius-sm)">');
             } else {

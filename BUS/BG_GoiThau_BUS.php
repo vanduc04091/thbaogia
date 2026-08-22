@@ -1,4 +1,7 @@
 <?php
+require_once __DIR__ . '/../PUBLIC/Common/QrHelper.php';
+require_once __DIR__ . '/../PUBLIC/Common/WordTemplate.php';
+require_once __DIR__ . '/../PUBLIC/Common/WordHelper.php';
 require_once __DIR__ . '/../DAL/BG_GoiThau_DAL.php';
 require_once __DIR__ . '/../DAL/BG_HangHoa_DAL.php';
 require_once __DIR__ . '/../DAL/DM_NhatKyHeThong_DAL.php';
@@ -307,4 +310,75 @@ class BG_GoiThau_BUS
     {
         return BG_GoiThau_DAL::thongKe();
     }
+
+    /**
+     * Xuat THU MOI CHAO GIA (Word) tu mau MPS/thu_moi.docx.
+     *
+     * Mau duoc tao tu chinh file docs/1.THU MOI CHAO GIA.docx nen giu nguyen
+     * dinh dang goc; code chi thay cac {{KEY}} + chen anh QR that.
+     *
+     * Muon doi noi dung/dinh dang: mo MPS/thu_moi.docx bang Word ma sua.
+     */
+    public static function xuatThuMoi(int $goiThauId): string
+    {
+        $gt = BG_GoiThau_DAL::getById($goiThauId);
+        if (!$gt) throw new RuntimeException('Không tìm thấy gói thầu');
+        if (empty($gt->token)) throw new RuntimeException('Gói thầu chưa có mã QR');
+
+        $url = AppConfig::baseUrl('GUI/portal/index.php') . '?t=' . urlencode($gt->token);
+
+        // --- Sinh anh QR ra file tam ---
+        $dir = BG_HangHoa_BUS::tempDir();
+        $qrPath = $dir . DIRECTORY_SEPARATOR . 'qr_' . $goiThauId . '_' . uniqid() . '.png';
+        QrHelper::pngFile($url, $qrPath, 8);
+
+        $fmt = static function (?string $dt, string $mac = ''): string {
+            if (empty($dt)) return $mac;
+            $t = strtotime($dt);
+            return $t ? date('H\hi d/m/Y', $t) : $mac;
+        };
+        $fmtNgay = static function (?string $dt, string $mac = ''): string {
+            if (empty($dt)) return $mac;
+            $t = strtotime($dt);
+            return $t ? date('d/m/Y', $t) : $mac;
+        };
+
+        $ngayPh = $gt->ngay_phat_hanh ? strtotime($gt->ngay_phat_hanh) : time();
+
+        $data = [
+            'SO_THONG_BAO'        => (string)$gt->so_thong_bao,
+            'TEN_GOI_THAU'        => (string)$gt->ten_goi_thau,
+            'NGAY_PHAT_HANH'      => date('d/m/Y', $ngayPh),
+            'NGAY_PHAT_HANH_CHU'  => 'ngày ' . date('d', $ngayPh)
+                                   . ' tháng ' . date('m', $ngayPh)
+                                   . ' năm ' . date('Y', $ngayPh),
+            'THOI_GIAN_MO'        => $fmt($gt->thoi_gian_mo_bao_gia, '…h… ngày …/…/…'),
+            'THOI_GIAN_DONG'      => $fmt($gt->thoi_gian_dong_bao_gia, '…h… ngày …/…/…'),
+            'HIEU_LUC'            => (string)((int)$gt->hieu_luc_bao_gia > 0 ? (int)$gt->hieu_luc_bao_gia : 180),
+            'NGAY_HET_HAN'        => $fmtNgay($gt->thoi_gian_dong_bao_gia, $fmtNgay($gt->han_cuoi)),
+            'DUONG_DAN'           => $url,
+            'TAI_KHOAN'           => AppConfig::PORTAL_TAI_KHOAN,
+            'MAT_KHAU'            => AppConfig::PORTAL_MAT_KHAU,
+            // Cac muc bo trong de ben moi tu dien khi in
+            'NGUOI_LIEN_HE'       => '………………',
+            'EMAIL_LIEN_HE'       => '…………',
+            'SDT_LIEN_HE'         => '…………',
+            'DIA_CHI_NHAN'        => '………………………',
+        ];
+
+        $path = $dir . '/ThuMoi_'
+              . preg_replace('/[^0-9A-Za-z]/', '_', (string)$gt->so_thong_bao)
+              . '_' . date('Ymd_His') . '.docx';
+
+        try {
+            $out = WordTemplate::render('thu_moi.docx', $path, $data, [], [
+                'QR' => ['path' => $qrPath, 'w' => 45, 'h' => 45],
+            ]);
+        } finally {
+            @unlink($qrPath);   // don anh tam du thanh cong hay khong
+        }
+
+        return $out;
+    }
+
 }

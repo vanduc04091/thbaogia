@@ -73,6 +73,37 @@ SessionHelper::set('portal_token', $token);
 $conNhan = BG_GoiThau_BUS::kiemTraConNhan($goiThau);
 
 // ============ 4. Báo giá đang làm trong phiên (nếu có) ============
+// ?sua=<id> — từ trang tra cứu bấm "Sửa lại báo giá" để làm tiếp báo giá cũ.
+// Chỉ nhận khi báo giá thuộc đúng gói thầu này, CHƯA chốt hoàn thành, và
+// nằm trong danh sách báo giá của phiên (chống sửa báo giá của công ty khác).
+$suaId = (int)Helper::get('sua', 0);
+if ($suaId > 0) {
+    $idsPhien = SessionHelper::get('portal_bao_gia_ids', []);
+    $mstTraCuu = (string)SessionHelper::get('portal_mst_tra_cuu', '');
+
+    $duocSua = (is_array($idsPhien) && in_array($suaId, $idsPhien, true))
+            || ($mstTraCuu !== '' && BG_BaoGia_BUS::baoGiaCuaMst($suaId, $mstTraCuu));
+
+    if ($duocSua) {
+        $bgSua = BG_BaoGia_BUS::getById($suaId);
+        if ($bgSua && (int)$bgSua->da_xoa === 0
+            && (int)$bgSua->goi_thau_id === (int)$goiThau->id
+            && (int)($bgSua->da_hoan_thanh ?? 0) === 0) {
+            SessionHelper::set('portal_bao_gia_id', $suaId);
+
+            // PHẢI thêm vào danh sách báo giá của phiên, nếu không mọi lời gọi
+            // AJAX sau đó đều bị kiemTraBaoGiaThuocPhien() chặn 403 và trang
+            // hiện ra trống trơn kèm "Bạn không có quyền thao tác trên báo giá này".
+            $ds = SessionHelper::get('portal_bao_gia_ids', []);
+            if (!is_array($ds)) $ds = [];
+            if (!in_array($suaId, $ds, true)) {
+                $ds[] = $suaId;
+                SessionHelper::set('portal_bao_gia_ids', $ds);
+            }
+        }
+    }
+}
+
 $baoGiaId = (int)SessionHelper::get('portal_bao_gia_id', 0);
 $baoGia = null;
 if ($baoGiaId > 0) {
@@ -109,21 +140,42 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
 
 <header class="portal-header">
     <div class="portal-inner">
-        <span class="portal-logo"><?= IconHelper::svg('file-spreadsheet', 24) ?></span>
+        <span class="portal-logo">
+            <img src="<?= AppConfig::baseUrl('assets/images/logo_bv.png') ?>?v=<?= AppConfig::APP_VERSION ?>"
+                 alt="Logo Bệnh viện Hữu nghị Đa khoa Nghệ An">
+        </span>
         <div>
             <h1>Cổng chào giá — Thông báo số <?= Helper::h($goiThau->so_thong_bao) ?></h1>
             <div class="portal-sub"><?= Helper::h($goiThau->ten_goi_thau) ?></div>
         </div>
-        <div class="portal-right">
-            <span class="badge badge-neutral"><?= Helper::h(SessionHelper::taiKhoan()) ?></span>
-            <a class="btn btn-sm btn-outline-secondary" href="<?= AppConfig::baseUrl('GUI/auth/logout.php') ?>">
-                <?= IconHelper::svg('log-out', 15) ?><span class="btn-label">Thoát</span>
+        <nav class="portal-nav">
+            <button type="button" class="pnav-item" onclick="moTraCuu()">
+                <?= IconHelper::svg('search', 16) ?><span>Tra cứu báo giá của tôi</span>
+            </button>
+            <button type="button" class="pnav-item" onclick="moHuongDan()">
+                <?= IconHelper::svg('info', 16) ?><span>Hướng dẫn</span>
+            </button>
+            <span class="pnav-user">
+                <?= IconHelper::svg('user', 15) ?><?= Helper::h(SessionHelper::taiKhoan()) ?>
+            </span>
+            <a class="pnav-item pnav-out" href="<?= AppConfig::baseUrl('GUI/auth/logout.php') ?>">
+                <?= IconHelper::svg('log-out', 16) ?><span>Thoát</span>
             </a>
-        </div>
+        </nav>
     </div>
 </header>
 
 <main class="portal-main" id="main">
+
+<!-- Hiện khi nhà thầu đã chốt xong 5 bước — toàn bộ chuyển sang chỉ xem -->
+<div class="banner-khoa" id="bannerKhoa" hidden>
+    <?= IconHelper::svg('lock', 20) ?>
+    <span>
+        <strong>Báo giá đã hoàn thành.</strong>
+        Bạn chỉ còn xem lại, không chỉnh sửa được nữa.
+        Cần sửa hãy liên hệ bên mời chào giá.
+    </span>
+</div>
 
 <?php if (!$conNhan['ok']): ?>
     <!-- ============ NGOÀI THỜI GIAN CHÀO GIÁ → CHỈ TRA CỨU ============ -->
@@ -206,17 +258,27 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
         </span>
     </div>
 
-    <!-- Tiến trình 3 bước -->
+    <!-- Tiến trình 4 bước — BẤM ĐƯỢC để quay lại sửa bước trước -->
     <div class="steps" id="steps">
-        <span class="step <?= $baoGia ? 'is-done' : 'is-active' ?>" id="step1">
-            <span class="step-no">1</span> Khai thông tin công ty
-        </span>
-        <span class="step <?= $baoGia ? 'is-active' : '' ?>" id="step2">
-            <span class="step-no">2</span> Điền giá hoặc import file
-        </span>
-        <span class="step" id="step3">
-            <span class="step-no">3</span> Nộp báo giá
-        </span>
+        <button type="button" class="step step-btn <?= $baoGia ? 'is-done' : 'is-active' ?>"
+                id="step1" onclick="veBuoc(1)">
+            <span class="step-no">1</span> Thông tin công ty
+        </button>
+        <button type="button" class="step step-btn <?= $baoGia ? 'is-active' : '' ?>"
+                id="step2" onclick="veBuoc(2)">
+            <span class="step-no">2</span> Bảng đáp ứng kỹ thuật
+            <span class="mt-dem" id="demM1">0</span>
+        </button>
+        <button type="button" class="step step-btn" id="step3" onclick="veBuoc(3)">
+            <span class="step-no">3</span> Bảng chào giá
+            <span class="mt-dem" id="demM2">0</span>
+        </button>
+        <button type="button" class="step step-btn" id="step4" onclick="veBuoc(4)">
+            <span class="step-no">4</span> Bản báo giá đã ký
+        </button>
+        <button type="button" class="step step-btn" id="step5" onclick="veBuoc(5)">
+            <span class="step-no">5</span> Chỉ dẫn vị trí tài liệu
+        </button>
     </div>
 
     <!-- ============ BƯỚC 1: THÔNG TIN CÔNG TY ============ -->
@@ -328,22 +390,35 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
                 <h2 style="font-size:15px;margin:0">Thao tác và tải file</h2>
             </div>
             <div style="padding:18px">
+                <!-- Chỉ hiện file mẫu + upload của ĐÚNG bước đang xem (JS bật/tắt theo tab) -->
                 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
-                    <a class="btn btn-primary" id="btnTaiMau"
-                       href="<?= AppConfig::baseUrl('GUI/portal/download.php') ?>?t=<?= urlencode($token) ?>">
-                        <?= IconHelper::svg('download', 16) ?>Tải file mẫu báo giá
+                    <a class="btn btn-primary" id="btnTaiMau1"
+                       href="<?= AppConfig::baseUrl('GUI/portal/download.php') ?>?t=<?= urlencode($token) ?>&mau=mau1">
+                        <?= IconHelper::svg('download', 16) ?>Tải Mẫu 1 — Đáp ứng kỹ thuật
                     </a>
-                    <button type="button" class="btn btn-success" onclick="openImport()">
-                        <?= IconHelper::svg('upload', 16) ?>Upload file báo giá của công ty
+                    <a class="btn btn-primary" id="btnTaiMau2" hidden
+                       href="<?= AppConfig::baseUrl('GUI/portal/download.php') ?>?t=<?= urlencode($token) ?>&mau=mau2">
+                        <?= IconHelper::svg('download', 16) ?>Tải Mẫu 2 — Bảng chào giá
+                    </a>
+                    <button type="button" class="btn btn-success" id="btnUpMau1" onclick="openImport()">
+                        <?= IconHelper::svg('upload', 16) ?>Upload Mẫu 1 đã điền
+                    </button>
+                    <button type="button" class="btn btn-success" id="btnUpMau2" onclick="openImport()" hidden>
+                        <?= IconHelper::svg('upload', 16) ?>Upload Mẫu 2 đã điền
                     </button>
                 </div>
-                <div class="alert alert-info">
-                    <?= IconHelper::svg('info', 16) ?>
-                    <span>
-                        Tải file mẫu về, điền các cột từ <strong>Tên thương mại</strong> đến
-                        <strong>Điểm không đạt</strong> rồi upload lên. Cột
-                        <strong>Đơn giá</strong> ghi dạng <code>10000</code> — không dùng dấu phân cách
-                        như <code>10.000,00</code>. Hoặc điền trực tiếp vào bảng bên dưới.
+                <div class="callout-cach">
+                    <?= IconHelper::svg('info', 22) ?>
+                    <span id="ghiChuMau">
+                        <strong class="chon-cach">Chọn 1 trong 2 cách:</strong>
+                        <span class="cach"><span class="cach-no">1</span>
+                            Tải file mẫu về, điền rồi <strong>import Excel</strong> lên.</span>
+                        <span class="cach-hoac">hoặc</span>
+                        <span class="cach"><span class="cach-no">2</span>
+                            <strong>Điền thủ công</strong> trực tiếp vào bảng bên dưới.</span>
+                        <span class="cach-chi-tiet">Mẫu 1: điền 2 cột cuối
+                            (<strong>Yêu cầu kỹ thuật chào giá</strong>,
+                            <strong>Các điểm không đạt</strong>).</span>
                     </span>
                 </div>
             </div>
@@ -362,26 +437,54 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
                 </span>
             </div>
 
-            <div class="table-wrap has-sticky" id="bangWrap">
-                <table class="table" id="bangGia">
-                    <thead>
-                        <tr>
-                            <th class="col-id">STT</th>
-                            <th class="sticky-col">Tên hàng hóa / Yêu cầu kỹ thuật</th>
-                            <th>ĐVT</th>
-                            <th class="col-qty">Số lượng</th>
-                            <th>Tên thương mại</th>
-                            <th>Model</th>
-                            <th>Hãng SX</th>
-                            <th>Xuất xứ</th>
-                            <th>VAT (%)</th>
-                            <th class="col-price">Đơn giá (VND)</th>
-                            <th class="col-price">Thành tiền</th>
-                            <th class="col-actions">Lưu</th>
-                        </tr>
-                    </thead>
-                    <tbody id="bangBody"></tbody>
-                </table>
+
+            <!-- ===== MẪU 1: BẢNG ĐÁP ỨNG KỸ THUẬT ===== -->
+            <div id="paneM1">
+                <div class="table-wrap has-sticky" id="bangWrapM1">
+                    <table class="table" id="bangM1">
+                        <thead>
+                            <tr>
+                                <th class="col-id">Mã HH</th>
+                                <th class="sticky-col">Tên hàng hóa mời chào giá</th>
+                                <th>Yêu cầu kỹ thuật mời chào giá</th>
+                                <th>Yêu cầu kỹ thuật chào giá <span class="req">*</span></th>
+                                <th>Các điểm không đạt kèm thuyết minh</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bangBodyM1"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ===== MẪU 2: BẢNG CHÀO GIÁ ===== -->
+            <div id="paneM2" hidden>
+                <div class="table-wrap has-sticky" id="bangWrapM2">
+                    <table class="table" id="bangM2">
+                        <thead>
+                            <tr>
+                                <th class="col-id">Mã HH</th>
+                                <th class="sticky-col">Tên hàng hóa mời chào giá</th>
+                                <th>Tên thương mại</th>
+                                <th>Ký, mã, nhãn hiệu, model</th>
+                                <th>Hãng sản xuất</th>
+                                <th>Xuất xứ</th>
+                                <th class="col-qty">Số lượng</th>
+                                <th>Quy cách</th>
+                                <th>ĐVT</th>
+                                <th class="col-price">Đơn giá (VND)</th>
+                                <th class="col-price">Thành tiền</th>
+                                <th class="col-actions">Chi tiết</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bangBodyM2"></tbody>
+                    </table>
+                </div>
+                <p class="form-hint" style="padding:10px 16px 0">
+                    Đơn giá <strong>đã bao gồm</strong> thuế, phí, lệ phí và các dịch vụ liên quan (nếu có).
+                    Nhập dạng <code>10000</code>, không dùng dấu phân cách.
+                    Bấm <?= IconHelper::svg('pencil', 13) ?> để nhập thêm giá trúng thầu gần nhất,
+                    tài liệu tham chiếu, số thông báo mời thầu.
+                </p>
             </div>
 
             <div class="total-bar">
@@ -390,9 +493,113 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
                 <span class="tb-label">VND</span>
                 <span class="tb-spacer"></span>
                 <span class="tb-note" id="tbNote"></span>
-                <button type="button" class="btn btn-primary" id="btnNop" onclick="nopBaoGia()">
-                    <?= IconHelper::svg('send', 16) ?>Nộp báo giá
+                <!-- Lưu TẤT CẢ các dòng 1 lần, không phải bấm lưu từng dòng -->
+                <button type="button" class="btn btn-primary" id="btnTiepTuc" onclick="luuVaTiepTuc()">
+                    <?= IconHelper::svg('save', 16) ?>Lưu và tiếp tục <?= IconHelper::svg('chevron-right', 16) ?>
                 </button>
+                <button type="button" class="btn btn-primary" id="btnNop" onclick="luuVaNop()" hidden>
+                    <?= IconHelper::svg('send', 16) ?>Lưu và nộp báo giá
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ BƯỚC 4: BẢN BÁO GIÁ ĐÃ KÝ ============ -->
+    <div id="buocBanKy" hidden>
+        <div class="card">
+            <div class="card-header" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--gray-200)">
+                <?= IconHelper::svg('file-text', 19) ?>
+                <h2 style="font-size:15px;margin:0">Bước 4 — Bản báo giá có dấu và chữ ký</h2>
+                <span class="badge badge-neutral" id="bkTrangThai">Chưa có file</span>
+            </div>
+            <div style="padding:18px">
+                <div class="callout-cach" style="margin-bottom:16px">
+                    <?= IconHelper::svg('info', 22) ?>
+                    <span id="ghiChuMau">
+                        <strong class="chon-cach">Làm theo 2 bước:</strong>
+                        <span class="cach"><span class="cach-no">1</span>
+                            <strong>Tải file Word</strong> báo giá về, in ra ký + đóng dấu.</span>
+                        <span class="cach-hoac">rồi</span>
+                        <span class="cach"><span class="cach-no">2</span>
+                            <strong>Upload file đã ký</strong> (bản scan PDF hoặc ảnh).</span>
+                        <span class="cach-chi-tiet">Upload xong báo giá tự chuyển sang trạng thái
+                            <strong>Đã xác nhận</strong>.</span>
+                    </span>
+                </div>
+
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+                    <a class="btn btn-primary" id="btnTaiWord" href="#">
+                        <?= IconHelper::svg('download', 16) ?>Tải file Word để ký
+                    </a>
+                    <button type="button" class="btn btn-success" onclick="moUpBanKy()">
+                        <?= IconHelper::svg('upload', 16) ?>Upload file đã ký
+                    </button>
+                    <a class="btn btn-outline-secondary" id="btnXemBanKy" href="#" target="_blank" rel="noopener" hidden>
+                        <?= IconHelper::svg('eye', 16) ?>Xem file đã tải lên
+                    </a>
+                </div>
+
+                <div class="total-bar">
+                    <span class="tb-note" id="bkNote">Chưa tải bản ký lên.</span>
+                    <span class="tb-spacer"></span>
+                    <button type="button" class="btn btn-primary" onclick="veBuoc(5)">
+                        Tiếp tục: Chỉ dẫn vị trí tài liệu <?= IconHelper::svg('chevron-right', 16) ?>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ BƯỚC 5: CHỈ DẪN VỊ TRÍ TÀI LIỆU ============ -->
+    <div id="buocCatalog" hidden>
+        <div class="card">
+            <div class="card-header" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--gray-200);flex-wrap:wrap">
+                <?= IconHelper::svg('file-spreadsheet', 19) ?>
+                <h2 style="font-size:15px;margin:0">Bước 5 — Chỉ dẫn vị trí tài liệu</h2>
+                <span class="badge badge-neutral" id="clTrangThai">Chưa có file</span>
+            </div>
+            <div style="padding:18px">
+                <div class="callout-cach" style="margin-bottom:16px">
+                    <?= IconHelper::svg('info', 22) ?>
+                    <span>
+                        <strong class="chon-cach">Làm theo 3 bước:</strong>
+                        <span class="cach"><span class="cach-no">1</span>
+                            <strong>Tải file mẫu</strong> bảng chỉ dẫn (Word) về máy.</span>
+                        <span class="cach"><span class="cach-no">2</span>
+                            Điền <strong>trang catalog chứng minh</strong> vào file, in ký + đóng dấu.</span>
+                        <span class="cach"><span class="cach-no">3</span>
+                            <strong>Upload file Word</strong> đã điền và <strong>catalog</strong> đã ký lên.</span>
+                        <span class="cach-chi-tiet">Trong file ghi rõ số trang catalog chứng minh thông số kỹ thuật
+                            đã chào. Ví dụ: <code>Trang 1-15</code>, <code>Trang 16-20</code>.</span>
+                    </span>
+                </div>
+
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+                    <a class="btn btn-primary" id="btnTaiCatalog" href="#">
+                        <?= IconHelper::svg('download', 16) ?>Tải bảng chỉ dẫn (Word)
+                    </a>
+                    <button type="button" class="btn btn-success" onclick="moUpCatalog()">
+                        <?= IconHelper::svg('upload', 16) ?>Upload catalog
+                    </button>
+                    <button type="button" class="btn btn-success" onclick="moUpCatalogExcel()">
+                        <?= IconHelper::svg('file-text', 16) ?>Upload bảng chỉ dẫn đã điền
+                    </button>
+                    <a class="btn btn-outline-secondary" id="btnXemCatalog" href="#" target="_blank" rel="noopener" hidden>
+                        <?= IconHelper::svg('eye', 16) ?>Xem catalog đã tải
+                    </a>
+                    <a class="btn btn-outline-secondary" id="btnXemCatalogExcel" href="#" hidden>
+                        <?= IconHelper::svg('download', 16) ?>Tải bảng chỉ dẫn đã nộp
+                    </a>
+                </div>
+
+                <!-- Đã bỏ bảng điền tay: nhà thầu điền thẳng vào file Word mẫu -->
+                <div class="total-bar" id="bangWrapCl">
+                    <span class="tb-note" id="clNote"></span>
+                    <span class="tb-spacer"></span>
+                    <button type="button" class="btn btn-primary" onclick="hoanThanhBaoGia()" id="btnHoanThanh">
+                        <?= IconHelper::svg('check-circle', 16) ?>Hoàn thành báo giá
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -409,6 +616,7 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
                     <input type="hidden" id="d_hang_hoa_id">
                     <div id="d_yeuCau"></div>
 
+                    <!-- ===== MẪU 2: Bảng chào giá ===== -->
                     <div class="form-row">
                         <div class="form-group">
                             <label for="d_ten_thuong_mai">Tên thương mại</label>
@@ -422,10 +630,6 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
 
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="d_ma_hs">Mã HS</label>
-                            <input type="text" id="d_ma_hs" class="form-control" maxlength="200">
-                        </div>
-                        <div class="form-group">
                             <label for="d_hang_san_xuat">Hãng sản xuất</label>
                             <input type="text" id="d_hang_san_xuat" class="form-control" maxlength="500">
                         </div>
@@ -433,68 +637,48 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
                             <label for="d_xuat_xu">Xuất xứ</label>
                             <input type="text" id="d_xuat_xu" class="form-control" maxlength="500">
                         </div>
-                    </div>
-
-                    <div class="form-row">
                         <div class="form-group">
-                            <label for="d_quy_cach">Quy cách đóng gói</label>
-                            <input type="text" id="d_quy_cach" class="form-control" maxlength="500" placeholder="VD: 1 bộ/hộp">
-                        </div>
-                        <div class="form-group">
-                            <label for="d_chi_phi_dich_vu">Chi phí dịch vụ liên quan (VND)</label>
-                            <input type="text" id="d_chi_phi_dich_vu" class="form-control" placeholder="VD: 10000">
+                            <label for="d_quy_cach">Quy cách</label>
+                            <input type="text" id="d_quy_cach" class="form-control" maxlength="500">
                         </div>
                     </div>
 
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="d_thue_vat">Thuế VAT (%)</label>
-                            <input type="text" id="d_thue_vat" class="form-control" placeholder="VD: 5 hoặc 10">
-                        </div>
-                        <div class="form-group">
-                            <label for="d_don_gia">Đơn giá đã gồm thuế, phí (VND) <span class="req">*</span></label>
+                            <label for="d_don_gia">Đơn giá (VND) <span class="req">*</span></label>
                             <input type="text" id="d_don_gia" class="form-control" placeholder="VD: 10000">
-                            <div class="form-hint">Ghi số thuần, không dùng dấu phân cách nghìn.</div>
+                            <div class="form-hint">
+                                Đã bao gồm thuế, phí, lệ phí và dịch vụ liên quan.
+                                Ghi số thuần, không dùng dấu phân cách nghìn.
+                            </div>
                         </div>
                         <div class="form-group">
-                            <label for="d_don_gia_trung_thau">Đơn giá trúng thầu gần nhất (VND)</label>
-                            <input type="text" id="d_don_gia_trung_thau" class="form-control" placeholder="Nếu có">
+                            <label for="d_don_gia_trung_thau">Đơn giá trúng thầu gần nhất (VNĐ)</label>
+                            <input type="text" id="d_don_gia_trung_thau" class="form-control" placeholder="VD: 10000">
+                            <div class="form-hint">Trong vòng 360 ngày, nếu có.</div>
                         </div>
                     </div>
 
                     <div class="form-group">
-                        <label for="d_chung_nhan_chao">Chứng nhận hàng hóa chào</label>
-                        <textarea id="d_chung_nhan_chao" class="form-control" rows="2"
-                                  placeholder="VD: FDA (510(k)) / CE (MDR) / ISO13485"></textarea>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="d_tai_lieu_tham_chieu">Tài liệu tham chiếu đơn giá trúng thầu</label>
+                        <label for="d_tai_lieu_tham_chieu">Tài liệu tham chiếu đơn giá trúng thầu gần nhất</label>
                         <textarea id="d_tai_lieu_tham_chieu" class="form-control" rows="2"
-                                  placeholder="Loại văn bản; số; ngày; cơ sở y tế ban hành"></textarea>
+                                  placeholder="Điền số thông báo mời thầu (Ví dụ: IB2500…)"></textarea>
+                        <div class="form-hint">Theo ghi chú (12) của Mẫu 2 — Thư mời chào giá.</div>
                     </div>
 
+                    <!-- ===== MẪU 1: Bảng đáp ứng kỹ thuật ===== -->
                     <div class="form-group">
-                        <label for="d_ma_qr_hang_hoa">Mã QR / Barcode định danh hàng hóa</label>
-                        <select id="d_ma_qr_hang_hoa" class="form-select">
-                            <option value="">-- Chọn --</option>
-                            <option value="Có QR/Barcode trên từng sản phẩm">Có QR/Barcode trên từng sản phẩm</option>
-                            <option value="Chỉ có QR/Barcode trên hộp chứa nhiều sản phẩm">Chỉ có QR/Barcode trên hộp chứa nhiều sản phẩm</option>
-                            <option value="Không có QR/Barcode">Không có QR/Barcode</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="d_thong_so_chao_gia">Thông số kỹ thuật chào giá</label>
+                        <label for="d_thong_so_chao_gia">Yêu cầu kỹ thuật chào giá</label>
                         <textarea id="d_thong_so_chao_gia" class="form-control" rows="3"
-                                  placeholder="Nêu thông số kỹ thuật của hàng hóa tương ứng yêu cầu"></textarea>
+                                  placeholder="Nêu các thông số kỹ thuật của hàng hóa tương ứng với yêu cầu"></textarea>
                     </div>
 
                     <div class="form-group">
                         <label for="d_diem_khong_dat">Các điểm không đạt kèm thuyết minh</label>
-                        <textarea id="d_diem_khong_dat" class="form-control" rows="2"
-                                  placeholder="Nêu rõ thông số không đáp ứng (nếu có) kèm lý giải"></textarea>
+                        <textarea id="d_diem_khong_dat" class="form-control" rows="3"
+                                  placeholder="Nêu rõ thông số không đáp ứng (nếu có) kèm thuyết minh/lý giải"></textarea>
                     </div>
+
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeDong()">Hủy</button>
@@ -546,24 +730,36 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
      Hiện ở MỌI trạng thái của cổng. Bấm nút -> mở lớp phủ toàn trang
      liệt kê TẤT CẢ báo giá của MST đó (mọi gói thầu), nhóm theo gói.
      ============================================================ -->
-<button type="button" class="fab-tracuu" id="fabTraCuu" onclick="moTraCuu()"
-        aria-haspopup="dialog" aria-controls="traCuuOverlay">
-    <?= IconHelper::svg('search', 18) ?>
-    <span>Tra cứu báo giá của tôi</span>
-</button>
 
 <div class="tracuu-overlay" id="traCuuOverlay" role="dialog" aria-modal="true"
      aria-labelledby="tcTieuDe" hidden>
-    <div class="tracuu-topbar">
-        <span style="display:inline-flex;color:var(--primary)"><?= IconHelper::svg('file-spreadsheet', 22) ?></span>
-        <div>
-            <h2 id="tcTieuDe">Báo giá đã nộp của công ty</h2>
-            <div class="tt-sub">Tra theo mã số thuế — hiển thị tất cả gói thầu</div>
+    <!-- Dùng đúng header như các trang portal khác cho đồng nhất -->
+    <header class="portal-header">
+        <div class="portal-inner">
+            <span class="portal-logo">
+                <img src="<?= AppConfig::baseUrl('assets/images/logo_bv.png') ?>?v=<?= AppConfig::APP_VERSION ?>"
+                     alt="Logo Bệnh viện Hữu nghị Đa khoa Nghệ An">
+            </span>
+            <div>
+                <h1 id="tcTieuDe">Báo giá đã nộp của công ty</h1>
+                <div class="portal-sub">Tra theo mã số thuế — hiển thị tất cả gói thầu</div>
+            </div>
+            <nav class="portal-nav">
+                <button type="button" class="pnav-item" onclick="dongTraCuu()">
+                    <?= IconHelper::svg('arrow-left', 16) ?><span>Quay lại chào giá</span>
+                </button>
+                <button type="button" class="pnav-item" onclick="moHuongDan()">
+                    <?= IconHelper::svg('info', 16) ?><span>Hướng dẫn</span>
+                </button>
+                <span class="pnav-user">
+                    <?= IconHelper::svg('user', 15) ?><?= Helper::h(SessionHelper::taiKhoan()) ?>
+                </span>
+                <a class="pnav-item pnav-out" href="<?= AppConfig::baseUrl('GUI/auth/logout.php') ?>">
+                    <?= IconHelper::svg('log-out', 16) ?><span>Thoát</span>
+                </a>
+            </nav>
         </div>
-        <button type="button" class="btn btn-sm btn-outline-secondary tt-close" onclick="dongTraCuu()">
-            <?= IconHelper::svg('x', 16) ?><span class="btn-label">Đóng</span>
-        </button>
-    </div>
+    </header>
 
     <div class="tracuu-body">
         <form class="tracuu-search" id="lookupForm" onsubmit="return traCuu()">
@@ -582,10 +778,65 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
     </div>
 </div>
 
+<div class="modal" id="clExcelModal">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="clXlTitle" style="max-width:640px">
+        <div class="modal-header">
+            <h3 id="clXlTitle">Upload bảng chỉ dẫn vị trí tài liệu đã điền</h3>
+            <button type="button" class="close" onclick="closeCatalogExcel()" aria-label="Đóng"><?= IconHelper::svg('x', 20) ?></button>
+        </div>
+        <div class="modal-body">
+            <div class="alert alert-info">
+                <?= IconHelper::svg('info', 16) ?>
+                <span>Tải <strong>file mẫu Word</strong> ở trên về, điền số trang catalog chứng minh
+                cho từng hàng hóa, rồi tải file đã điền lên đây. Chỉ nhận
+                <strong>.docx</strong>, <strong>.doc</strong> hoặc <strong>.pdf</strong> (bản scan đã ký), tối đa 10MB.</span>
+            </div>
+            <div class="form-group">
+                <label for="clXlFile">Chọn file <span class="req">*</span></label>
+                <input type="file" id="clXlFile" class="form-control" accept=".docx,.doc,.pdf">
+                <div class="form-hint" id="clXlInfo"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeCatalogExcel()">Hủy</button>
+            <button type="button" class="btn btn-primary" id="btnDoUpCatalogExcel" onclick="doUpCatalogExcel()" disabled>
+                <?= IconHelper::svg('upload', 16) ?>Tải lên
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="modal" id="catalogModal">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="clTitle" style="max-width:640px">
+        <div class="modal-header">
+            <h3 id="clTitle">Upload file chỉ dẫn vị trí tài liệu đã ký</h3>
+            <button type="button" class="close" onclick="closeCatalogModal()" aria-label="Đóng"><?= IconHelper::svg('x', 20) ?></button>
+        </div>
+        <div class="modal-body">
+            <div class="alert alert-info">
+                <?= IconHelper::svg('info', 16) ?>
+                <span>Tải bảng chỉ dẫn về, in ra ký + đóng dấu kèm catalog,
+                rồi scan thành PDF hoặc ảnh để tải lên đây. Tối đa 10MB.</span>
+            </div>
+            <div class="form-group">
+                <label for="clFile">Chọn file (PDF, JPG, PNG) <span class="req">*</span></label>
+                <input type="file" id="clFile" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                <div class="form-hint" id="clFileInfo"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeCatalogModal()">Hủy</button>
+            <button type="button" class="btn btn-primary" id="btnDoUpCatalog" onclick="doUpCatalog()" disabled>
+                <?= IconHelper::svg('upload', 16) ?>Tải lên
+            </button>
+        </div>
+    </div>
+</div>
+
 <div class="modal" id="banKyModal">
     <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="bkTitle" style="max-width:640px">
         <div class="modal-header">
-            <h3 id="bkTitle">Tải bản báo giá có dấu và chữ ký</h3>
+            <h3 id="bkTitle">Upload file đã ký (có dấu và chữ ký)</h3>
             <button type="button" class="close" onclick="closeBanKy()" aria-label="Đóng"><?= IconHelper::svg('x', 20) ?></button>
         </div>
         <div class="modal-body">
@@ -619,6 +870,33 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
     </div>
 </div>
 
+<!-- ============================================================
+     POPUP HƯỚNG DẪN — tự hiện lần đầu khi nhà thầu quét QR vào.
+     Nội dung dùng chung với trang huong_dan.php (huong_dan_noi_dung.php).
+     ============================================================ -->
+<div class="modal" id="hdModal">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="hdTitle">
+        <div class="modal-header">
+            <h3 id="hdTitle">Hướng dẫn thực hiện chào giá qua hệ thống</h3>
+            <button type="button" class="close" onclick="dongHuongDan()" aria-label="Đóng">
+                <?= IconHelper::svg('x', 20) ?>
+            </button>
+        </div>
+        <div class="modal-body">
+            <?php require __DIR__ . '/huong_dan_noi_dung.php'; ?>
+        </div>
+        <div class="modal-footer">
+            <a class="btn btn-outline-secondary" target="_blank" rel="noopener"
+               href="<?= AppConfig::baseUrl('GUI/portal/huong_dan.php') ?>?t=<?= urlencode($token) ?>">
+                <?= IconHelper::svg('external-link', 16) ?>Mở trang hướng dẫn
+            </a>
+            <button type="button" class="btn btn-primary" onclick="dongHuongDan()">
+                <?= IconHelper::svg('check', 16) ?>Tôi đã hiểu
+            </button>
+        </div>
+    </div>
+</div>
+
 </main>
 
 <footer class="portal-footer">
@@ -638,6 +916,29 @@ var TT_BG_TC = <?= (int)BG_BaoGia_PUBLIC::TT_TU_CHOI ?>;
 var DONG = [];      // dữ liệu bảng chào giá
 
 function money(v) { return Number(v || 0).toLocaleString('vi-VN'); }
+
+/* ============ HƯỚNG DẪN CHÀO GIÁ ============ */
+
+/** Khóa ghi nhớ đã xem hướng dẫn — theo từng gói thầu */
+var HD_KEY = 'thbg_hd_' + PORTAL_TOKEN;
+
+function moHuongDan() {
+    $('#hdModal').addClass('open');
+}
+
+function dongHuongDan() {
+    $('#hdModal').removeClass('open');
+    // Ghi nhớ đã xem để lần sau không tự bật lại nữa.
+    // try/catch: chế độ ẩn danh của một số trình duyệt chặn localStorage.
+    try { localStorage.setItem(HD_KEY, '1'); } catch (e) {}
+}
+
+/** Lần đầu vào gói thầu này thì tự bật popup hướng dẫn */
+function tuHienHuongDan() {
+    var daXem = false;
+    try { daXem = localStorage.getItem(HD_KEY) === '1'; } catch (e) {}
+    if (!daXem) setTimeout(moHuongDan, 400);
+}
 
 /* ============ TRA CỨU BÁO GIÁ ĐÃ NỘP (nút nổi + lớp phủ toàn trang) ============ */
 
@@ -715,15 +1016,11 @@ function renderTraCuu(d) {
                 '<span class="gg-so">' + APP.escape(g.so_thong_bao) + '</span>' +
                 '<span class="gg-ten">' + APP.escape(g.ten_goi_thau) + '</span>' +
                 '<span class="badge ' + clsGoi + '">' + APP.escape(g.ten_trang_thai_bao_gia) + '</span>' +
-                (g.trang_thai_bao_gia === 'dang_mo'
-                    ? '<a class="btn btn-sm btn-outline-primary" href="' + APP.escape(g.url_portal) + '">' +
-                      APP.icon('external-link', 15) + '<span class="btn-label">Mở gói này</span></a>'
-                    : '') +
             '</div>' +
             '<div class="goi-group-body">';
 
         for (var j = 0; j < g.bao_gia.length; j++) {
-            html += theBaoGia(g.bao_gia[j]);
+            html += theBaoGia(g.bao_gia[j], g);
         }
 
         html += '</div></div>';
@@ -733,7 +1030,7 @@ function renderTraCuu(d) {
 }
 
 /** 1 thẻ báo giá trong kết quả tra cứu */
-function theBaoGia(b) {
+function theBaoGia(b, g) {
     var cls = b.trang_thai === TT_BG_XN ? 'badge-success'
             : (b.trang_thai === TT_BG_TC ? 'badge-danger' : 'badge-warning');
 
@@ -748,10 +1045,24 @@ function theBaoGia(b) {
             '</span>' +
             '<span class="qc-actions">' +
                 '<span class="badge ' + cls + '">' + APP.escape(b.ten_trang_thai) + '</span>' +
+                (Number(b.da_hoan_thanh) === 1
+                    ? '<span class="badge badge-neutral">' + APP.icon('lock', 13) +
+                      ' Đã hoàn thành</span>'
+                    : '') +
+                // Chưa chốt hoàn thành + gói còn nhận -> cho quay lại sửa tiếp
+                (Number(b.da_hoan_thanh) !== 1 && g && g.trang_thai_bao_gia === 'dang_mo'
+                    ? '<a class="btn btn-sm btn-primary" href="' + APP.escape(g.url_portal) +
+                      '&sua=' + b.id + '">' +
+                      APP.icon('pencil', 15) + '<span class="btn-label">Sửa lại báo giá</span></a>'
+                    : '') +
                 '<span class="quote-total">' + money(b.tong_tien) + ' đ</span>' +
-                '<a class="btn btn-sm btn-outline-primary" href="' + URL_DOWNLOAD +
-                    '?t=' + encodeURIComponent(PORTAL_TOKEN) + '&loai=bao_gia&id=' + b.id + '">' +
-                    APP.icon('download', 15) + '<span class="btn-label">Tải Excel</span></a>' +
+                // Bản Word BÁO GIÁ để in ra ký + đóng dấu — chỉ có nghĩa khi đã nộp
+                (b.ngay_nop
+                    ? '<a class="btn btn-sm btn-primary" href="' + URL_DOWNLOAD +
+                      '?t=' + encodeURIComponent(PORTAL_TOKEN) + '&loai=word_ban_ky&id=' + b.id + '">' +
+                      APP.icon('file-text', 15) +
+                      '<span class="btn-label">Tải Word để ký</span></a>'
+                    : '') +
                 nutBanKy(b) +
             '</span>' +
         '</div>' +
@@ -766,8 +1077,272 @@ function theBaoGia(b) {
     '</div>';
 }
 
+/* ===================== BƯỚC 4: BẢN BÁO GIÁ ĐÃ KÝ ===================== */
+
+/** Nạp trạng thái bước 4 (không cần sang trang tra cứu MST nữa) */
+function napBuocBanKy() {
+    if (!BAO_GIA_ID) return;
+
+    // Link tải Word luôn theo báo giá đang làm
+    $('#btnTaiWord').attr('href',
+        URL_DOWNLOAD + '?t=' + encodeURIComponent(PORTAL_TOKEN)
+        + '&loai=word_ban_ky&id=' + BAO_GIA_ID);
+
+    // Lấy trạng thái file bản ký của CHÍNH báo giá này — không gọi traCuuMst
+    // (traCuuMst còn ghi session MST đã tra cứu, không nên gây tác dụng phụ ở đây)
+    APP.ajax(AJAX_URL, { action: 'getBangCatalog', bao_gia_id: BAO_GIA_ID }, {
+        success: function (res) {
+            if (!res || !res.success) return;
+            if (res.data && Number(res.data.da_hoan_thanh) === 1) apDungKhoa(true);
+            var f = res.data && res.data.file_ban_ky;
+            var co = !!(f && f.ten_file_goc);
+            $('#bkTrangThai')
+                .text(co ? 'Đã có file' : 'Chưa có file')
+                .attr('class', 'badge ' + (co ? 'badge-success' : 'badge-warning'));
+            $('#bkNote').text(co
+                ? 'Đã tải lên: ' + f.ten_file_goc
+                : 'Chưa tải bản ký lên. Tải file Word về, in ra ký + đóng dấu rồi upload.');
+            $('#btnXemBanKy').prop('hidden', !co).attr('href',
+                URL_DOWNLOAD + '?t=' + encodeURIComponent(PORTAL_TOKEN)
+                + '&loai=ban_ky&id=' + BAO_GIA_ID);
+        }
+    });
+}
+
+/** Mở hộp thoại upload bản ký cho chính báo giá đang làm */
+function moUpBanKy() {
+    openBanKy(BAO_GIA_ID, $('#tt_ten').text() || '', $('#tt_mst').text() || '', true);
+}
+
+/* ---------- Upload file Excel chỉ dẫn (Bước 5) ---------- */
+function moUpCatalogExcel() {
+    $('#clXlFile').val('');
+    $('#clXlInfo').empty();
+    $('#btnDoUpCatalogExcel').prop('disabled', true);
+    $('#clExcelModal').addClass('open');
+}
+function closeCatalogExcel() { $('#clExcelModal').removeClass('open'); }
+
+$(document).on('change', '#clXlFile', function () {
+    var f = this.files[0];
+    $('#btnDoUpCatalogExcel').prop('disabled', !f);
+    $('#clXlInfo').text(f ? f.name + ' (' + Math.round(f.size / 1024) + ' KB)' : '');
+});
+
+function doUpCatalogExcel() {
+    var f = document.getElementById('clXlFile').files[0];
+    if (!f) { APP.toast('Chưa chọn file', 'warning'); return; }
+
+    var fd = new FormData();
+    fd.append('action', 'uploadCatalogExcel');
+    fd.append('bao_gia_id', BAO_GIA_ID);
+    fd.append('file', f);
+
+    APP.showLoading('#clExcelModal .modal-body');
+    $.ajax({
+        url: AJAX_URL, type: 'POST', data: fd,
+        processData: false, contentType: false, dataType: 'json',
+        headers: { 'X-CSRF-Token': CSRF_TOKEN },
+        success: function (res) {
+            if (res && res.success) {
+                APP.toast(res.message, 'success');
+                closeCatalogExcel();
+                napBuocCatalog();
+            } else {
+                APP.toast((res && res.message) || 'Tải lên thất bại', 'error');
+            }
+        },
+        error: function (xhr) {
+            var m = 'Tải lên thất bại';
+            try { m = JSON.parse(xhr.responseText).message || m; } catch (e) {}
+            APP.toast(m, 'error');
+        },
+        complete: function () { APP.hideLoading('#clExcelModal .modal-body'); }
+    });
+}
+
+/* ===================== KHÓA SAU KHI HOÀN THÀNH ===================== */
+var DA_HOAN_THANH = false;
+
+/**
+ * Nhà thầu chốt xong toàn bộ 5 bước.
+ * Hỏi kỹ trước vì sau khi chốt là KHÔNG sửa lại được.
+ */
+function hoanThanhBaoGia() {
+    if (!BAO_GIA_ID) return;
+
+    APP.confirm(
+        'Bạn có chắc chắn đã hoàn thành toàn bộ các bước chào giá?\n\n'
+        + 'Sau khi xác nhận, báo giá sẽ bị KHÓA: bạn chỉ còn xem lại, '
+        + 'KHÔNG chỉnh sửa được nữa. Cần sửa phải liên hệ bên mời chào giá.',
+        function () {
+            APP.showLoading('#buocCatalog');
+            APP.ajax(AJAX_URL, { action: 'hoanThanh', bao_gia_id: BAO_GIA_ID }, {
+                success: function (res) {
+                    APP.hideLoading('#buocCatalog');
+                    if (res && res.success) {
+                        APP.toast(res.message, 'success');
+                        apDungKhoa(true);
+                        $('html, body').animate({ scrollTop: 0 }, 250);
+                    } else {
+                        APP.toast((res && res.message) || 'Không hoàn thành được', 'error');
+                    }
+                },
+                error: function () {
+                    APP.hideLoading('#buocCatalog');
+                    APP.toast('Không hoàn thành được, hãy thử lại', 'error');
+                }
+            });
+        },
+        { title: 'Xác nhận hoàn thành', yesText: 'Tôi đã hoàn thành', noText: 'Chưa, để tôi xem lại' }
+    );
+}
+
+/**
+ * Bật/tắt chế độ CHỈ XEM.
+ * Khóa mọi ô nhập + nút ghi; giữ lại nút tải file để nhà thầu còn xem lại được.
+ */
+function apDungKhoa(khoa) {
+    DA_HOAN_THANH = !!khoa;
+    if (!DA_HOAN_THANH) return;
+
+    CHUA_LUU = false;        // đã khóa thì không còn "thay đổi chưa lưu"
+    CHUA_LUU_CL = false;
+
+    $('#bannerKhoa').prop('hidden', false);
+
+    // Khóa toàn bộ ô nhập trong các bảng + form thông tin
+    $('#buocGia input, #buocGia textarea, #buocGia select').prop('disabled', true);
+
+    // Ẩn các nút ghi dữ liệu
+    $('#btnTiepTuc, #btnNop, #btnHoanThanh').prop('hidden', true);
+    // Ẩn mọi nút upload (kể cả nút Excel chỉ dẫn — đều dùng .btn-success)
+    $('#buocGia .btn-success, #buocCatalog .btn-success').prop('hidden', true);
+    $('#buocBanKy .btn-success').prop('hidden', true);
+    $('[onclick="suaThongTin()"]').prop('hidden', true);
+
+    // Bảng chuyển sang nền xám nhạt cho dễ nhận biết
+    $('#bangM1, #bangM2').addClass('is-locked');
+}
+
+/* ============== BƯỚC 5: CHỈ DẪN VỊ TRÍ TÀI LIỆU (CATALOG) ============== */
+var CATALOG = [];
+
+/** Nạp bảng chỉ dẫn vị trí tài liệu */
+function napBuocCatalog() {
+    if (!BAO_GIA_ID) return;
+
+    $('#btnTaiCatalog').attr('href',
+        URL_DOWNLOAD + '?t=' + encodeURIComponent(PORTAL_TOKEN)
+        + '&loai=word_catalog&id=' + BAO_GIA_ID);
+
+    APP.showLoading('#bangWrapCl');
+    APP.ajax(AJAX_URL, { action: 'getBangCatalog', bao_gia_id: BAO_GIA_ID }, {
+        success: function (res) {
+            APP.hideLoading('#bangWrapCl');
+            if (!res || !res.success) return;
+            CATALOG = (res.data && res.data.dong) || [];
+
+            if (res.data && Number(res.data.da_hoan_thanh) === 1) apDungKhoa(true);
+
+            var f = res.data && res.data.file;
+            var co = !!(f && f.ten_file_goc);
+            $('#clTrangThai')
+                .text(co ? 'Đã có file' : 'Chưa có file')
+                .attr('class', 'badge ' + (co ? 'badge-success' : 'badge-warning'));
+            $('#btnXemCatalog').prop('hidden', !co).attr('href',
+                URL_DOWNLOAD + '?t=' + encodeURIComponent(PORTAL_TOKEN)
+                + '&loai=catalog&id=' + BAO_GIA_ID);
+
+            var fx = res.data && res.data.file_excel;
+            var coXl = !!(fx && fx.ten_file_goc);
+            $('#btnXemCatalogExcel').prop('hidden', !coXl).attr('href',
+                URL_DOWNLOAD + '?t=' + encodeURIComponent(PORTAL_TOKEN)
+                + '&loai=catalog_excel&id=' + BAO_GIA_ID);
+
+            // Phải nộp ĐỦ 2 file mới cho chốt hoàn thành
+            $('#btnHoanThanh').prop('disabled', (!co || !coXl) && !DA_HOAN_THANH);
+            $('#clNote').text(
+                co && coXl ? 'Đã nộp đủ catalog và bảng chỉ dẫn.'
+                : (!co && !coXl ? 'Chưa nộp catalog và bảng chỉ dẫn.'
+                : (!co ? 'Chưa nộp catalog đã ký.' : 'Chưa nộp bảng chỉ dẫn đã điền.')));
+        },
+        error: function () { APP.hideLoading('#bangWrapCl'); }
+    });
+}
+
+
+
+
+// Gõ vào bất kỳ ô nào của bảng M1/M2 -> đánh dấu chưa lưu
+$(document).on('input change',
+    '#bangM1 .f-tsc, #bangM1 .f-dkd, #bangM2 .f-ttm, #bangM2 .f-model, '
+    + '#bangM2 .f-hsx, #bangM2 .f-xx, #bangM2 .f-qc, #bangM2 .f-gia',
+    function () {
+        danhDauSua();
+        // Đọc ngay vào DONG[] để bộ đếm + nút "Lưu và tiếp tục" cập nhật tức thì,
+        // không phải chờ tới lúc lưu mới biết đã điền đủ chưa.
+        docBangVaoDONG();
+        capNhatTong();
+    });
+
+// Rời trang khi còn thay đổi chưa lưu -> trình duyệt tự hỏi
+$(window).on('beforeunload', function () {
+    if (CHUA_LUU || CHUA_LUU_CL) return 'Bạn có thay đổi chưa lưu.';
+});
+
+var CHUA_LUU_CL = false;   // giữ lại cho beforeunload, không còn ô nhập tay
+
+/** Mở hộp thoại upload file catalog đã ký */
+function moUpCatalog() {
+    $('#clFile').val('');
+    $('#clFileInfo').empty();
+    $('#btnDoUpCatalog').prop('disabled', true);
+    $('#catalogModal').addClass('open');
+}
+function closeCatalogModal() { $('#catalogModal').removeClass('open'); }
+
+$(document).on('change', '#clFile', function () {
+    var f = this.files[0];
+    $('#btnDoUpCatalog').prop('disabled', !f);
+    $('#clFileInfo').text(f ? f.name + ' (' + Math.round(f.size / 1024) + ' KB)' : '');
+});
+
+function doUpCatalog() {
+    var f = document.getElementById('clFile').files[0];
+    if (!f) { APP.toast('Chưa chọn file', 'warning'); return; }
+
+    var fd = new FormData();
+    fd.append('action', 'uploadCatalog');
+    fd.append('bao_gia_id', BAO_GIA_ID);
+    fd.append('file', f);
+
+    APP.showLoading('#catalogModal .modal-body');
+    $.ajax({
+        url: AJAX_URL, type: 'POST', data: fd,
+        processData: false, contentType: false, dataType: 'json',
+        headers: { 'X-CSRF-Token': CSRF_TOKEN },
+        success: function (res) {
+            if (res && res.success) {
+                APP.toast(res.message, 'success');
+                closeCatalogModal();
+                napBuocCatalog();
+            } else {
+                APP.toast((res && res.message) || 'Tải lên thất bại', 'error');
+            }
+        },
+        error: function (xhr) {
+            var m = 'Tải lên thất bại';
+            try { m = JSON.parse(xhr.responseText).message || m; } catch (e) {}
+            APP.toast(m, 'error');
+        },
+        complete: function () { APP.hideLoading('#catalogModal .modal-body'); }
+    });
+}
+
 /* ============ TẢI BẢN KÝ (PDF/ảnh có dấu + chữ ký) ============ */
 var bkBaoGiaId = 0;
+var BK_TU_BUOC4 = false;   // upload bản ký mở từ Bước 4?
 
 /**
  * Nút trong thẻ kết quả: đã có bản ký thì cho xem lại, chưa có thì cho tải lên.
@@ -783,15 +1358,16 @@ function nutBanKy(b) {
              URL_DOWNLOAD + '?t=' + encodeURIComponent(PORTAL_TOKEN) + '&loai=ban_ky&id=' + b.id + '">' +
              APP.icon('eye', 15) + '<span class="btn-label">Xem bản ký</span></a>';
     }
-    // Chưa nộp online thì chưa cho tải bản ký (server cũng chặn)
-    if (b.ngay_nop) {
+    // Chưa nộp online thì chưa cho tải bản ký (server cũng chặn).
+    // Đã chốt hoàn thành thì KHÔNG cho tải đè nữa — chỉ còn xem.
+    if (b.ngay_nop && Number(b.da_hoan_thanh) !== 1) {
         h += '<button type="button" class="btn btn-sm js-ban-ky ' +
              (b.ten_file_goc ? 'btn-outline-secondary' : 'btn-primary') + '"' +
              ' data-id="' + b.id + '"' +
              ' data-cty="' + APP.escape(b.ten_cong_ty || '') + '"' +
              ' data-mst="' + APP.escape(b.ma_so_thue || '') + '">' +
              APP.icon('upload', 15) + '<span class="btn-label">' +
-             (b.ten_file_goc ? 'Tải lại' : 'Tải bản ký') + '</span></button>';
+             (b.ten_file_goc ? 'Upload lại file đã ký' : 'Upload file đã ký') + '</span></button>';
     }
     return h;
 }
@@ -802,8 +1378,14 @@ $(document).on('click', '.js-ban-ky', function () {
     openBanKy(parseInt($b.data('id'), 10), String($b.data('cty') || ''), String($b.data('mst') || ''));
 });
 
-function openBanKy(id, tenCty, mst) {
+/**
+ * @param {boolean} tuBuoc4 true = mở từ Bước 4 trong luồng chào giá,
+ *                          false/undefined = mở từ trang tra cứu MST.
+ *                          Quyết định sau khi upload xong sẽ đi đâu.
+ */
+function openBanKy(id, tenCty, mst, tuBuoc4) {
     bkBaoGiaId = id;
+    BK_TU_BUOC4 = !!tuBuoc4;
     $('#bkFile').val('');
     $('#bkFileInfo').empty();
     $('#bkPreview').empty();
@@ -864,7 +1446,13 @@ function uploadBanKy() {
                 if (res && res.success) {
                     APP.toast(res.message, 'success');
                     closeBanKy();
-                    traCuu();   // tải lại kết quả để thấy trạng thái mới
+                    if (BK_TU_BUOC4) {
+                        // Đang ở Bước 4 trong luồng chào giá -> đi tiếp Bước 5,
+                        // KHÔNG nhảy sang trang tra cứu MST.
+                        diToiBuoc(5);
+                    } else {
+                        traCuu();   // mở từ trang tra cứu -> tải lại kết quả
+                    }
                 } else {
                     APP.toast((res && res.message) || 'Có lỗi xảy ra', 'error');
                 }
@@ -969,136 +1557,388 @@ function capNhatTomTat() {
 }
 
 /* ============ BƯỚC 2: BẢNG GIÁ ============ */
+var TAB_HIEN = 1;   // 1 = Mẫu 1 (đáp ứng KT), 2 = Mẫu 2 (chào giá)
+
+/** Chuyển giữa Mẫu 1 (bước 2) và Mẫu 2 (bước 3) */
+function chuyenTab(n) {
+    TAB_HIEN = n;
+    $('#paneM1').prop('hidden', n !== 1);
+    $('#paneM2').prop('hidden', n !== 2);
+
+    // Thanh bước trên đầu: bước đang xem = is-active, bước đã qua = is-done
+    $('#step1').removeClass('is-active').addClass('is-done');
+    $('#step2').toggleClass('is-active', n === 1).toggleClass('is-done', n === 2);
+    $('#step3').toggleClass('is-active', n === 2).removeClass('is-done');
+
+    // Nút dưới: bước 2 -> "Tiếp tục", bước 3 -> "Nộp báo giá".
+    // Đã chốt hoàn thành thì ẩn hẳn cả 2 (chỉ còn xem).
+    $('#btnTiepTuc').prop('hidden', DA_HOAN_THANH || n !== 1);
+    $('#btnNop').prop('hidden', DA_HOAN_THANH || n !== 2);
+
+    // Chỉ hiện file mẫu + upload của ĐÚNG bước đang xem
+    $('#btnTaiMau1').prop('hidden', n !== 1);
+    $('#btnUpMau1').prop('hidden', n !== 1);
+    $('#btnTaiMau2').prop('hidden', n !== 2);
+    $('#btnUpMau2').prop('hidden', n !== 2);
+
+    $('#ghiChuMau').html(
+        '<strong class="chon-cach">Chọn 1 trong 2 cách:</strong>'
+        + '<span class="cach"><span class="cach-no">1</span> '
+        + 'Tải file mẫu về, điền rồi <strong>import Excel</strong> lên.</span>'
+        + '<span class="cach-hoac">hoặc</span>'
+        + '<span class="cach"><span class="cach-no">2</span> '
+        + '<strong>Điền thủ công</strong> trực tiếp vào bảng bên dưới.</span>'
+        + '<span class="cach-chi-tiet">' + (n === 1
+            ? 'Mẫu 1: điền 2 cột cuối (<strong>Yêu cầu kỹ thuật chào giá</strong>, '
+              + '<strong>Các điểm không đạt</strong>).'
+            : 'Mẫu 2: điền từ <strong>Tên thương mại</strong> đến '
+              + '<strong>Số thông báo mời thầu</strong>. Cột <strong>Đơn giá</strong> '
+              + 'ghi dạng <code>10000</code> — không dùng dấu phân cách như <code>10.000,00</code>.')
+        + '</span>');
+
+    capNhatTong();
+}
+
+/* ===================== THEO DÕI THAY ĐỔI CHƯA LƯU ===================== */
+var CHUA_LUU = false;
+
+/** Đánh dấu có sửa nhưng chưa lưu */
+function danhDauSua() {
+    CHUA_LUU = true;
+    $('#tbNote').addClass('is-dirty');
+}
+/** Đã lưu xong -> xóa dấu */
+function xoaDauSua() {
+    CHUA_LUU = false;
+    $('#tbNote').removeClass('is-dirty');
+}
+
+/**
+ * Hỏi trước khi rời khỏi bước đang sửa dở.
+ * @param {function} tiep Việc cần làm sau khi người dùng quyết định
+ */
+function hoiTruocKhiRoi(tiep) {
+    if (!CHUA_LUU) { tiep(); return; }
+    // APP.confirm chỉ có nhánh "Đồng ý" (không có callback cho nút Hủy),
+    // nên đặt Đồng ý = "Lưu rồi chuyển". Bấm Hủy thì ở lại bảng, không mất dữ liệu.
+    APP.confirm(
+        'Bạn có thay đổi chưa lưu ở bảng này. Lưu lại rồi chuyển bước?',
+        function () {
+            luuTatCa(function (ok) { if (ok) tiep(); });
+        },
+        { title: 'Chưa lưu thay đổi', yesText: 'Lưu rồi chuyển', noText: 'Ở lại', yesClass: 'btn-primary' }
+    );
+}
+
+/**
+ * Bấm vào thanh bước để quay lại sửa.
+ * B1 mở form thông tin; B2/B3 chuyển bảng; B4 bản ký; B5 chỉ dẫn tài liệu.
+ */
+function veBuoc(n) {
+    if (n === 1) {
+        hoiTruocKhiRoi(function () { suaThongTin(); });
+        return;
+    }
+
+    if (!BAO_GIA_ID) {
+        APP.toast('Hãy lưu thông tin công ty trước (bước 1)', 'warning');
+        return;
+    }
+
+    hoiTruocKhiRoi(function () { diToiBuoc(n); });
+}
+
+/** Chuyển khối hiển thị sang bước n (đã qua bước hỏi lưu) */
+function diToiBuoc(n) {
+    // Ẩn hết rồi bật đúng khối cần
+    $('#buocGia').prop('hidden', n !== 2 && n !== 3);
+    $('#buocBanKy').prop('hidden', n !== 4);
+    $('#buocCatalog').prop('hidden', n !== 5);
+
+    for (var i = 1; i <= 5; i++) {
+        $('#step' + i).toggleClass('is-active', i === n);
+    }
+    $('#step1').addClass('is-done');
+
+    if (n === 2 || n === 3) {
+        chuyenTab(n === 2 ? 1 : 2);
+    } else if (n === 4) {
+        napBuocBanKy();
+    } else if (n === 5) {
+        napBuocCatalog();
+    }
+
+    $('html, body').animate({ scrollTop: $('#steps').offset().top - 16 }, 250);
+}
+
+/**
+ * Gom TẤT CẢ dữ liệu đang nhập trên bảng rồi gửi 1 lần.
+ * Thay cho việc bấm Lưu từng dòng như trước.
+ *
+ * @param {function} xong callback(ok)
+ */
+function luuTatCa(xong) {
+    if (!BAO_GIA_ID) { if (xong) xong(false); return; }
+
+    docBangVaoDONG();       // đọc giá trị đang gõ trên input vào mảng DONG
+
+    var payload = [];
+    for (var i = 0; i < DONG.length; i++) {
+        var r = DONG[i];
+        payload.push({
+            hang_hoa_id:         r.hang_hoa_id,
+            thong_so_chao_gia:   r.thong_so_chao_gia || '',
+            diem_khong_dat:      r.diem_khong_dat || '',
+            ten_thuong_mai:      r.ten_thuong_mai || '',
+            model:               r.model || '',
+            hang_san_xuat:       r.hang_san_xuat || '',
+            xuat_xu:             r.xuat_xu || '',
+            quy_cach:            r.quy_cach || '',
+            don_gia:             r.don_gia || 0,
+            don_gia_trung_thau:  r.don_gia_trung_thau || 0,
+            tai_lieu_tham_chieu: r.tai_lieu_tham_chieu || ''
+        });
+    }
+
+    APP.showLoading('#buocGia');
+    APP.ajax(AJAX_URL, {
+        action: 'luuNhieuDong',
+        bao_gia_id: BAO_GIA_ID,
+        dong: JSON.stringify(payload)
+    }, {
+        success: function (res) {
+            APP.hideLoading('#buocGia');
+            if (res && res.success) {
+                xoaDauSua();
+                loadBang();
+                if (xong) xong(true);
+            } else {
+                APP.toast((res && res.message) || 'Lưu thất bại', 'error');
+                if (xong) xong(false);
+            }
+        },
+        error: function () {
+            APP.hideLoading('#buocGia');
+            APP.toast('Không lưu được, hãy thử lại', 'error');
+            if (xong) xong(false);
+        }
+    });
+}
+
+/** Đọc giá trị đang gõ trên bảng vào mảng DONG (chưa gửi server) */
+function docBangVaoDONG() {
+    $('#bangM1 tbody tr[data-i]').each(function () {
+        var i = parseInt($(this).data('i'), 10);
+        if (isNaN(i) || !DONG[i]) return;
+        DONG[i].thong_so_chao_gia = $(this).find('.f-tsc').val() || '';
+        DONG[i].diem_khong_dat    = $(this).find('.f-dkd').val() || '';
+    });
+    $('#bangM2 tbody tr[data-i]').each(function () {
+        var i = parseInt($(this).data('i'), 10);
+        if (isNaN(i) || !DONG[i]) return;
+        DONG[i].ten_thuong_mai = $(this).find('.f-ttm').val() || '';
+        DONG[i].model          = $(this).find('.f-model').val() || '';
+        DONG[i].hang_san_xuat  = $(this).find('.f-hsx').val() || '';
+        DONG[i].xuat_xu        = $(this).find('.f-xx').val() || '';
+        DONG[i].quy_cach       = $(this).find('.f-qc').val() || '';
+        DONG[i].don_gia        = parseSo($(this).find('.f-gia').val());
+    });
+}
+
+/** Bước 2: lưu tất cả rồi sang bước 3 */
+function luuVaTiepTuc() {
+    docBangVaoDONG();
+    var soDapUng = 0;
+    for (var i = 0; i < DONG.length; i++) {
+        if ((DONG[i].thong_so_chao_gia || '').trim() !== '') soDapUng++;
+    }
+    if (soDapUng === 0) {
+        APP.toast('Cần điền ít nhất 1 dòng ở Bảng đáp ứng kỹ thuật', 'warning');
+        return;
+    }
+    luuTatCa(function (ok) {
+        if (!ok) return;
+        APP.toast('Đã lưu ' + soDapUng + '/' + DONG.length + ' dòng đáp ứng kỹ thuật', 'success');
+        diToiBuoc(3);
+    });
+}
+
+/** Bước 3: lưu tất cả rồi nộp báo giá */
+function luuVaNop() {
+    docBangVaoDONG();
+    var soChao = 0;
+    for (var i = 0; i < DONG.length; i++) {
+        if (Number(DONG[i].don_gia) > 0) soChao++;
+    }
+    if (soChao === 0) {
+        APP.toast('Cần chào giá ít nhất 1 hàng hóa trước khi nộp', 'warning');
+        return;
+    }
+    luuTatCa(function (ok) { if (ok) nopBaoGia(); });
+}
+
 function loadBang() {
     if (!BAO_GIA_ID) return;
-    APP.showLoading('#bangWrap');
-    $('#bangBody').html(APP.skeletonRows(6, 12));
+    APP.showLoading('#bangWrapM1');
+    $('#bangBodyM1').html(APP.skeletonRows(6, 6));
+    $('#bangBodyM2').html(APP.skeletonRows(6, 12));
 
     APP.ajax(AJAX_URL, { action: 'getBangChaoGia', bao_gia_id: BAO_GIA_ID }, {
         success: function (res) {
             DONG = res.data.dong || [];
             renderBang();
-            capNhatTong();
+            // Đồng bộ nút dưới + tab với TAB_HIEN ngay khi có dữ liệu
+            chuyenTab(TAB_HIEN);
         },
-        complete: function () { APP.hideLoading('#bangWrap'); }
+        complete: function () { APP.hideLoading('#bangWrapM1'); }
     });
 }
 
-function renderBang() {
+/** Lọc theo từ khóa tìm kiếm — dùng chung cho cả 2 bảng */
+function locDong(r) {
     var kw = ($('#searchHang').val() || '').toLowerCase();
+    if (!kw) return true;
+    var hay = (r.ten_hang_hoa + ' ' + (r.thong_so_ky_thuat || '') + ' ' + (r.ma_hh || '')).toLowerCase();
+    return hay.indexOf(kw) >= 0;
+}
+
+function renderBang() {
+    renderM1();
+    renderM2();
+    // Vẽ lại bảng sinh ra ô nhập mới -> phải khóa lại nếu đã chốt hoàn thành
+    if (DA_HOAN_THANH) {
+        $('#buocGia input, #buocGia textarea, #buocGia select').prop('disabled', true);
+        $('#bangM1, #bangM2').addClass('is-locked');
+    }
+}
+
+/** ===== MẪU 1: Bảng đáp ứng kỹ thuật ===== */
+function renderM1() {
     var html = '', hien = 0;
 
     for (var i = 0; i < DONG.length; i++) {
         var r = DONG[i];
-        if (kw) {
-            var hay = (r.ten_hang_hoa + ' ' + (r.thong_so_ky_thuat || '') + ' ' + (r.stt_theo_phan || '')).toLowerCase();
-            if (hay.indexOf(kw) < 0) continue;
-        }
+        if (!locDong(r)) continue;
+        hien++;
+
+        var daDien = (r.thong_so_chao_gia || '').trim() !== '';
+        html += '<tr data-hh="' + r.hang_hoa_id + '" data-i="' + i + '"' +
+                (daDien ? ' class="row-done"' : '') + '>' +
+            '<td class="col-id"><span class="text-mono">' + APP.escape(r.ma_hh || '—') + '</span></td>' +
+            '<td class="sticky-col"><span class="cell-main">' + APP.escape(r.ten_hang_hoa) + '</span></td>' +
+            '<td><div class="spec-box">' + APP.escape(r.thong_so_ky_thuat || '—') + '</div></td>' +
+            '<td><textarea class="form-control input-inline f-tsc" rows="6" ' +
+                'placeholder="Nêu thông số kỹ thuật của hàng hóa chào" ' +
+                'aria-label="Yêu cầu kỹ thuật chào giá">' + APP.escape(r.thong_so_chao_gia || '') + '</textarea></td>' +
+            '<td><textarea class="form-control input-inline f-dkd" rows="6" ' +
+                'placeholder="Nêu rõ điểm không đạt (nếu có) kèm thuyết minh" ' +
+                'aria-label="Các điểm không đạt">' + APP.escape(r.diem_khong_dat || '') + '</textarea></td>' +
+            '</tr>';
+    }
+
+    if (!hien) {
+        html = APP.emptyRow(6, $('#searchHang').val() ? 'Không tìm thấy hàng hóa khớp từ khóa' : 'Gói thầu chưa có hàng hóa');
+    }
+    $('#bangBodyM1').html(html);
+}
+
+/** ===== MẪU 2: Bảng chào giá ===== */
+function renderM2() {
+    var html = '', hien = 0;
+
+    for (var i = 0; i < DONG.length; i++) {
+        var r = DONG[i];
+        if (!locDong(r)) continue;
         hien++;
 
         var coGia = Number(r.don_gia) > 0;
-        html += '<tr data-hh="' + r.hang_hoa_id + '" data-i="' + i + '">' +
-            '<td class="col-id">' + (i + 1) + '</td>' +
-            '<td class="sticky-col">' +
-                '<span class="cell-main">' + APP.escape(r.ten_hang_hoa) + '</span>' +
-                (r.stt_theo_phan ? '<span class="cell-sub">' + APP.escape(r.stt_theo_phan) + '</span>' : '') +
-                (r.thong_so_ky_thuat ? '<div class="spec-box">' + APP.escape(r.thong_so_ky_thuat) + '</div>' : '') +
-                (r.chung_nhan ? '<span class="cell-sub">Chứng nhận YC: ' + APP.escape(r.chung_nhan) + '</span>' : '') +
-            '</td>' +
-            '<td>' + APP.escape(r.dvt || '—') + '</td>' +
-            '<td class="col-qty">' + Number(r.so_luong || 0).toLocaleString('vi-VN') + '</td>' +
+        html += '<tr data-hh="' + r.hang_hoa_id + '" data-i="' + i + '"' +
+                (coGia ? ' class="row-done"' : '') + '>' +
+            '<td class="col-id"><span class="text-mono">' + APP.escape(r.ma_hh || '—') + '</span></td>' +
+            '<td class="sticky-col"><span class="cell-main">' + APP.escape(r.ten_hang_hoa) + '</span></td>' +
             '<td><input type="text" class="form-control input-inline f-ttm" value="' + APP.escape(r.ten_thuong_mai || '') + '" aria-label="Tên thương mại"></td>' +
             '<td><input type="text" class="form-control input-inline f-model" value="' + APP.escape(r.model || '') + '" aria-label="Model"></td>' +
             '<td><input type="text" class="form-control input-inline f-hsx" value="' + APP.escape(r.hang_san_xuat || '') + '" aria-label="Hãng sản xuất"></td>' +
             '<td><input type="text" class="form-control input-inline f-xx" value="' + APP.escape(r.xuat_xu || '') + '" aria-label="Xuất xứ"></td>' +
-            '<td><input type="text" class="form-control input-inline text-right f-vat" style="min-width:64px" value="' + (Number(r.thue_vat) || '') + '" aria-label="VAT"></td>' +
+            '<td class="col-qty">' + Number(r.so_luong || 0).toLocaleString('vi-VN') + '</td>' +
+            '<td><input type="text" class="form-control input-inline f-qc" value="' + APP.escape(r.quy_cach || '') + '" aria-label="Quy cách"></td>' +
+            '<td>' + APP.escape(r.dvt || '—') + '</td>' +
             '<td class="col-price"><input type="text" class="form-control input-inline text-right f-gia" value="' + (coGia ? Number(r.don_gia) : '') + '" aria-label="Đơn giá"></td>' +
             '<td class="cell-total f-tt">' + (coGia ? money(r.thanh_tien) : '—') + '</td>' +
             '<td class="col-actions"><span class="row-actions">' +
-                '<button type="button" class="btn btn-sm btn-outline-primary" onclick="luuDongNhanh(this)" title="Lưu dòng">' + APP.icon('save', 15) + '</button>' +
                 '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="openDong(' + i + ')" title="Nhập đầy đủ các cột">' + APP.icon('pencil', 15) + '</button>' +
             '</span></td>' +
             '</tr>';
     }
 
     if (!hien) {
-        html = APP.emptyRow(12, kw ? 'Không tìm thấy hàng hóa khớp từ khóa' : 'Gói thầu chưa có hàng hóa');
+        html = APP.emptyRow(12, $('#searchHang').val() ? 'Không tìm thấy hàng hóa khớp từ khóa' : 'Gói thầu chưa có hàng hóa');
     }
-    $('#bangBody').html(html);
+    $('#bangBodyM2').html(html);
 }
 
-/** Tính lại tổng + tiến độ từ dữ liệu đang giữ */
+/** Tính lại tổng + tiến độ của CẢ 2 mẫu */
 function capNhatTong() {
-    var tong = 0, soChao = 0;
+    var tong = 0, soChao = 0, soDapUng = 0;
     for (var i = 0; i < DONG.length; i++) {
         if (Number(DONG[i].don_gia) > 0) { soChao++; tong += Number(DONG[i].thanh_tien) || 0; }
+        if ((DONG[i].thong_so_chao_gia || '').trim() !== '') soDapUng++;
     }
+
     $('#tongTien').text(money(tong));
+    $('#demM1').text(soDapUng + '/' + DONG.length);
+    $('#demM2').text(soChao + '/' + DONG.length);
+
     $('#badgeTienDo').text('Đã chào ' + soChao + '/' + DONG.length + ' hàng hóa');
     $('#badgeTienDo').attr('class', 'badge ' + (soChao === 0 ? 'badge-warning'
         : (soChao === DONG.length ? 'badge-success' : 'badge-info')));
 
+    // Ghi chú + nút phụ thuộc bước đang xem
     var note = '';
-    if (soChao === 0) note = 'Cần chào giá ít nhất 1 hàng hóa trước khi nộp.';
-    else if (soChao < DONG.length) note = 'Còn ' + (DONG.length - soChao) + ' hàng hóa chưa chào giá.';
+    if (TAB_HIEN === 1) {
+        // Bước 2: chỉ cần 1 dòng là qua được bước 3
+        if (soDapUng === 0) note = 'Cần điền và lưu ít nhất 1 dòng để sang bước 3.';
+        else if (soDapUng < DONG.length) note = 'Đã điền ' + soDapUng + '/' + DONG.length + ' dòng. Có thể sang bước 3.';
+        else note = 'Đã điền đủ đáp ứng kỹ thuật.';
+        $('#btnTiepTuc').prop('disabled', DA_HOAN_THANH || soDapUng === 0);
+    } else {
+        // Bước 3: phải chào giá ít nhất 1 mặt hàng mới nộp được
+        if (soChao === 0) note = 'Cần chào giá ít nhất 1 hàng hóa trước khi nộp.';
+        else if (soChao < DONG.length) note = 'Còn ' + (DONG.length - soChao) + ' hàng hóa chưa chào giá.';
+        $('#btnNop').prop('disabled', DA_HOAN_THANH || soChao === 0);
+    }
     $('#tbNote').text(note);
-    $('#btnNop').prop('disabled', soChao === 0);
-    if (soChao > 0) $('#step3').addClass('is-active');
-    else $('#step3').removeClass('is-active');
+
+    $('#step4').toggleClass('is-active', soChao > 0);
 }
 
 /** Lưu nhanh 1 dòng từ các input trên bảng */
-function luuDongNhanh(btn) {
-    var $tr = $(btn).closest('tr');
-    var i = parseInt($tr.data('i'), 10);
-    var r = DONG[i];
-    if (!r) return;
-
-    var gia = parseSo($tr.find('.f-gia').val());
-    if (gia <= 0) {
-        APP.toast('Nhập đơn giá lớn hơn 0 cho hàng hóa này', 'warning');
-        $tr.find('.f-gia').trigger('focus');
-        return;
-    }
-
-    var payload = {
+/**
+ * Gói dữ liệu 1 dòng để gửi lên server.
+ * Luôn gửi ĐỦ mọi trường (lấy từ bộ đệm DONG nếu không có trên bảng đang mở),
+ * vì server ghi đè cả dòng — thiếu trường nào là mất dữ liệu trường đó.
+ */
+function goiDuLieuDong(r) {
+    return {
         action: 'luuDong',
         bao_gia_id: BAO_GIA_ID,
         hang_hoa_id: r.hang_hoa_id,
-        // Giữ các trường đã nhập ở modal, chỉ ghi đè phần trên bảng
-        ten_thuong_mai: $tr.find('.f-ttm').val(),
-        model: $tr.find('.f-model').val(),
-        hang_san_xuat: $tr.find('.f-hsx').val(),
-        xuat_xu: $tr.find('.f-xx').val(),
-        thue_vat: $tr.find('.f-vat').val(),
-        don_gia: gia,
-        ma_hs: r.ma_hs || '',
-        quy_cach: r.quy_cach || '',
-        chi_phi_dich_vu: r.chi_phi_dich_vu || 0,
-        chung_nhan_chao: r.chung_nhan_chao || '',
-        don_gia_trung_thau: r.don_gia_trung_thau || 0,
-        tai_lieu_tham_chieu: r.tai_lieu_tham_chieu || '',
-        ma_qr_hang_hoa: r.ma_qr_hang_hoa || '',
+        // Mẫu 1
         thong_so_chao_gia: r.thong_so_chao_gia || '',
-        diem_khong_dat: r.diem_khong_dat || ''
+        diem_khong_dat: r.diem_khong_dat || '',
+        // Mẫu 2
+        ten_thuong_mai: r.ten_thuong_mai || '',
+        model: r.model || '',
+        hang_san_xuat: r.hang_san_xuat || '',
+        xuat_xu: r.xuat_xu || '',
+        quy_cach: r.quy_cach || '',
+        don_gia: Number(r.don_gia) || 0,
+        don_gia_trung_thau: Number(r.don_gia_trung_thau) || 0,
+        tai_lieu_tham_chieu: r.tai_lieu_tham_chieu || ''
     };
-
-    APP.ajax(AJAX_URL, payload, {
-        success: function (res) {
-            // Cập nhật bộ đệm cục bộ, không load lại cả bảng (đỡ mất chỗ đang nhập)
-            r.ten_thuong_mai = payload.ten_thuong_mai;
-            r.model = payload.model;
-            r.hang_san_xuat = payload.hang_san_xuat;
-            r.xuat_xu = payload.xuat_xu;
-            r.thue_vat = parseSo(payload.thue_vat);
-            r.don_gia = gia;
-            r.thanh_tien = (res.data && res.data.thanh_tien) ? Number(res.data.thanh_tien) : gia * Number(r.so_luong);
-            $tr.find('.f-tt').text(money(r.thanh_tien));
-            capNhatTong();
-            APP.toast('Đã lưu dòng ' + (i + 1), 'success');
-        }
-    });
 }
+
+
 
 /* ============ Modal nhập đầy đủ 1 dòng ============ */
 function openDong(i) {
@@ -1109,9 +1949,8 @@ function openDong(i) {
 
     var yc = '<div class="alert alert-info" style="margin-bottom:16px"><div>' +
         '<strong>Yêu cầu của bên mời:</strong><br>' +
+        'Mã HH: <strong>' + APP.escape(r.ma_hh || '—') + '</strong> · ' +
         'Số lượng: <strong>' + Number(r.so_luong).toLocaleString('vi-VN') + ' ' + APP.escape(r.dvt || '') + '</strong>';
-    if (r.chung_nhan) yc += '<br>Chứng nhận: ' + APP.escape(r.chung_nhan);
-    if (r.yeu_cau_xuat_xu) yc += '<br>Xuất xứ: ' + APP.escape(r.yeu_cau_xuat_xu);
     if (r.thong_so_ky_thuat) {
         yc += '<div class="spec-box" style="margin-top:8px">' + APP.escape(r.thong_so_ky_thuat) + '</div>';
     }
@@ -1120,17 +1959,12 @@ function openDong(i) {
 
     $('#d_ten_thuong_mai').val(r.ten_thuong_mai || '');
     $('#d_model').val(r.model || '');
-    $('#d_ma_hs').val(r.ma_hs || '');
     $('#d_hang_san_xuat').val(r.hang_san_xuat || '');
     $('#d_xuat_xu').val(r.xuat_xu || '');
     $('#d_quy_cach').val(r.quy_cach || '');
-    $('#d_chi_phi_dich_vu').val(Number(r.chi_phi_dich_vu) || '');
-    $('#d_thue_vat').val(Number(r.thue_vat) || '');
     $('#d_don_gia').val(Number(r.don_gia) || '');
     $('#d_don_gia_trung_thau').val(Number(r.don_gia_trung_thau) || '');
-    $('#d_chung_nhan_chao').val(r.chung_nhan_chao || '');
     $('#d_tai_lieu_tham_chieu').val(r.tai_lieu_tham_chieu || '');
-    $('#d_ma_qr_hang_hoa').val(r.ma_qr_hang_hoa || '');
     $('#d_thong_so_chao_gia').val(r.thong_so_chao_gia || '');
     $('#d_diem_khong_dat').val(r.diem_khong_dat || '');
 
@@ -1144,28 +1978,28 @@ function luuDongChiTiet() {
         $('#d_don_gia').trigger('focus');
         return false;
     }
-    APP.ajax(AJAX_URL, {
+
+    var payload = {
         action: 'luuDong',
         bao_gia_id: BAO_GIA_ID,
         hang_hoa_id: $('#d_hang_hoa_id').val(),
+        // Mẫu 1
+        thong_so_chao_gia: $('#d_thong_so_chao_gia').val(),
+        diem_khong_dat: $('#d_diem_khong_dat').val(),
+        // Mẫu 2
         ten_thuong_mai: $('#d_ten_thuong_mai').val(),
         model: $('#d_model').val(),
-        ma_hs: $('#d_ma_hs').val(),
         hang_san_xuat: $('#d_hang_san_xuat').val(),
         xuat_xu: $('#d_xuat_xu').val(),
         quy_cach: $('#d_quy_cach').val(),
-        chi_phi_dich_vu: $('#d_chi_phi_dich_vu').val(),
-        thue_vat: $('#d_thue_vat').val(),
         don_gia: gia,
-        chung_nhan_chao: $('#d_chung_nhan_chao').val(),
-        don_gia_trung_thau: $('#d_don_gia_trung_thau').val(),
-        tai_lieu_tham_chieu: $('#d_tai_lieu_tham_chieu').val(),
-        ma_qr_hang_hoa: $('#d_ma_qr_hang_hoa').val(),
-        thong_so_chao_gia: $('#d_thong_so_chao_gia').val(),
-        diem_khong_dat: $('#d_diem_khong_dat').val()
-    }, {
-        success: function (res) {
-            APP.toast(res.message, 'success');
+        don_gia_trung_thau: parseSo($('#d_don_gia_trung_thau').val()),
+        tai_lieu_tham_chieu: $('#d_tai_lieu_tham_chieu').val()
+    };
+
+    APP.ajax(AJAX_URL, payload, {
+        success: function () {
+            APP.toast('Đã lưu', 'success');
             closeDong();
             loadBang();
         }
@@ -1175,6 +2009,10 @@ function luuDongChiTiet() {
 
 /* ============ IMPORT ============ */
 function openImport() {
+    // Nêu rõ đang upload mẫu nào để nhà thầu khỏi chọn nhầm file
+    $('#impTitle').text(TAB_HIEN === 1
+        ? 'Upload Mẫu 1 — Bảng đáp ứng kỹ thuật'
+        : 'Upload Mẫu 2 — Bảng chào giá');
     $('#fileBg').val('');
     $('#fileInfo').empty();
     $('#impResult').empty();
@@ -1267,10 +2105,9 @@ function nopBaoGia() {
             success: function (res) {
                 APP.toast(res.message, 'success');
                 $('#step3').removeClass('is-active').addClass('is-done');
-                // Nộp xong -> mở luôn trang tra cứu, điền sẵn MST và tra ngay,
-                // để nhà thầu thấy báo giá vừa nộp và tải bản ký lên.
-                var mst = ($('#ma_so_thue').val() || '').trim();
-                setTimeout(function () { moTraCuu(mst, true); }, 600);
+                // Nộp xong -> sang Bước 4 để tải file Word về ký rồi upload.
+                // (Trước đây mở thẳng trang tra cứu MST — không còn hợp với luồng 5 bước.)
+                setTimeout(function () { diToiBuoc(4); }, 600);
             }
         });
     }, { yesClass: 'btn-primary', yesText: 'Nộp báo giá' });
@@ -1295,9 +2132,11 @@ if ($dz.length) {
 
 $('#searchHang').on('keyup', APP.debounce(renderBang, 300));
 $('#dongModal, #importModal, #banKyModal').on('click', function (e) { if (e.target === this) $(this).removeClass('open'); });
+$('#hdModal').on('click', function (e) { if (e.target === this) dongHuongDan(); });
 $(document).on('keydown', function (e) {
     if (e.key !== 'Escape') return;
     // Esc: đóng modal con trước, hết modal mới đóng trang tra cứu
+    if ($('#hdModal').hasClass('open')) { dongHuongDan(); return; }
     if ($('#banKyModal').hasClass('open')) { closeBanKy(); return; }
     if ($('#dongModal').hasClass('open') || $('#importModal').hasClass('open')) {
         closeDong(); closeImport(); return;
@@ -1305,15 +2144,21 @@ $(document).on('keydown', function (e) {
     if ($('#traCuuOverlay').hasClass('open')) dongTraCuu();
 });
 
-/* Enter trong ô đơn giá → lưu luôn dòng đó */
+/* Enter trong ô đơn giá → nhảy xuống ô đơn giá dòng dưới cho nhập nhanh.
+   (Không lưu ngay nữa — giờ lưu 1 lần bằng nút dưới bảng) */
 $(document).on('keydown', '.f-gia', function (e) {
     if (e.key === 'Enter') {
         e.preventDefault();
-        luuDongNhanh($(this).closest('tr').find('.btn-outline-primary')[0]);
+        var o = $('#bangM2 .f-gia');
+        var i = o.index(this);
+        if (i > -1 && i + 1 < o.length) o.eq(i + 1).trigger('focus').trigger('select');
     }
 });
 
-$(document).ready(function () { if (BAO_GIA_ID) loadBang(); });
+$(document).ready(function () {
+    if (BAO_GIA_ID) loadBang();
+    tuHienHuongDan();
+});
 </script>
 </body>
 </html>

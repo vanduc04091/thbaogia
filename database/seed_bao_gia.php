@@ -132,16 +132,11 @@ try {
             foreach ($mau as [$phan, $sttP, $sttTb, $ten, $tskt, $cn, $xx, $dvt, $sl]) {
                 $e = new BG_HangHoa_PUBLIC();
                 $e->goi_thau_id       = $gt1;
-                $e->ten_phan          = $phan;
-                $e->stt_theo_phan     = $sttP;
-                $e->stt_thong_bao     = $sttTb;
+                $e->ma_hh             = 'HH' . str_pad((string)($tt + 1), 3, '0', STR_PAD_LEFT);
                 $e->ten_hang_hoa      = $ten;
                 $e->thong_so_ky_thuat = $tskt;
-                $e->chung_nhan        = $cn;
-                $e->yeu_cau_xuat_xu   = $xx;
                 $e->dvt               = $dvt;
                 $e->so_luong          = $sl;
-                $e->yeu_cau_tro_cu    = 'Cam kết cung cấp trợ cụ đầy đủ, chính hãng đáp ứng nhu cầu sử dụng';
                 $e->thu_tu            = ++$tt;
                 $e->nguoi_tao         = $admin;
                 $items[] = $e;
@@ -165,13 +160,9 @@ try {
         foreach ($mau2 as [$phan, $sttP, $sttTb, $ten, $tskt, $cn, $xx, $dvt, $sl]) {
             $e = new BG_HangHoa_PUBLIC();
             $e->goi_thau_id       = $gt2;
-            $e->ten_phan          = $phan;
-            $e->stt_theo_phan     = $sttP;
-            $e->stt_thong_bao     = $sttTb;
+            $e->ma_hh             = 'HH' . str_pad((string)($tt + 1), 3, '0', STR_PAD_LEFT);
             $e->ten_hang_hoa      = $ten;
             $e->thong_so_ky_thuat = $tskt;
-            $e->chung_nhan        = $cn;
-            $e->yeu_cau_xuat_xu   = $xx;
             $e->dvt               = $dvt;
             $e->so_luong          = $sl;
             $e->thu_tu            = ++$tt;
@@ -236,18 +227,13 @@ try {
             $ct->hang_hoa_id         = (int)$hh['id'];
             $ct->ten_thuong_mai      = 'Model ' . chr(65 + $i) . '-' . ($k + 1) . ' Series';
             $ct->model               = 'REF-' . (694000 + $i * 100 + $k);
-            $ct->ma_hs               = '9021';
             $ct->hang_san_xuat       = $xuatXuList[$i][0];
             $ct->xuat_xu             = $xuatXuList[$i][1];
             $ct->quy_cach            = '1 bộ/hộp';
-            $ct->chi_phi_dich_vu     = 0;
-            $ct->thue_vat            = 5;
             $ct->don_gia             = $donGia;
             $ct->thanh_tien          = round($donGia * $soLuong, 2);
-            $ct->chung_nhan_chao     = $i === 0 ? 'FDA (510(k))/ISO13485' : ($i === 1 ? 'CE (MDR)/ISO13485' : 'CE (MDD)/ISO13485');
             $ct->don_gia_trung_thau  = round($base * 0.97 / 1000) * 1000;
             $ct->tai_lieu_tham_chieu = 'Hợp đồng số ' . (12 + $i) . '/HĐ-BV ngày 01/03/2025';
-            $ct->ma_qr_hang_hoa      = 'Có QR/Barcode trên từng sản phẩm';
             $ct->thong_so_chao_gia   = 'Đáp ứng đầy đủ các thông số kỹ thuật yêu cầu của hồ sơ mời chào giá.';
             $ct->diem_khong_dat      = $i === 2 ? 'Chiều dài cỡ nhỏ nhất 9mm (yêu cầu ≤ 8mm) — đề nghị xem xét tương đương.' : null;
             BG_BaoGia_DAL::upsertChiTiet($ct);

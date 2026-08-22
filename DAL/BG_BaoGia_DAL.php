@@ -19,13 +19,19 @@ class BG_BaoGia_DAL
                        f.kich_thuoc AS kich_thuoc_file,
                        f.loai_file,
                        f.ngay_tao AS ngay_upload_ban_ky,
+                       fc.ten_file_goc AS ten_file_catalog,
+                       fc.ngay_tao AS ngay_upload_catalog,
+                       fx.ten_file_goc AS ten_file_catalog_excel,
+                       fx.ngay_tao AS ngay_upload_catalog_excel,
                        (SELECT COUNT(*) FROM bg_bao_gia_chi_tiet ct
                          WHERE ct.bao_gia_id = bg.id AND ct.da_xoa = 0
                            AND ct.don_gia > 0) AS so_dong_chao
                 FROM bg_bao_gia bg
                 LEFT JOIN bg_goi_thau gt ON gt.id = bg.goi_thau_id
                 LEFT JOIN dm_nguoi_dung nd ON nd.id = bg.nguoi_xac_nhan
-                LEFT JOIN bg_file f ON f.id = bg.file_ban_ky_id AND f.da_xoa = 0";
+                LEFT JOIN bg_file f  ON f.id  = bg.file_ban_ky_id AND f.da_xoa = 0
+                LEFT JOIN bg_file fc ON fc.id = bg.file_catalog_id AND fc.da_xoa = 0
+                LEFT JOIN bg_file fx ON fx.id = bg.file_catalog_excel_id AND fx.da_xoa = 0";
     }
 
     public static function insert(BG_BaoGia_PUBLIC $e): int
@@ -117,10 +123,41 @@ class BG_BaoGia_DAL
      * `nguoi_xac_nhan` = NULL vì đây là nhà thầu tự xác nhận bằng bản ký,
      * không phải nhân viên bên mời tích tay.
      */
-    public static function updateBanKy(int $id, int $fileId): int
+    /**
+     * Gán file catalog (Bước 5). KHÔNG đụng tới trạng thái báo giá — catalog
+     * chỉ là tài liệu chứng minh, việc xác nhận vẫn do bản ký quyết định.
+     */
+    public static function updateCatalog(int $id, ?int $fileId): int
     {
         $sql = "UPDATE bg_bao_gia SET
-                    file_ban_ky_id = :fid,
+                    file_catalog_id = :fid,
+                    ngay_cap_nhat = NOW()
+                WHERE id = :id AND da_xoa = 0";
+        $stmt = Database::getConnection()->prepare($sql);
+        $stmt->execute([':fid' => $fileId, ':id' => $id]);
+        return $stmt->rowCount();
+    }
+
+    /** Gán file Excel chỉ dẫn vị trí tài liệu (Bước 5) */
+    public static function updateCatalogExcel(int $id, ?int $fileId): int
+    {
+        $sql = "UPDATE bg_bao_gia SET
+                    file_catalog_excel_id = :fid,
+                    ngay_cap_nhat = NOW()
+                WHERE id = :id AND da_xoa = 0";
+        $stmt = Database::getConnection()->prepare($sql);
+        $stmt->execute([':fid' => $fileId, ':id' => $id]);
+        return $stmt->rowCount();
+    }
+
+    /** Đánh dấu nhà thầu đã hoàn thành toàn bộ 5 bước → khóa sửa */
+    public static function updateHoanThanh(int $id): int
+    {
+        // Chot xong 5 buoc MOI chuyen sang "Da xac nhan".
+        // nguoi_xac_nhan = NULL de phan biet nha thau tu ky (10.2).
+        $sql = "UPDATE bg_bao_gia SET
+                    da_hoan_thanh = 1,
+                    ngay_hoan_thanh = NOW(),
                     trang_thai = :tt,
                     ngay_xac_nhan = NOW(),
                     nguoi_xac_nhan = NULL,
@@ -128,11 +165,26 @@ class BG_BaoGia_DAL
                     ngay_cap_nhat = NOW()
                 WHERE id = :id AND da_xoa = 0";
         $stmt = Database::getConnection()->prepare($sql);
-        $stmt->execute([
-            ':fid' => $fileId,
-            ':tt'  => BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN,
-            ':id'  => $id,
-        ]);
+        $stmt->execute([':tt' => BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN, ':id' => $id]);
+        return $stmt->rowCount();
+    }
+
+    /**
+     * Gan file ban ky (Buoc 4).
+     *
+     * KHONG dat trang thai "Da xac nhan" o day nua — nha thau con Buoc 5
+     * (chi dan vi tri tai lieu). Chi khi bam HOAN THANH o cuoi Buoc 5 thi
+     * bao gia moi chuyen sang "Da xac nhan" (xem updateHoanThanh).
+     */
+    public static function updateBanKy(int $id, int $fileId): int
+    {
+        $sql = "UPDATE bg_bao_gia SET
+                    file_ban_ky_id = :fid,
+                    ly_do_tu_choi = NULL,
+                    ngay_cap_nhat = NOW()
+                WHERE id = :id AND da_xoa = 0";
+        $stmt = Database::getConnection()->prepare($sql);
+        $stmt->execute([':fid' => $fileId, ':id' => $id]);
         return $stmt->rowCount();
     }
 
@@ -392,7 +444,7 @@ class BG_BaoGia_DAL
     public static function getChiTiet(int $baoGiaId): array
     {
         $stmt = Database::getConnection()->prepare(
-            "SELECT ct.*, hh.ten_hang_hoa, hh.stt_theo_phan, hh.ten_phan, hh.dvt,
+            "SELECT ct.*, hh.ma_hh, hh.ten_hang_hoa, hh.dvt,
                     hh.so_luong, hh.thong_so_ky_thuat
              FROM bg_bao_gia_chi_tiet ct
              INNER JOIN bg_hang_hoa hh ON hh.id = ct.hang_hoa_id
@@ -418,54 +470,52 @@ class BG_BaoGia_DAL
      * Ghi 1 dòng chi tiết (upsert theo UNIQUE(bao_gia_id, hang_hoa_id)).
      * thanh_tien tính ở BUS rồi truyền vào.
      */
+    /**
+     * Lưu 1 dòng chi tiết báo giá (gộp Mẫu 1 + Mẫu 2 của Phụ lục II).
+     *
+     * UNIQUE (bao_gia_id, hang_hoa_id) nên dùng ON DUPLICATE KEY UPDATE:
+     * nhà thầu sửa đi sửa lại vẫn chỉ 1 dòng cho mỗi hàng hóa.
+     */
     public static function upsertChiTiet(BG_BaoGiaChiTiet_PUBLIC $e): void
     {
         $sql = "INSERT INTO bg_bao_gia_chi_tiet
-                    (bao_gia_id, hang_hoa_id, ten_thuong_mai, model, ma_hs, hang_san_xuat,
-                     xuat_xu, quy_cach, chi_phi_dich_vu, thue_vat, don_gia, thanh_tien,
-                     chung_nhan_chao, don_gia_trung_thau, tai_lieu_tham_chieu, ma_qr_hang_hoa,
-                     thong_so_chao_gia, diem_khong_dat, ngay_tao, ngay_cap_nhat, da_xoa)
-                VALUES (:bg, :hh, :ttm, :md, :hs, :hsx, :xx, :qc, :cpdv, :vat, :dg, :tt,
-                        :cnc, :dgtt, :tltc, :qr, :tsc, :dkd, NOW(), NOW(), 0)
+                    (bao_gia_id, hang_hoa_id,
+                     thong_so_chao_gia, diem_khong_dat,
+                     ten_thuong_mai, model, hang_san_xuat, xuat_xu, quy_cach,
+                     don_gia, thanh_tien,
+                     don_gia_trung_thau, tai_lieu_tham_chieu,
+                     ngay_tao, ngay_cap_nhat, da_xoa)
+                VALUES (:bg, :hh, :tsc, :dkd, :ttm, :md, :hsx, :xx, :qc,
+                        :dg, :tt, :dgtt, :tltc, NOW(), NOW(), 0)
                 ON DUPLICATE KEY UPDATE
+                    thong_so_chao_gia = VALUES(thong_so_chao_gia),
+                    diem_khong_dat = VALUES(diem_khong_dat),
                     ten_thuong_mai = VALUES(ten_thuong_mai),
                     model = VALUES(model),
-                    ma_hs = VALUES(ma_hs),
                     hang_san_xuat = VALUES(hang_san_xuat),
                     xuat_xu = VALUES(xuat_xu),
                     quy_cach = VALUES(quy_cach),
-                    chi_phi_dich_vu = VALUES(chi_phi_dich_vu),
-                    thue_vat = VALUES(thue_vat),
                     don_gia = VALUES(don_gia),
                     thanh_tien = VALUES(thanh_tien),
-                    chung_nhan_chao = VALUES(chung_nhan_chao),
                     don_gia_trung_thau = VALUES(don_gia_trung_thau),
                     tai_lieu_tham_chieu = VALUES(tai_lieu_tham_chieu),
-                    ma_qr_hang_hoa = VALUES(ma_qr_hang_hoa),
-                    thong_so_chao_gia = VALUES(thong_so_chao_gia),
-                    diem_khong_dat = VALUES(diem_khong_dat),
                     ngay_cap_nhat = NOW(),
                     da_xoa = 0";
         $stmt = Database::getConnection()->prepare($sql);
         $stmt->execute([
-            ':bg'   => $e->bao_gia_id,
-            ':hh'   => $e->hang_hoa_id,
-            ':ttm'  => $e->ten_thuong_mai,
-            ':md'   => $e->model,
-            ':hs'   => $e->ma_hs,
-            ':hsx'  => $e->hang_san_xuat,
-            ':xx'   => $e->xuat_xu,
-            ':qc'   => $e->quy_cach,
-            ':cpdv' => $e->chi_phi_dich_vu,
-            ':vat'  => $e->thue_vat,
-            ':dg'   => $e->don_gia,
-            ':tt'   => $e->thanh_tien,
-            ':cnc'  => $e->chung_nhan_chao,
-            ':dgtt' => $e->don_gia_trung_thau,
-            ':tltc' => $e->tai_lieu_tham_chieu,
-            ':qr'   => $e->ma_qr_hang_hoa,
-            ':tsc'  => $e->thong_so_chao_gia,
-            ':dkd'  => $e->diem_khong_dat,
+            ':bg'    => $e->bao_gia_id,
+            ':hh'    => $e->hang_hoa_id,
+            ':tsc'   => $e->thong_so_chao_gia,
+            ':dkd'   => $e->diem_khong_dat,
+            ':ttm'   => $e->ten_thuong_mai,
+            ':md'    => $e->model,
+            ':hsx'   => $e->hang_san_xuat,
+            ':xx'    => $e->xuat_xu,
+            ':qc'    => $e->quy_cach,
+            ':dg'    => $e->don_gia,
+            ':tt'    => $e->thanh_tien,
+            ':dgtt'  => $e->don_gia_trung_thau,
+            ':tltc'  => $e->tai_lieu_tham_chieu,
         ]);
     }
 
