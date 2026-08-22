@@ -18,7 +18,9 @@ try {
     if ($goiThauId <= 0) {
         throw new RuntimeException('Thiếu mã gói thầu');
     }
-    $path = BG_HangHoa_BUS::xuatFileMau($goiThauId);
+    // Dùng mẫu DANH MỤC (không đòi hỏi đã có hàng hóa) — gói thầu mới tạo
+    // chưa có dòng nào vẫn phải tải được file mẫu để import.
+    $path = BG_HangHoa_BUS::xuatFileMauDanhMuc($goiThauId);
     ExcelHelper::download($path, basename($path));
 } catch (Throwable $ex) {
     http_response_code(400);

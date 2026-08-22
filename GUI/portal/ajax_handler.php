@@ -118,6 +118,9 @@ try {
     switch ($action) {
         /** Bước 1: nhà thầu khai thông tin công ty → tạo phiếu báo giá */
         case 'khaiThongTin':
+
+            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
+            if (!$conNhan['ok']) ResponseHelper::error($conNhan['message'], 403);
             $e = new BG_BaoGia_PUBLIC();
             $e->goi_thau_id      = (int)$gt->id;
             $e->ten_cong_ty      = Helper::postStr('ten_cong_ty');
@@ -140,6 +143,9 @@ try {
         /** Cập nhật lại thông tin công ty */
         case 'capNhatThongTin':
             $id = Helper::postInt('bao_gia_id');
+
+            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
+            if (!$conNhan['ok']) ResponseHelper::error($conNhan['message'], 403);
             kiemTraBaoGiaThuocPhien($id, $gt);
 
             $e = new BG_BaoGia_PUBLIC();
@@ -261,6 +267,9 @@ try {
         case 'uploadCatalogExcel':
             $id = Helper::postInt('bao_gia_id');
 
+            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
+            if (!$conNhan['ok']) ResponseHelper::error($conNhan['message'], 403);
+
             $duocPhep = false;
             $idsCuaToi = SessionHelper::get(SS_BAO_GIA_CUA_TOI, []);
             if (is_array($idsCuaToi) && in_array($id, $idsCuaToi, true)) {
@@ -294,6 +303,9 @@ try {
         /** Bước 5 — nhà thầu chốt hoàn thành, khóa mọi chỉnh sửa */
         case 'hoanThanh':
             $id = Helper::postInt('bao_gia_id');
+
+            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
+            if (!$conNhan['ok']) ResponseHelper::error($conNhan['message'], 403);
             kiemTraBaoGiaThuocPhien($id, $gt);
 
             $res = BG_BaoGia_BUS::hoanThanh($id, $u);
@@ -305,6 +317,9 @@ try {
         /** Bước 5 — upload file catalog đã ký */
         case 'uploadCatalog':
             $id = Helper::postInt('bao_gia_id');
+
+            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
+            if (!$conNhan['ok']) ResponseHelper::error($conNhan['message'], 403);
 
             // Cùng quy tắc quyền như uploadBanKy: của phiên này HOẶC đúng MST đã tra cứu
             $duocPhep = false;
@@ -340,6 +355,9 @@ try {
         /** Import file báo giá đã điền */
         case 'importFile':
             $id = Helper::postInt('bao_gia_id');
+
+            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
+            if (!$conNhan['ok']) ResponseHelper::error($conNhan['message'], 403);
             kiemTraBaoGiaThuocPhien($id, $gt);
 
             $path = nhanFileExcelPortal('file');
@@ -380,6 +398,9 @@ try {
         case 'uploadBanKy':
             $id = Helper::postInt('bao_gia_id');
 
+            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
+            if (!$conNhan['ok']) ResponseHelper::error($conNhan['message'], 403);
+
             $duocPhep = false;
             // 1) Báo giá do chính phiên này tạo
             $idsCuaToi = SessionHelper::get(SS_BAO_GIA_CUA_TOI, []);
@@ -418,6 +439,9 @@ try {
         /** Nộp báo giá */
         case 'nopBaoGia':
             $id = Helper::postInt('bao_gia_id');
+
+            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
+            if (!$conNhan['ok']) ResponseHelper::error($conNhan['message'], 403);
             kiemTraBaoGiaThuocPhien($id, $gt);
             $res = BG_BaoGia_BUS::nopBaoGia($id, $u);
             $res['success'] ? ResponseHelper::success($res['message']) : ResponseHelper::error($res['message']);

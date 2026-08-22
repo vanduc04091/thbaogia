@@ -184,7 +184,10 @@ class BG_HangHoa_BUS
         $dongHeader = 0;
         for ($d = 1; $d <= 5; $d++) {
             $ten = ExcelHelper::toText($rows[$d][self::COL_TEN_HANG_HOA] ?? '');
-            if (mb_stripos($ten, 'hàng ho') !== false || mb_stripos($ten, 'hang ho') !== false) {
+            // So khớp sau khi BỎ DẤU. Trước đây dò chuỗi có dấu cứng
+            // ('hàng ho') nên tiêu đề thật "Tên hàng hóa..." KHÔNG khớp
+            // (chữ 'ó' có dấu), làm mọi file mẫu đều bị báo sai định dạng.
+            if (mb_stripos(self::boDau($ten), 'hang hoa') !== false) {
                 $dongHeader = $d;
                 break;
             }
@@ -296,6 +299,15 @@ class BG_HangHoa_BUS
             $lo = [];
             // Bộ đếm sinh Mã HH cho dòng bỏ trống mã
             $soTiepTheo = BG_HangHoa_DAL::soThuTuMaLonNhat($goiThauId);
+
+            // Tính cả mã HHxxx do CHÍNH file này khai sẵn, nếu không dòng bỏ
+            // trống mã sẽ sinh trùng với dòng đã ghi rõ mã trong cùng file.
+            foreach ($rows as $r) {
+                if (preg_match('/^HH(\d+)$/', (string)$r['ma_hh'], $m)) {
+                    $soTiepTheo = max($soTiepTheo, (int)$m[1]);
+                }
+            }
+
             foreach ($rows as $r) {
                 $e = new BG_HangHoa_PUBLIC();
                 $e->goi_thau_id       = $goiThauId;
@@ -306,6 +318,9 @@ class BG_HangHoa_BUS
                     $maHh = 'HH' . str_pad((string)$soTiepTheo, 3, '0', STR_PAD_LEFT);
                 }
                 $e->ma_hh             = $maHh;
+                // THIẾU 2 dòng này -> mọi lần import đều ra tên rỗng và số lượng 0
+                $e->ten_hang_hoa      = $r['ten_hang_hoa'];
+                $e->so_luong          = (float)$r['so_luong'];
                 $e->thong_so_ky_thuat = $r['thong_so_ky_thuat'] !== '' ? $r['thong_so_ky_thuat'] : null;
                 $e->dvt               = $r['dvt'] !== '' ? $r['dvt'] : null;
                 $e->thu_tu            = ++$thuTu;
@@ -349,6 +364,113 @@ class BG_HangHoa_BUS
      * @param string $mau 'mau1' = Bảng đáp ứng kỹ thuật (Mẫu 1)
      *                    'mau2' = Bảng chào giá (Mẫu 2)
      */
+    /**
+     * File Excel mau DANH MUC HANG HOA cho BEN MOI import len.
+     *
+     * KHAC voi xuatFileMau(): ham kia sinh Mau 1 / Mau 2 cho NHA THAU chao gia
+     * nen bat buoc phai co san hang hoa. Con o day la mau de NAP hang hoa vao,
+     * goi thau moi tao chua co dong nao la chuyen binh thuong â van phai tai duoc.
+     *
+     * Cot phai khop hang so COL_* dung khi import (Â§4.2).
+     */
+    /** Bỏ dấu tiếng Việt để so khớp tiêu đề cột không phụ thuộc dấu */
+    private static function boDau(string $s): string
+    {
+        $s = mb_strtolower(trim($s), 'UTF-8');
+        $map = [
+            'a' => 'áàảãạăắằẳẵặâấầẩẫậ',
+            'e' => 'éèẻẽẹêếềểễệ',
+            'i' => 'íìỉĩị',
+            'o' => 'óòỏõọôốồổỗộơớờởỡợ',
+            'u' => 'úùủũụưứừửữự',
+            'y' => 'ýỳỷỹỵ',
+            'd' => 'đ',
+        ];
+        foreach ($map as $khong => $co) {
+            foreach (preg_split('//u', $co, -1, PREG_SPLIT_NO_EMPTY) as $ch) {
+                $s = str_replace($ch, $khong, $s);
+            }
+        }
+        return $s;
+    }
+
+    public static function xuatFileMauDanhMuc(int $goiThauId): string
+    {
+        $gt = BG_GoiThau_DAL::getById($goiThauId);
+        if (!$gt) throw new RuntimeException('Không tìm thấy gói thầu');
+
+        $H = ExcelHelper::S_HEADER;
+        $S = ExcelHelper::S_TEXT_WRAP;
+        $C = ExcelHelper::S_CENTER;
+        $N = ExcelHelper::S_NUMBER;
+
+        $rows = [
+            [['v' => 'DANH MỤC HÀNG HÓA MỜI CHÀO GIÁ', 's' => ExcelHelper::S_TITLE]],
+            [['v' => 'Thư mời số ' . $gt->so_thong_bao . ' — ' . $gt->ten_goi_thau,
+              's' => ExcelHelper::S_SUBTITLE]],
+            [['v' => 'Bỏ trống cột Mã HH thì hệ thống tự sinh (HH001, HH002...). '
+                   . 'Xóa các dòng ví dụ trước khi import.',
+              's' => ExcelHelper::S_SUBTITLE]],
+            [
+                ['v' => 'STT', 's' => $H],
+                ['v' => 'Mã HH', 's' => $H],
+                ['v' => 'Tên hàng hóa mời chào giá', 's' => $H],
+                ['v' => 'Yêu cầu kỹ thuật mời chào giá', 's' => $H],
+                ['v' => 'ĐVT', 's' => $H],
+                ['v' => 'Số lượng', 's' => $H],
+            ],
+        ];
+
+        // Neu goi thau DA co hang hoa -> do san ra de sua; chua co thi cho 3 dong vi du
+        $hangHoa = BG_HangHoa_DAL::getByGoiThau($goiThauId);
+        if (!empty($hangHoa)) {
+            $stt = 0;
+            foreach ($hangHoa as $hh) {
+                $stt++;
+                $rows[] = [
+                    ['v' => $stt, 's' => $C, 't' => 'n'],
+                    ['v' => (string)($hh['ma_hh'] ?? ''), 's' => $C],
+                    ['v' => (string)$hh['ten_hang_hoa'], 's' => $S],
+                    ['v' => (string)($hh['thong_so_ky_thuat'] ?? ''), 's' => $S],
+                    ['v' => (string)($hh['dvt'] ?? ''), 's' => $C],
+                    ['v' => (float)$hh['so_luong'], 's' => $N, 't' => 'n'],
+                ];
+            }
+        } else {
+            $viDu = [
+                [1, 'HH001', 'Ví dụ: Nẹp tạo hình bản sống cổ',
+                    'Vật liệu: Hợp kim Titan; chiều dài ≥ 8mm', 'Cái', 100],
+                [2, '', 'Ví dụ: Vít tạo hình (bỏ trống Mã HH → tự sinh)',
+                    'Tự taro; đường kính ≥ 2,5mm', 'Cái', 300],
+                [3, '', '', '', '', ''],
+            ];
+            foreach ($viDu as $v) {
+                $rows[] = [
+                    ['v' => $v[0], 's' => $C, 't' => 'n'],
+                    ['v' => $v[1], 's' => $C],
+                    ['v' => $v[2], 's' => $S],
+                    ['v' => $v[3], 's' => $S],
+                    ['v' => $v[4], 's' => $C],
+                    ['v' => $v[5] === '' ? '' : (float)$v[5], 's' => $N, 't' => $v[5] === '' ? 's' : 'n'],
+                ];
+            }
+        }
+
+        $path = self::tempDir() . '/DanhMucHangHoa_'
+              . preg_replace('/[^0-9A-Za-z]/', '_', (string)$gt->so_thong_bao)
+              . '_' . date('Ymd_His') . '.xlsx';
+
+        ExcelHelper::write($path, [
+            'DanhMucHangHoa' => [
+                'cols'    => [6, 14, 46, 60, 10, 12],
+                'freeze'  => 'A5',
+                'heights' => [4 => 34],
+                'rows'    => $rows,
+            ],
+        ]);
+        return $path;
+    }
+
     public static function xuatFileMau(int $goiThauId, string $mau = 'mau2'): string
     {
         $gt = BG_GoiThau_DAL::getById($goiThauId);

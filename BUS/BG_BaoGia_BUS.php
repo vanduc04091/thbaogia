@@ -151,8 +151,11 @@ class BG_BaoGia_BUS
         if (!$e->id) return ['success' => false, 'message' => 'Thiếu ID'];
         $cu = BG_BaoGia_DAL::getById((int)$e->id);
         if (!$cu || $cu->da_xoa === 1) return ['success' => false, 'message' => 'Không tìm thấy báo giá'];
-        if ((int)$cu->trang_thai === BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN) {
-            return ['success' => false, 'message' => 'Báo giá đã được xác nhận bản giấy — không thể sửa'];
+        // KHÔNG khóa theo "đã xác nhận" nữa: nhà thầu tự ký là đã thành
+        // "Đã xác nhận", nhưng còn trong thời gian chào giá thì vẫn được sửa.
+        // Chỉ chặn khi đã chốt hoàn thành (xem bên dưới).
+        if ((int)($cu->da_hoan_thanh ?? 0) === 1) {
+            return ['success' => false, 'message' => 'Báo giá đã hoàn thành — không chỉnh sửa được nữa'];
         }
 
         $err = self::validateThongTin($e);
@@ -205,8 +208,8 @@ class BG_BaoGia_BUS
     {
         $bg = BG_BaoGia_DAL::getById($baoGiaId);
         if (!$bg || $bg->da_xoa === 1) return ['success' => false, 'message' => 'Không tìm thấy báo giá'];
-        if ((int)$bg->trang_thai === BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN) {
-            return ['success' => false, 'message' => 'Báo giá đã xác nhận bản giấy — không thể sửa giá'];
+        if ((int)($bg->da_hoan_thanh ?? 0) === 1) {
+            return ['success' => false, 'message' => 'Báo giá đã hoàn thành — không chỉnh sửa được nữa'];
         }
 
         $hh = BG_HangHoa_DAL::getById($hangHoaId);
@@ -267,8 +270,8 @@ class BG_BaoGia_BUS
     {
         $bg = BG_BaoGia_DAL::getById($baoGiaId);
         if (!$bg || $bg->da_xoa === 1) return ['success' => false, 'message' => 'Không tìm thấy báo giá'];
-        if ((int)$bg->trang_thai === BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN) {
-            return ['success' => false, 'message' => 'Báo giá đã được xác nhận bản giấy'];
+        if ((int)($bg->da_hoan_thanh ?? 0) === 1) {
+            return ['success' => false, 'message' => 'Báo giá đã hoàn thành — không nộp lại được'];
         }
         if ((int)$bg->so_dong_chao === 0) {
             return ['success' => false, 'message' => 'Chưa chào giá dòng nào — hãy điền đơn giá hoặc import file trước'];
@@ -317,8 +320,8 @@ class BG_BaoGia_BUS
     {
         $bg = BG_BaoGia_DAL::getById($baoGiaId);
         if (!$bg || $bg->da_xoa === 1) return ['success' => false, 'message' => 'Không tìm thấy báo giá'];
-        if ((int)$bg->trang_thai === BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN) {
-            return ['success' => false, 'message' => 'Báo giá đã xác nhận bản giấy — không thể import'];
+        if ((int)($bg->da_hoan_thanh ?? 0) === 1) {
+            return ['success' => false, 'message' => 'Báo giá đã hoàn thành — không import được nữa'];
         }
 
         $gt = BG_GoiThau_DAL::getById((int)$bg->goi_thau_id);

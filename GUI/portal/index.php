@@ -219,15 +219,18 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
         </button>
     </div>
 
-<?php elseif ($baoGia && (int)$baoGia->trang_thai === BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN): ?>
-    <!-- Đã được xác nhận bản giấy → khóa, không cho sửa -->
+<?php elseif ($baoGia && (int)($baoGia->da_hoan_thanh ?? 0) === 1): ?>
+    <!-- ĐÃ CHỐT HOÀN THÀNH → khóa, không cho sửa.
+         KHÔNG khóa theo trang_thai = "Đã xác nhận": nhà thầu tự ký (upload bản
+         ký) là đã thành "Đã xác nhận", nhưng còn trong thời gian chào giá thì
+         vẫn phải được sửa. Hết hạn thì kiemTraConNhan() ở nhánh trên lo. -->
     <div class="state-card is-success">
         <span class="state-icon"><?= IconHelper::svg('check-circle', 42) ?></span>
-        <h2>Báo giá đã được xác nhận</h2>
+        <h2>Báo giá đã hoàn thành</h2>
         <p>
-            Bên mời chào giá đã xác nhận nhận được bản giấy của
             <strong><?= Helper::h($baoGia->ten_cong_ty) ?></strong>
-            lúc <?= Helper::h(Helper::formatDateTime($baoGia->ngay_xac_nhan)) ?>.<br>
+            đã chốt hoàn thành báo giá
+            lúc <?= Helper::h(Helper::formatDateTime($baoGia->ngay_hoan_thanh ?? $baoGia->ngay_xac_nhan)) ?>.<br>
             Báo giá đã được khóa và đưa vào bảng tổng hợp. Cảm ơn quý công ty.
         </p>
         <p style="font-size:13px;color:var(--gray-500)">

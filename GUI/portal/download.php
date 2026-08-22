@@ -60,8 +60,11 @@ try {
         // → nhà thầu không dò được id báo giá của đối thủ.
         // Không giới hạn gói thầu: trang tra cứu hiện báo giá của MỌI gói,
         // nên chỉ cần đúng MST đã tra cứu thành công trong phiên.
+        // Cho tải khi: báo giá do CHÍNH phiên này tạo (đang làm dở ở các bước)
+        // HOẶC thuộc MST vừa tra cứu thành công.
         $mst = (string)SessionHelper::get('portal_mst_tra_cuu', '');
-        if ($mst === '' || !BG_BaoGia_BUS::baoGiaCuaMst($baoGiaId, $mst)) {
+        $laCuaPhien = in_array($baoGiaId, (array)SessionHelper::get('portal_bao_gia_ids', []), true);
+        if (!$laCuaPhien && ($mst === '' || !BG_BaoGia_BUS::baoGiaCuaMst($baoGiaId, $mst))) {
             loiTaiFile(
                 'Không có quyền tải báo giá này',
                 'Vui lòng tra cứu lại bằng mã số thuế của công ty rồi tải file.',
@@ -160,7 +163,8 @@ try {
         // Xem lại bản ký đã tải lên — cùng quy tắc quyền như loai=bao_gia
         $baoGiaId = (int)Helper::get('id', 0);
         $mst = (string)SessionHelper::get('portal_mst_tra_cuu', '');
-        if ($mst === '' || !BG_BaoGia_BUS::baoGiaCuaMst($baoGiaId, $mst)) {
+        $laCuaPhien = in_array($baoGiaId, (array)SessionHelper::get('portal_bao_gia_ids', []), true);
+        if (!$laCuaPhien && ($mst === '' || !BG_BaoGia_BUS::baoGiaCuaMst($baoGiaId, $mst))) {
             loiTaiFile(
                 'Không có quyền xem bản ký này',
                 'Vui lòng tra cứu lại bằng mã số thuế của công ty rồi mở file.',
@@ -193,10 +197,11 @@ try {
 
     if ($loai === 'word_ban_ky') {
         // File Word BÁO GIÁ để nhà thầu in ra ký + đóng dấu.
-        // Cùng quy tắc quyền như loai=bao_gia: phải tra cứu đúng MST trong phiên.
+        // Cùng quy tắc quyền như loai=bao_gia.
         $baoGiaId = (int)Helper::get('id', 0);
         $mst = (string)SessionHelper::get('portal_mst_tra_cuu', '');
-        if ($mst === '' || !BG_BaoGia_BUS::baoGiaCuaMst($baoGiaId, $mst)) {
+        $laCuaPhien = in_array($baoGiaId, (array)SessionHelper::get('portal_bao_gia_ids', []), true);
+        if (!$laCuaPhien && ($mst === '' || !BG_BaoGia_BUS::baoGiaCuaMst($baoGiaId, $mst))) {
             loiTaiFile(
                 'Không có quyền tải báo giá này',
                 'Vui lòng tra cứu lại bằng mã số thuế của công ty rồi tải file.',
