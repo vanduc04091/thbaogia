@@ -1101,7 +1101,30 @@ class BG_BaoGia_BUS
         $dapUng  = [];
         $tong    = 0.0;
         $stt     = 0;
+        $sttKt = 0;   // STT rieng cho bang dap ung ky thuat
         foreach ($dong as $d) {
+            $coGia = (float)$d['don_gia'] > 0;
+            $coKyThuat = trim((string)$d['thong_so_chao_gia']) !== ''
+                      || trim((string)$d['diem_khong_dat']) !== '';
+
+            // Bang DAP UNG KY THUAT: giu ca hang da khai ky thuat nhung chua
+            // chao gia — de ben moi biet cong ty co dap ung duoc mat hang do khong.
+            if ($coGia || $coKyThuat) {
+                $sttKt++;
+                $dapUng[] = [
+                    'STT'                => (string)$sttKt,
+                    'MA_HH'              => (string)$d['ma_hh'],
+                    'TEN_HANG_HOA'       => (string)$d['ten_hang_hoa'],
+                    'YEU_CAU_KY_THUAT'   => (string)$d['thong_so_ky_thuat'],
+                    'THONG_SO_CHAO_GIA'  => (string)$d['thong_so_chao_gia'],
+                    'DIEM_KHONG_DAT'     => (string)$d['diem_khong_dat'],
+                ];
+            }
+
+            // Bang CHAO GIA: CHI hang thuc su co don gia.
+            // In ca hang khong chao vua thua giay vua de hieu nham la chao gia 0.
+            if (!$coGia) continue;
+
             $stt++;
             $tong += (float)$d['thanh_tien'];
 
@@ -1122,14 +1145,6 @@ class BG_BaoGia_BUS
                 'TAI_LIEU_THAM_CHIEU'  => (string)$d['tai_lieu_tham_chieu'],
             ];
 
-            $dapUng[] = [
-                'STT'                => (string)$stt,
-                'MA_HH'              => (string)$d['ma_hh'],
-                'TEN_HANG_HOA'       => (string)$d['ten_hang_hoa'],
-                'YEU_CAU_KY_THUAT'   => (string)$d['thong_so_ky_thuat'],
-                'THONG_SO_CHAO_GIA'  => (string)$d['thong_so_chao_gia'],
-                'DIEM_KHONG_DAT'     => (string)$d['diem_khong_dat'],
-            ];
         }
 
         $hieuLuc = (int)$bg->hieu_luc_bao_gia > 0 ? (int)$bg->hieu_luc_bao_gia : 180;
