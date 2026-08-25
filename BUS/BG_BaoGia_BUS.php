@@ -1339,6 +1339,8 @@ class BG_BaoGia_BUS
                 // "Ten hang thuong mai" lay tu Mau 2 da khai o Buoc 3
                 'ten_thuong_mai' => $ct['ten_thuong_mai'] ?? '',
                 'trang_catalog'  => $catalog[$id] ?? '',
+                // Noi goi dung de loc: chi in hang da thuc su chao gia
+                'don_gia'        => (float)($ct['don_gia'] ?? 0),
             ];
         }
         return $out;
@@ -1527,6 +1529,10 @@ class BG_BaoGia_BUS
         $rows = [];
         $stt  = 0;
         foreach ($dong as $d) {
+            // CHI in hang hoa nha thau thuc su co chao gia — giong ban ky o Buoc 4.
+            // Hang khong chao thi khong can chi dan trang catalog lam gi.
+            if ((float)($d['don_gia'] ?? 0) <= 0) continue;
+
             $stt++;
             $rows[] = [
                 'STT'            => (string)$stt,
