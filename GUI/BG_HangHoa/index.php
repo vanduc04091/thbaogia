@@ -13,6 +13,13 @@ $canDel  = PhanQuyenHelper::hasQuyen('BG_HangHoa', PhanQuyenHelper::QUYEN_XOA);
 $goiThauCombo = BG_GoiThau_BUS::getCombo();
 $goiThauId = (int)Helper::get('goi_thau_id', 0);
 
+// Chan mo thang bang URL goi thau khong duoc phan quyen (3B.1):
+// an tren giao dien khong phai la bao mat.
+if ($goiThauId > 0) {
+    require_once __DIR__ . '/../../BUS/BG_QuyenGoiThau_BUS.php';
+    BG_QuyenGoiThau_BUS::requireXem($goiThauId);
+}
+
 // Không truyền gói thầu → chọn sẵn gói mới nhất để trang không rỗng vô nghĩa
 if ($goiThauId === 0 && !empty($goiThauCombo)) {
     $goiThauId = (int)$goiThauCombo[0]['id'];

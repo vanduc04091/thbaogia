@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/database.php';
+require_once __DIR__ . '/BG_QuyenGoiThau_DAL.php';
 require_once __DIR__ . '/../PUBLIC/Entities/BG_BaoGia_PUBLIC.php';
 require_once __DIR__ . '/../PUBLIC/Entities/BG_BaoGiaChiTiet_PUBLIC.php';
 
@@ -272,6 +273,15 @@ class BG_BaoGia_DAL
 
         $where = ' WHERE bg.da_xoa = :dx ';
         $params = [':dx' => $daXoa];
+
+        // Loc theo phan quyen goi thau: khong truyen goi_thau_id thi van
+        // KHONG duoc thay hang cua goi minh khong co quyen (3B.1).
+        $ndQuyen = (int)SessionHelper::userId();
+        if ($ndQuyen > 0) {
+            [$sqlQ, $pQ] = BG_QuyenGoiThau_DAL::dieuKienLocTheoCot($ndQuyen, 'bg.goi_thau_id');
+            $where .= $sqlQ;
+            $params += $pQ;
+        }
 
         if ($goiThauId > 0) {
             $where .= ' AND bg.goi_thau_id = :gt ';

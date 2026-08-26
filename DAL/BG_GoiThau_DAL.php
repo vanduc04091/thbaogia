@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/database.php';
+require_once __DIR__ . '/BG_QuyenGoiThau_DAL.php';
 require_once __DIR__ . '/../PUBLIC/Entities/BG_GoiThau_PUBLIC.php';
 
 class BG_GoiThau_DAL
@@ -163,12 +164,21 @@ class BG_GoiThau_DAL
         string $search = '',
         int $daXoa = 0,
         int $trangThai = -1,
-        string $trangThaiBaoGia = ''
+        string $trangThaiBaoGia = '',
+        int $nguoiDungId = 0
     ): array {
         [$page, $pageSize, $offset] = PaginationHelper::normalize($page, $pageSize);
 
         $where = ' WHERE gt.da_xoa = :dx ';
         $params = [':dx' => $daXoa];
+
+        // Lọc theo phân quyền gói thầu. nguoiDungId = 0 nghĩa là gọi nội bộ
+        // (cron, migration...) -> không lọc.
+        if ($nguoiDungId > 0) {
+            [$sqlQuyen, $pQuyen] = BG_QuyenGoiThau_DAL::dieuKienLoc($nguoiDungId, 'gt');
+            $where .= $sqlQuyen;
+            $params += $pQuyen;
+        }
 
         if ($search !== '') {
             // KHÔNG reuse named placeholder (EMULATE_PREPARES = false) → :s1, :s2, :s3
@@ -232,12 +242,21 @@ class BG_GoiThau_DAL
     }
 
     /** Combo gói thầu đang mở / đã đóng — dùng cho bộ lọc và trang tổng hợp */
-    public static function getCombo(): array
+    public static function getCombo(int $nguoiDungId = 0): array
     {
-        $stmt = Database::getConnection()->query(
-            "SELECT id, so_thong_bao, ten_goi_thau, trang_thai
-             FROM bg_goi_thau WHERE da_xoa = 0 ORDER BY id DESC"
+        $where = ' WHERE gt.da_xoa = 0 ';
+        $params = [];
+        if ($nguoiDungId > 0) {
+            [$sqlQuyen, $pQuyen] = BG_QuyenGoiThau_DAL::dieuKienLoc($nguoiDungId, 'gt');
+            $where .= $sqlQuyen;
+            $params += $pQuyen;
+        }
+
+        $stmt = Database::getConnection()->prepare(
+            "SELECT gt.id, gt.so_thong_bao, gt.ten_goi_thau, gt.trang_thai
+             FROM bg_goi_thau gt" . $where . " ORDER BY gt.id DESC"
         );
+        $stmt->execute($params);
         return $stmt->fetchAll();
     }
 

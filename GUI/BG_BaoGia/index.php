@@ -12,6 +12,12 @@ $canDel  = PhanQuyenHelper::hasQuyen('BG_BaoGia', PhanQuyenHelper::QUYEN_XOA);
 $goiThauCombo = BG_GoiThau_BUS::getCombo();
 $goiThauId = (int)Helper::get('goi_thau_id', 0);
 
+// Chan mo thang bang URL goi thau khong duoc phan quyen (3B.1)
+if ($goiThauId > 0) {
+    require_once __DIR__ . '/../../BUS/BG_QuyenGoiThau_BUS.php';
+    BG_QuyenGoiThau_BUS::requireXem($goiThauId);
+}
+
 $pageTitle  = 'Báo giá nhà thầu';
 $activeMenu = 'BG_BaoGia';
 $AJAX = AppConfig::baseUrl('GUI/BG_BaoGia/ajax_handler.php');

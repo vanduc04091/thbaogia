@@ -14,6 +14,12 @@ PhanQuyenHelper::requireQuyenView(BG_HangHoa_BUS::MODULE_KEY);
 
 $goiThauId = (int)Helper::get('goi_thau_id', 0);
 
+// Chan tai file cua goi thau khong duoc phan quyen (3B.1)
+if ($goiThauId > 0) {
+    require_once __DIR__ . '/../../BUS/BG_QuyenGoiThau_BUS.php';
+    BG_QuyenGoiThau_BUS::requireXem($goiThauId);
+}
+
 try {
     if ($goiThauId <= 0) {
         throw new RuntimeException('Thiếu mã gói thầu');

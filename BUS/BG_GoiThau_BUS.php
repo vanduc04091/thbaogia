@@ -246,7 +246,13 @@ class BG_GoiThau_BUS
             $trangThaiBaoGia = '';
         }
 
-        $res = BG_GoiThau_DAL::getPaged($page, $pageSize, $search, $daXoa, $trangThai, $trangThaiBaoGia);
+        // Lọc theo phân quyền gói thầu của CHÍNH người đang đăng nhập.
+        // Lấy từ session ngay tại đây để mọi nơi gọi đều được lọc, không phải
+        // sửa 10 chỗ gọi và không sợ chỗ nào quên truyền (§3B.1).
+        $res = BG_GoiThau_DAL::getPaged(
+            $page, $pageSize, $search, $daXoa, $trangThai, $trangThaiBaoGia,
+            (int)SessionHelper::userId()
+        );
 
         // Bổ sung trạng thái báo giá đã tính sẵn để GUI khỏi lặp lại logic
         foreach ($res['data'] as &$r) {
@@ -264,7 +270,7 @@ class BG_GoiThau_BUS
 
     public static function getCombo(): array
     {
-        return BG_GoiThau_DAL::getCombo();
+        return BG_GoiThau_DAL::getCombo((int)SessionHelper::userId());
     }
 
     /**

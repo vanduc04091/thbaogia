@@ -11,6 +11,13 @@ $canDel = PhanQuyenHelper::hasQuyen('BG_QuanLyFile', PhanQuyenHelper::QUYEN_XOA)
 $goiThauCombo = BG_GoiThau_BUS::getCombo();
 $goiThauId    = (int)Helper::get('goi_thau_id', 0);
 
+// Chan mo thang bang URL goi thau khong duoc phan quyen (3B.1):
+// an tren giao dien khong phai la bao mat.
+if ($goiThauId > 0) {
+    require_once __DIR__ . '/../../BUS/BG_QuyenGoiThau_BUS.php';
+    BG_QuyenGoiThau_BUS::requireXem($goiThauId);
+}
+
 $pageTitle  = 'Quản lý file bản ký';
 $activeMenu = 'BG_QuanLyFile';
 $AJAX = AppConfig::baseUrl('GUI/BG_QuanLyFile/ajax_handler.php');

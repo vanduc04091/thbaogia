@@ -708,6 +708,8 @@ class BG_BaoGia_BUS
 
     /** Dung lượng tối đa cho bản ký (20MB — ảnh chụp/scan thường lớn) */
     const BAN_KY_MAX_SIZE = 20971520;
+    /** Catalog thường là bản scan nhiều trang nên cho dung lượng lớn hơn */
+    const CATALOG_MAX_SIZE = 52428800;   // 50MB
 
     // Đuôi/MIME cho phép khai báo ở BG_File_PUBLIC (dùng chung cho mọi loại file)
 
@@ -1406,9 +1408,9 @@ class BG_BaoGia_BUS
         if (!is_uploaded_file($file['tmp_name']) || (int)$file['size'] <= 0) {
             return ['success' => false, 'message' => 'File không hợp lệ hoặc rỗng'];
         }
-        if ((int)$file['size'] > self::BAN_KY_MAX_SIZE) {
+        if ((int)$file['size'] > self::CATALOG_MAX_SIZE) {
             return ['success' => false,
-                    'message' => 'File tối đa ' . round(self::BAN_KY_MAX_SIZE / 1048576) . 'MB'];
+                    'message' => 'File tối đa ' . round(self::CATALOG_MAX_SIZE / 1048576) . 'MB'];
         }
 
         $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));

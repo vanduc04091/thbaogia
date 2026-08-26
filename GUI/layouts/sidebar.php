@@ -12,6 +12,7 @@ $menuBaoGia = [
     ['BG_BaoGia',  'Báo giá nhà thầu',        'GUI/BG_BaoGia/index.php'],
     ['BG_TongHop', 'Tổng hợp báo giá',        'GUI/BG_TongHop/index.php'],
     ['BG_QuanLyFile', 'Quản lý file bản ký',  'GUI/BG_QuanLyFile/index.php'],
+    ['BG_QuyenGoiThau', 'Phân quyền gói thầu', 'GUI/BG_QuyenGoiThau/index.php'],
 ];
 
 /** Menu hệ thống: [module key, nhãn, đường dẫn] */

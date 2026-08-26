@@ -5,6 +5,18 @@ require_once __DIR__ . '/../../BUS/BG_GoiThau_BUS.php';
 
 Helper::requireAjaxCsrf();
 
+// ============================================================
+// CHAN THEO PHAN QUYEN GOI THAU (3B.1)
+// Dat o DAY, truoc switch, de MOI action co goi_thau_id deu bi kiem tra —
+// vaao tung case thi de bo sot khi them action moi.
+// An nut tren giao dien khong phai la bao mat.
+// ============================================================
+require_once __DIR__ . '/../../BUS/BG_QuyenGoiThau_BUS.php';
+$gtQuyen = Helper::postInt('goi_thau_id', 0);
+if ($gtQuyen > 0) {
+    BG_QuyenGoiThau_BUS::requireXemAjax($gtQuyen);
+}
+
 $action = Helper::post('action', '');
 $u = SessionHelper::userId();
 $MODULE = BG_QuanLyFile_BUS::MODULE_KEY;

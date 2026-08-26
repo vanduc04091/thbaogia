@@ -6,6 +6,8 @@ Helper::requireLogin();
 PhanQuyenHelper::requireQuyenView('BG_GoiThau');
 
 $canAdd  = PhanQuyenHelper::hasQuyen('BG_GoiThau', PhanQuyenHelper::QUYEN_THEM);
+// Quyen sua phan quyen gói thau — dung cho nut "Nhan vien duoc xem" tren tung dong
+$canQuyen = PhanQuyenHelper::hasQuyen('BG_QuyenGoiThau', PhanQuyenHelper::QUYEN_SUA);
 $canEdit = PhanQuyenHelper::hasQuyen('BG_GoiThau', PhanQuyenHelper::QUYEN_SUA);
 $canDel  = PhanQuyenHelper::hasQuyen('BG_GoiThau', PhanQuyenHelper::QUYEN_XOA);
 
@@ -179,6 +181,39 @@ require __DIR__ . '/../layouts/header.php';
 </div>
 
 <!-- ============ Modal QR ============ -->
+<div class="modal" id="quyenModal">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="qTitle" style="max-width:640px">
+        <div class="modal-header">
+            <h3 id="qTitle">Nhân viên được xem gói thầu</h3>
+            <button type="button" class="close" onclick="dongQuyen()" aria-label="Đóng"><?= IconHelper::svg('x', 20) ?></button>
+        </div>
+        <div class="modal-body">
+            <div class="alert alert-info">
+                <?= IconHelper::svg('info', 16) ?>
+                <span id="qGoiThau"></span>
+            </div>
+            <div class="table-wrap">
+                <table class="table" id="qBang">
+                    <thead>
+                        <tr>
+                            <th style="width:60px">Xem</th>
+                            <th>Tài khoản</th>
+                            <th>Nhóm</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="dongQuyen()">Đóng</button>
+            <button type="button" class="btn btn-primary" id="qBtnLuu" onclick="luuQuyenGoi()">
+                <?= IconHelper::svg('save', 16) ?>Lưu
+            </button>
+        </div>
+    </div>
+</div>
+
 <div class="modal" id="qrModal">
     <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="qrTitle" style="max-width:660px">
         <div class="modal-header">
@@ -238,7 +273,8 @@ var URL_HANG_HOA = <?= json_encode(AppConfig::baseUrl('GUI/BG_HangHoa/index.php'
 var URL_BAO_GIA  = <?= json_encode(AppConfig::baseUrl('GUI/BG_BaoGia/index.php')) ?>;
 var URL_TONG_HOP = <?= json_encode(AppConfig::baseUrl('GUI/BG_TongHop/index.php')) ?>;
 var URL_TAI_THU_MOI = <?= json_encode(AppConfig::baseUrl('GUI/BG_GoiThau/download.php')) ?>;
-var CAN = { add: <?= $canAdd ? 'true' : 'false' ?>, edit: <?= $canEdit ? 'true' : 'false' ?>, del: <?= $canDel ? 'true' : 'false' ?> };
+var CAN = { add: <?= $canAdd ? 'true' : 'false' ?>, edit: <?= $canEdit ? 'true' : 'false' ?>, del: <?= $canDel ? 'true' : 'false' ?>, quyen: <?= $canQuyen ? 'true' : 'false' ?> };
+var URL_QUYEN_AJAX = <?= json_encode(AppConfig::baseUrl('GUI/BG_QuyenGoiThau/ajax_handler.php')) ?>;
 var TT = <?= json_encode(BG_GoiThau_PUBLIC::danhSachTrangThai(), JSON_UNESCAPED_UNICODE) ?>;
 var TT_DANG_MO = <?= (int)BG_GoiThau_PUBLIC::TT_DANG_MO ?>;
 var TT_DA_DONG = <?= (int)BG_GoiThau_PUBLIC::TT_DA_DONG ?>;
@@ -360,6 +396,11 @@ function renderTable(rows) {
             if (soXN > 0) {
                 actions += '<a class="btn btn-sm btn-outline-primary" href="' + URL_TONG_HOP + '?goi_thau_id=' + r.id + '" title="Tổng hợp báo giá">' + APP.icon('bar-chart', 15) + '</a>';
             }
+            if (CAN.quyen) actions += '<button type="button" class="btn btn-sm btn-outline-secondary js-quyen"' +
+                ' data-id="' + r.id + '"' +
+                ' data-so="' + APP.escape(r.so_thong_bao || '') + '"' +
+                ' data-ten="' + APP.escape(r.ten_goi_thau || '') + '"' +
+                ' title="Nhân viên được xem gói này">' + APP.icon('users', 15) + '</button>';
             if (CAN.edit) actions += '<button class="btn btn-sm btn-outline-primary" onclick="edit(' + r.id + ')" title="Sửa">' + APP.icon('pencil', 15) + '</button>';
             if (CAN.del)  actions += '<button class="btn btn-sm btn-outline-danger" onclick="del(' + r.id + ')" title="Xóa">' + APP.icon('trash', 15) + '</button>';
         }
@@ -468,6 +509,90 @@ function delForever(id) {
 }
 
 /* ============ QR ============ */
+/* ============ PHÂN QUYỀN NHÂN VIÊN XEM GÓI THẦU ============ */
+var Q_GOI_ID = 0;
+var Q_DS = [];
+
+/** Mở hộp thoại chọn nhân viên được xem gói thầu này */
+function moQuyen(id, soThongBao, tenGoi) {
+    Q_GOI_ID = id;
+
+    $('#qGoiThau').html(soThongBao
+        ? '<strong>' + APP.escape(soThongBao) + '</strong> — ' + APP.escape(tenGoi || '')
+        : 'Gói thầu #' + id);
+
+    $('#qBang tbody').html(APP.emptyRow(3, 'Đang tải...'));
+    $('#quyenModal').addClass('open');
+
+    APP.ajax(URL_QUYEN_AJAX, { action: 'getDanhSach', goi_thau_id: id }, {
+        success: function (res) {
+            if (!res || !res.success) return;
+            Q_DS = (res.data && res.data.nguoi_dung) || [];
+            renderQuyen();
+        },
+        error: function () {
+            $('#qBang tbody').html(APP.emptyRow(3, 'Không tải được danh sách'));
+        }
+    });
+}
+
+function renderQuyen() {
+    var html = '';
+    for (var i = 0; i < Q_DS.length; i++) {
+        var r = Q_DS[i];
+        // Nhóm xem-tất-cả: khóa ô tích cho khỏi hiểu nhầm là bỏ được
+        var dis = r.xem_tat_ca ? ' disabled' : '';
+        var nhom = APP.escape(r.ten_nhom)
+            + (r.xem_tat_ca ? ' <span class="badge badge-success">Xem mọi gói</span>' : '');
+
+        html += '<tr>' +
+            '<td><input type="checkbox" class="q-tick" data-id="' + r.id + '"' +
+                (r.duoc_xem ? ' checked' : '') + dis + '></td>' +
+            '<td><span class="cell-main">' + APP.escape(r.tai_khoan) + '</span></td>' +
+            '<td>' + nhom + '</td>' +
+            '</tr>';
+    }
+    if (!Q_DS.length) html = APP.emptyRow(3, 'Không có người dùng nào');
+    $('#qBang tbody').html(html);
+}
+
+function luuQuyenGoi() {
+    if (!Q_GOI_ID) return;
+
+    var ids = [];
+    $('#qBang .q-tick:checked').each(function () {
+        if (!this.disabled) ids.push(parseInt($(this).data('id'), 10));
+    });
+
+    APP.showLoading('#quyenModal .modal-body');
+    APP.ajax(URL_QUYEN_AJAX, {
+        action: 'luu',
+        goi_thau_id: Q_GOI_ID,
+        nguoi_dung_ids: JSON.stringify(ids)
+    }, {
+        success: function (res) {
+            APP.hideLoading('#quyenModal .modal-body');
+            if (res && res.success) {
+                APP.toast(res.message, 'success');
+                dongQuyen();
+            } else {
+                APP.toast((res && res.message) || 'Lưu thất bại', 'error');
+            }
+        },
+        error: function () {
+            APP.hideLoading('#quyenModal .modal-body');
+            APP.toast('Không lưu được, hãy thử lại', 'error');
+        }
+    });
+}
+
+function dongQuyen() { $('#quyenModal').removeClass('open'); }
+
+$(document).on('click', '.js-quyen', function () {
+    var $b = $(this);
+    moQuyen(parseInt($b.data('id'), 10), String($b.data('so') || ''), String($b.data('ten') || ''));
+});
+
 function showQr(id) {
     qrId = id;
     APP.ajax(AJAX_URL, { action: 'getQr', id: id }, {

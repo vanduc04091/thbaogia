@@ -87,6 +87,7 @@ class IconHelper
         'BG_BaoGia'       => 'file-spreadsheet',
         'BG_TongHop'      => 'bar-chart',
         'BG_QuanLyFile'   => 'folder',
+        'BG_QuyenGoiThau' => 'shield-check',
         // Hệ thống
         'DM_NguoiDung'     => 'user',
         'DM_NhomTaiKhoan'  => 'users',

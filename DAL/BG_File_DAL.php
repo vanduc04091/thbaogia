@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/database.php';
+require_once __DIR__ . '/BG_QuyenGoiThau_DAL.php';
 require_once __DIR__ . '/../PUBLIC/Entities/BG_File_PUBLIC.php';
 
 /**
@@ -72,6 +73,14 @@ class BG_File_DAL
 
         $where = " WHERE f.da_xoa = 0 AND bg.da_xoa = 0 AND gt.da_xoa = 0 ";
         $params = [];
+
+        // Loc theo phan quyen goi thau (3B.1)
+        $ndQuyen = (int)SessionHelper::userId();
+        if ($ndQuyen > 0) {
+            [$sqlQ, $pQ] = BG_QuyenGoiThau_DAL::dieuKienLocTheoCot($ndQuyen, 'bg.goi_thau_id');
+            $where .= $sqlQ;
+            $params += $pQ;
+        }
 
         if ($goiThauId > 0) {
             $where .= ' AND bg.goi_thau_id = :gt ';
