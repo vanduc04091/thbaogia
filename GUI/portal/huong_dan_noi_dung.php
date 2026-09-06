@@ -26,8 +26,8 @@
             thành <strong>01 bản PDF</strong>.
         </li>
         <li>
-            Lập <strong>01 file Excel chỉ dẫn vị trí</strong> tài liệu chứng minh yêu cầu kỹ thuật
-            của hàng hóa chào giá theo mẫu:
+            Lập <strong>01 file Excel chỉ dẫn vị trí tài liệu chứng minh</strong>:
+            Yêu cầu kỹ thuật của hàng hóa chào theo mẫu:
 
             <table class="hd-bang">
                 <thead>
@@ -36,7 +36,8 @@
                         <th style="width:150px">Mã hàng hóa mời chào giá</th>
                         <th>Tên thương mại</th>
                         <th style="width:200px">
-                            Vị trí trang trong tài liệu chứng minh yêu cầu kỹ thuật
+                            Vị trí trang trong tài liệu chứng minh:
+                            Yêu cầu kỹ thuật của hàng hóa chào
                         </th>
                     </tr>
                 </thead>
@@ -61,6 +62,20 @@
         <span>
             <strong>Lưu ý:</strong> Số trang trong file Excel phải chính xác theo file PDF
             tài liệu kỹ thuật được tải lên hệ thống.
+        </span>
+    </div>
+
+    <!-- Quy tắc bảo mật: đây là CĂN CỨ NGHIỆP VỤ của việc bắt làm liên tục
+         hết 5 bước và không lưu dữ liệu khi chưa hoàn thành (§10.2).
+         Dùng tông đỏ vì đây là điều nhà thầu hay vi phạm nhất — làm nửa chừng
+         rồi tắt trình duyệt, tưởng hệ thống có lưu lại. -->
+    <div class="hd-luu-y hd-bao-mat">
+        <?= IconHelper::svg('lock', 17) ?>
+        <span>
+            Để bảo đảm <strong>bảo mật thông tin chào giá giữa các nhà thầu</strong>,
+            Nhà thầu chỉ được thực hiện thao tác chào giá <strong>theo trình tự từ Bước 1
+            đến khi hoàn thành</strong>. Hệ thống <strong>không cho phép lưu dữ liệu</strong>
+            khi Nhà thầu chưa hoàn tất toàn bộ quy trình chào giá.
         </span>
     </div>
 

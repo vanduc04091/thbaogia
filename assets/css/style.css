@@ -1814,6 +1814,15 @@ input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
     border-left-color: var(--primary);
     color: #1e3a5f;
 }
+/* Quy tắc bảo mật — tông đỏ, nặng hơn ô lưu ý vàng */
+.hd-bao-mat {
+    background: #fef2f2;
+    border-color: #fecaca;
+    border-left-color: #dc2626;
+    color: #991b1b;
+}
+.hd-bao-mat .icon { color: #dc2626; }
+
 .hd-lien-he .icon { color: var(--primary); }
 .hd-lien-he a { color: var(--primary); font-weight: 600; text-decoration: none; }
 .hd-lien-he a:hover { text-decoration: underline; }
