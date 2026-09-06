@@ -33,6 +33,18 @@ class AppConfig
     const PORTAL_TAI_KHOAN = 'guest';
     const PORTAL_MAT_KHAU  = '123456';
 
+    /**
+     * Hiện chức năng "Tra cứu báo giá của tôi" ở cổng nhà thầu?
+     *
+     * false = ẩn toàn bộ giao diện tra cứu (nút trên thanh đầu trang, nút ở
+     * màn hình hết hạn, lớp phủ tra cứu, và việc tự mở sau khi nộp xong).
+     *
+     * Phần xử lý phía server VẪN GIỮ: nhà thầu đang làm trong cùng phiên vẫn
+     * tải được file của mình (download.php dùng portal_bao_gia_ids). Bật lại
+     * chỉ cần đổi thành true, không phải sửa code.
+     */
+    const PORTAL_CHO_TRA_CUU = false;
+
     const SESSION_NAME = 'THBG_SESSION1';
     const SESSION_LIFETIME = 7200; // 2 giờ
 

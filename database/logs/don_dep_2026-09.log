@@ -1,0 +1,30 @@
+ 
+======================================== 
+Bat dau: Sun 09/06/2026  9:34:39.83 
+======================================== 
+[1] Sao luu database 
+  bg_bao_gia: 6 dòng
+  bg_bao_gia_chi_tiet: 28 dòng
+  bg_catalog: 5 dòng
+  bg_file: 10 dòng
+  bg_goi_thau: 3 dòng
+  bg_hang_hoa: 11 dòng
+  bg_quyen_goi_thau: 0 dòng
+  dm_dang_nhap_that_bai: 0 dòng
+  dm_danh_sach_form: 11 dòng
+  dm_nguoi_dung: 7 dòng
+  dm_nhat_ky_he_thong: 585 dòng
+  dm_nhom_tai_khoan: 6 dòng
+  dm_phan_quyen: 44 dòng
+
+✓ Đã sao lưu 13 bảng / 716 dòng → backup_th_bao_gia_20260906_093439.sql (169 KB)
+  Lưu ý: 6 file bản ký (1 MB) nằm ở assets/uploads/ban_ky/
+  — file .sql KHÔNG chứa các file này, cần sao lưu thư mục đó riêng.
+
+HOÀN TẤT.
+[2] Don dep 
+Đã xóa 0 bản ghi nhật ký cũ hơn 90 ngày.
+Đã xóa 0 bản ghi đếm đăng nhập sai đã hết hạn.
+Đã xóa 0 file Excel tạm cũ hơn 24 giờ.
+Đã xóa 0 báo giá làm dở quá 24 giờ (0 file trên đĩa).
+Ket thuc: Sun 09/06/2026  9:34:39.93 

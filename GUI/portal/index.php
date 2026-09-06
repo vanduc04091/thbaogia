@@ -148,9 +148,11 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
             <div class="portal-sub"><?= Helper::h($goiThau->ten_goi_thau) ?></div>
         </div>
         <nav class="portal-nav">
+            <?php if (AppConfig::PORTAL_CHO_TRA_CUU): ?>
             <button type="button" class="pnav-item" onclick="moTraCuu()">
                 <?= IconHelper::svg('search', 16) ?><span>Tra cứu báo giá của tôi</span>
             </button>
+            <?php endif; ?>
             <button type="button" class="pnav-item" onclick="moHuongDan()">
                 <?= IconHelper::svg('info', 16) ?><span>Hướng dẫn</span>
             </button>
@@ -223,12 +225,19 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
         <h2>Chưa thể điền báo giá</h2>
         <p>
             <?= Helper::h($conNhan['message']) ?><br>
-            Quý công ty vẫn có thể <strong>tra cứu báo giá đã nộp</strong> và
-            <strong>tải bản có dấu, chữ ký</strong> ở mục bên dưới.
+            <?php if (AppConfig::PORTAL_CHO_TRA_CUU): ?>
+                Quý công ty vẫn có thể <strong>tra cứu báo giá đã nộp</strong> và
+                <strong>tải bản có dấu, chữ ký</strong> ở mục bên dưới.
+            <?php else: ?>
+                Cần xem lại báo giá đã nộp, xin <strong>liên hệ bên mời chào giá</strong>
+                theo thông tin trong Thư mời.
+            <?php endif; ?>
         </p>
+        <?php if (AppConfig::PORTAL_CHO_TRA_CUU): ?>
         <button type="button" class="btn btn-primary" onclick="moTraCuu()">
             <?= IconHelper::svg('search', 16) ?>Tra cứu báo giá đã nộp
         </button>
+        <?php endif; ?>
     </div>
 
 <?php elseif ($baoGia && (int)($baoGia->da_hoan_thanh ?? 0) === 1): ?>
@@ -746,6 +755,7 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
      liệt kê TẤT CẢ báo giá của MST đó (mọi gói thầu), nhóm theo gói.
      ============================================================ -->
 
+<?php if (AppConfig::PORTAL_CHO_TRA_CUU): ?>
 <div class="tracuu-overlay" id="traCuuOverlay" role="dialog" aria-modal="true"
      aria-labelledby="tcTieuDe" hidden>
     <!-- Dùng đúng header như các trang portal khác cho đồng nhất -->
@@ -792,6 +802,7 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
         <div id="lookupResult"></div>
     </div>
 </div>
+<?php endif; ?>
 
 <div class="modal" id="clExcelModal">
     <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="clXlTitle" style="max-width:640px">
@@ -924,6 +935,8 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
 var AJAX_URL = <?= json_encode($AJAX) ?>;
 var URL_DOWNLOAD = <?= json_encode(AppConfig::baseUrl('GUI/portal/download.php')) ?>;
 var PORTAL_TOKEN = <?= json_encode($token) ?>;
+/* Có cho nhà thầu tra cứu báo giá cũ không — xem AppConfig::PORTAL_CHO_TRA_CUU */
+var CHO_TRA_CUU = <?= AppConfig::PORTAL_CHO_TRA_CUU ? 'true' : 'false' ?>;
 var BAO_GIA_ID = <?= (int)$baoGiaId ?>;
 var HIEU_LUC_MIN = <?= (int)$goiThau->hieu_luc_bao_gia ?>;
 var TT_BG_XN = <?= (int)BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN ?>;
@@ -963,6 +976,11 @@ function tuHienHuongDan() {
  * @param {boolean} tuTra   true = tra cứu luôn, không đợi bấm nút
  */
 function moTraCuu(mstGoiY, tuTra) {
+    // Tắt tra cứu (AppConfig::PORTAL_CHO_TRA_CUU = false) -> không mở gì cả.
+    // Chặn ở ĐÂY thay vì xóa từng chỗ gọi: còn chỗ nào gọi sót (nộp xong tự
+    // mở, phím tắt...) cũng vô hiệu theo, không hở.
+    if (!CHO_TRA_CUU) return;
+
     var $ov = $('#traCuuOverlay');
     $ov.prop('hidden', false).addClass('open');
     // Khóa cuộn trang nền để không cuộn 2 lớp cùng lúc
@@ -979,6 +997,8 @@ function dongTraCuu() {
 }
 
 function traCuu() {
+    if (!CHO_TRA_CUU) return false;   // tắt tra cứu -> không gọi server
+
     var mst = ($('#lk_mst').val() || '').trim();
     if (!mst) { APP.toast('Nhập mã số thuế', 'warning'); return false; }
 
