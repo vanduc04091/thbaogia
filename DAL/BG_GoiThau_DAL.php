@@ -12,8 +12,11 @@ class BG_GoiThau_DAL
         return "SELECT gt.*,
                        (SELECT COUNT(*) FROM bg_hang_hoa hh
                          WHERE hh.goi_thau_id = gt.id AND hh.da_xoa = 0) AS so_hang_hoa,
+                       -- Chi dem bao gia DA CHOT hoan thanh: ban nhap dang lam
+                       -- do chua phai bao gia, dem vao se lech so lieu (§10.2)
                        (SELECT COUNT(*) FROM bg_bao_gia bg
-                         WHERE bg.goi_thau_id = gt.id AND bg.da_xoa = 0) AS so_bao_gia,
+                         WHERE bg.goi_thau_id = gt.id AND bg.da_xoa = 0
+                           AND bg.da_hoan_thanh = 1) AS so_bao_gia,
                        (SELECT COUNT(*) FROM bg_bao_gia bg2
                          WHERE bg2.goi_thau_id = gt.id AND bg2.da_xoa = 0
                            AND bg2.trang_thai = 1) AS so_bao_gia_xac_nhan

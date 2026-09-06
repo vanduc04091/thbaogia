@@ -477,28 +477,42 @@ Gói thầu (bg_goi_thau) → sinh token QR
 Hàng hóa (bg_hang_hoa)
    ↓ mở nhận báo giá + phát QR
 Nhà thầu quét QR → login tài khoản chung (guest/123456)
-   → khai thông tin công ty → bg_bao_gia (Chờ xác nhận)
-   → tải file mẫu, điền cột L-AD, import  HOẶC  điền trực tiếp bảng web
-   → nộp online (ngay_nop) → gửi BẢN GIẤY
-   ↓
-Bên mời tích XÁC NHẬN bản giấy → trang_thai = 1
-   ↓
-Xuất Excel tổng hợp — CHỈ gộp báo giá đã xác nhận
+   → B1 khai thông tin công ty → bg_bao_gia (BẢN NHÁP, da_hoan_thanh = 0)
+   → B2/B3 tải file mẫu, điền cột L-AD, import  HOẶC  điền trực tiếp bảng web
+   → nộp online (ngay_nop)
+   → B4 upload bản báo giá đã ký + đóng dấu
+   → B5 upload catalog + bảng chỉ dẫn vị trí tài liệu
+   → bấm HOÀN THÀNH → da_hoan_thanh = 1, trang_thai = 0 (Chờ duyệt)
+   ↓                    (bỏ dở giữa chừng: cron xóa sau 24h, làm lại từ đầu)
+Bên mời DUYỆT (quyền SỬA ở BG_BaoGia) → trang_thai = 1
+   ↓                                     + gửi BẢN GIẤY theo Thư mời
+Xuất Excel tổng hợp — CHỈ gộp báo giá đã duyệt
 ```
 
 ### 10.2. Quy tắc nghiệp vụ không được phá
-- **Chỉ báo giá `trang_thai = 1` (Đã xác nhận bản giấy) vào bảng tổng hợp.** Đây là chốt kiểm soát chính.
+- **Chỉ báo giá `trang_thai = 1` (Đã duyệt) vào bảng tổng hợp.** Đây là chốt kiểm soát chính.
+  Điều kiện đầy đủ là `trang_thai = 1 AND da_hoan_thanh = 1` — phải khớp ĐÚNG với
+  `BG_BaoGia_DAL::getPaged()`, nếu lệch sẽ có báo giá vào tổng hợp mà KHÔNG hiện ở
+  danh sách quản trị → không ai bỏ duyệt được.
+- **Nhà thầu KHÔNG tự duyệt báo giá của mình.** Bấm "Hoàn thành" ở Bước 5 chỉ đặt
+  `da_hoan_thanh = 1`, trạng thái vẫn là `0` (Chờ duyệt). Người duyệt là quản trị/nhân
+  viên có quyền SỬA ở module `BG_BaoGia` (kết hợp phân quyền gói thầu: chỉ duyệt được
+  gói mình thấy). Xem `BG_BaoGia_DAL::updateHoanThanh()` và `BG_BaoGia_BUS::xacNhan()`.
+- **Chưa `da_hoan_thanh = 1` thì coi như CHƯA CÓ báo giá:** ẩn khỏi danh sách quản trị,
+  thống kê, quản lý file, số đếm ở gói thầu, và tra cứu theo MST cũng không thấy.
+  Bản ghi vẫn tồn tại lúc đang làm vì Bước 4-5 cần chỗ chứa file upload — không giữ
+  file trong trình duyệt được. Quá 24h không hoàn thành thì `cron_cleanup.php` xóa hẳn
+  (`BG_BaoGia_BUS::donBaoGiaBoDo()`), nên nhà thầu tắt trình duyệt giữa chừng = làm lại
+  từ đầu. Cổng có banner đỏ + cảnh báo `beforeunload` báo trước điều này.
 - **Ngoài khoảng `thoi_gian_mo_bao_gia` → `thoi_gian_dong_bao_gia`: nhà thầu CHỈ tra cứu, không điền được.**
   Trạng thái tính bởi `BG_GoiThau_PUBLIC::tinhTrangThaiBaoGia()` — **nguồn duy nhất**.
   Điều kiện này lặp ở `BG_GoiThau_DAL::getPaged()` (mệnh đề WHERE để lọc) → **sửa 1 bên phải sửa cả 2**.
 - `han_cuoi` chỉ để hiển thị/in. Khóa cổng chào giá căn theo `thoi_gian_dong_bao_gia`.
 - Tra cứu theo MST so sánh **chính xác** (`=`, không LIKE) và giới hạn trong 1 gói thầu
   → nhà thầu không xem được báo giá của nhau.
-- **Nhà thầu upload bản ký (PDF/ảnh có dấu + chữ ký) → TỰ chuyển sang "Đã xác nhận".**
-  Đây là đường xác nhận thứ 2 bên cạnh việc bên mời tích tay khi nhận bản giấy.
-  `nguoi_xac_nhan = NULL` để phân biệt: NULL = nhà thầu tự ký, có giá trị = nhân viên tích.
-  Điều kiện: báo giá phải ĐÃ NỘP (`ngay_nop`) và có ≥ 1 dòng giá — chặn lách bằng cách
-  upload file để thành "đã xác nhận" mà chưa hề chào giá.
+- **Upload bản ký (Bước 4) KHÔNG còn tự xác nhận.** Trước đây upload là thành "Đã xác
+  nhận" ngay; giờ phải đi hết Bước 5 rồi bấm Hoàn thành, và vẫn phải chờ bên mời duyệt.
+  `nguoi_xac_nhan` giờ LUÔN là người duyệt (NULL = chưa ai duyệt).
 - **Tên file bản ký: `<mst>_<slug-gói-thầu>.<đuôi>`** — sinh bởi
   `BG_BaoGia_BUS::tenFileBanKy()`. Nhìn tên biết ngay của ai, gói nào.
 - **File lưu ở bảng riêng `bg_file`**; `bg_bao_gia` chỉ giữ `file_ban_ky_id`.
@@ -574,6 +588,8 @@ script giải mã ngược độc lập, kiểm format info có trong bảng chu
 | `database/migrate_bao_gia.php` | Tạo 4 bảng + form + nhóm/tài khoản nhà thầu |
 | `database/migrate_chong_brute_force.php` | Bảng đếm đăng nhập sai theo IP |
 | `database/sao_luu.php` | Sao lưu DB ra .sql (chạy cron hằng ngày) |
+| `database/migrate_bao_gia_cho_duyet.php` | Chuẩn hóa báo giá cũ cho quy trình duyệt |
+| `cron_cleanup.php` | Dọn nhật ký, bộ đếm login, file tạm, **báo giá bỏ dở > 24h** |
 | `database/migrate_bang_file.php` | Tách file ra bảng `bg_file`, bg_bao_gia chỉ giữ `file_ban_ky_id` |
 | `database/seed_bao_gia.php` | Dữ liệu test (`--reset` để làm sạch) |
 | `GUI/BG_GoiThau/` | CRUD gói thầu + modal QR |

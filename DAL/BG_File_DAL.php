@@ -71,7 +71,10 @@ class BG_File_DAL
     ): array {
         [$page, $pageSize, $offset] = PaginationHelper::normalize($page, $pageSize);
 
-        $where = " WHERE f.da_xoa = 0 AND bg.da_xoa = 0 AND gt.da_xoa = 0 ";
+        // Chi hien file cua bao gia DA CHOT hoan thanh — file cua ban nhap
+        // dang lam do khong phai tai lieu chinh thuc (§10.2).
+        $where = " WHERE f.da_xoa = 0 AND bg.da_xoa = 0 AND gt.da_xoa = 0
+                    AND bg.da_hoan_thanh = 1 ";
         $params = [];
 
         // Loc theo phan quyen goi thau (3B.1)
@@ -151,7 +154,10 @@ class BG_File_DAL
     /** Thống kê file bản ký */
     public static function thongKeBanKy(int $goiThauId = 0): array
     {
-        $where = " WHERE f.da_xoa = 0 AND bg.da_xoa = 0 AND gt.da_xoa = 0 ";
+        // Chi hien file cua bao gia DA CHOT hoan thanh — file cua ban nhap
+        // dang lam do khong phai tai lieu chinh thuc (§10.2).
+        $where = " WHERE f.da_xoa = 0 AND bg.da_xoa = 0 AND gt.da_xoa = 0
+                    AND bg.da_hoan_thanh = 1 ";
         $params = [];
         if ($goiThauId > 0) {
             $where .= ' AND bg.goi_thau_id = :gt ';

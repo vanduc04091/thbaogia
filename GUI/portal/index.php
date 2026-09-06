@@ -73,16 +73,15 @@ SessionHelper::set('portal_token', $token);
 $conNhan = BG_GoiThau_BUS::kiemTraConNhan($goiThau);
 
 // ============ 4. Báo giá đang làm trong phiên (nếu có) ============
-// ?sua=<id> — từ trang tra cứu bấm "Sửa lại báo giá" để làm tiếp báo giá cũ.
-// Chỉ nhận khi báo giá thuộc đúng gói thầu này, CHƯA chốt hoàn thành, và
-// nằm trong danh sách báo giá của phiên (chống sửa báo giá của công ty khác).
+// ?sua=<id> — quay lại báo giá ĐANG LÀM DỞ TRONG CHÍNH PHIÊN NÀY.
+//
+// CHỈ nhận khi id nằm trong danh sách báo giá của phiên. KHÔNG còn cho quay
+// lại bằng MST đã tra cứu: tra cứu chỉ trả báo giá đã hoàn thành, và bản nháp
+// làm dở thì đóng trình duyệt là mất — nhà thầu phải làm lại từ đầu (§10.2).
 $suaId = (int)Helper::get('sua', 0);
 if ($suaId > 0) {
     $idsPhien = SessionHelper::get('portal_bao_gia_ids', []);
-    $mstTraCuu = (string)SessionHelper::get('portal_mst_tra_cuu', '');
-
-    $duocSua = (is_array($idsPhien) && in_array($suaId, $idsPhien, true))
-            || ($mstTraCuu !== '' && BG_BaoGia_BUS::baoGiaCuaMst($suaId, $mstTraCuu));
+    $duocSua = is_array($idsPhien) && in_array($suaId, $idsPhien, true);
 
     if ($duocSua) {
         $bgSua = BG_BaoGia_BUS::getById($suaId);
@@ -167,6 +166,19 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
 
 <main class="portal-main" id="main">
 
+<!-- Hiện khi đang làm dở: nhắc KHÔNG được tắt trình duyệt giữa chừng.
+     Báo giá chưa hoàn thành không tra cứu lại được (§10.2). -->
+<div class="banner-lam-do" id="bannerLamDo" hidden>
+    <?= IconHelper::svg('alert-triangle', 20) ?>
+    <span>
+        <strong>Đang khai báo giá — chưa hoàn thành.</strong>
+        Vui lòng làm <strong>liên tục hết các bước</strong> rồi bấm
+        <strong>“Hoàn thành báo giá”</strong> ở Bước 5.
+        Nếu <strong>tắt trình duyệt giữa chừng</strong>, toàn bộ nội dung đã nhập
+        sẽ mất và lần sau quý công ty <strong>phải khai lại từ đầu</strong>.
+    </span>
+</div>
+
 <!-- Hiện khi nhà thầu đã chốt xong 5 bước — toàn bộ chuyển sang chỉ xem -->
 <div class="banner-khoa" id="bannerKhoa" hidden>
     <?= IconHelper::svg('lock', 20) ?>
@@ -231,7 +243,7 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
             <strong><?= Helper::h($baoGia->ten_cong_ty) ?></strong>
             đã chốt hoàn thành báo giá
             lúc <?= Helper::h(Helper::formatDateTime($baoGia->ngay_hoan_thanh ?? $baoGia->ngay_xac_nhan)) ?>.<br>
-            Báo giá đã được khóa và đưa vào bảng tổng hợp. Cảm ơn quý công ty.
+            Báo giá đã được khóa và <strong>chuyển bên mời duyệt</strong>. Cảm ơn quý công ty.
         </p>
         <p style="font-size:13px;color:var(--gray-500)">
             Tổng giá trị: <strong><?= number_format((float)$baoGia->tong_tien, 0, ',', '.') ?> VND</strong>
@@ -525,8 +537,8 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
                         <span class="cach-hoac">rồi</span>
                         <span class="cach"><span class="cach-no">2</span>
                             <strong>Upload file đã ký</strong> (bản scan PDF hoặc ảnh).</span>
-                        <span class="cach-chi-tiet">Upload xong báo giá tự chuyển sang trạng thái
-                            <strong>Đã xác nhận</strong>.</span>
+                        <span class="cach-chi-tiet">Upload xong vẫn còn Bước 5 — chốt
+                            <strong>Hoàn thành</strong> mới là nộp xong.</span>
                     </span>
                 </div>
 
@@ -847,8 +859,8 @@ var CSRF_TOKEN = "<?= Helper::h(SessionHelper::csrfToken()) ?>";
                 <?= IconHelper::svg('info', 16) ?>
                 <span>
                     Tải lên bản báo giá đã <strong>ký tên và đóng dấu</strong> (bản scan hoặc ảnh chụp rõ nét).
-                    Sau khi tải lên, báo giá sẽ tự chuyển sang trạng thái
-                    <strong>ĐÃ XÁC NHẬN</strong> và không sửa được nữa.
+                    Tải xong vẫn <strong>chưa nộp xong</strong> — còn Bước 5 rồi bấm
+                    <strong>Hoàn thành</strong>.
                 </span>
             </div>
 
@@ -1052,12 +1064,8 @@ function theBaoGia(b, g) {
                     ? '<span class="badge badge-neutral">' + APP.icon('lock', 13) +
                       ' Đã hoàn thành</span>'
                     : '') +
-                // Chưa chốt hoàn thành + gói còn nhận -> cho quay lại sửa tiếp
-                (Number(b.da_hoan_thanh) !== 1 && g && g.trang_thai_bao_gia === 'dang_mo'
-                    ? '<a class="btn btn-sm btn-primary" href="' + APP.escape(g.url_portal) +
-                      '&sua=' + b.id + '">' +
-                      APP.icon('pencil', 15) + '<span class="btn-label">Sửa lại báo giá</span></a>'
-                    : '') +
+                // Tra cuu CHI tra bao gia da hoan thanh -> khong con nut sua lai.
+                // Bao gia da nop la chot, muon sua phai lien he ben moi (§10.2).
                 '<span class="quote-total">' + money(b.tong_tien) + ' đ</span>' +
                 // Bản Word BÁO GIÁ để in ra ký + đóng dấu — chỉ có nghĩa khi đã nộp
                 (b.ngay_nop
@@ -1213,6 +1221,7 @@ function apDungKhoa(khoa) {
     CHUA_LUU_CL = false;
 
     $('#bannerKhoa').prop('hidden', false);
+    $('#bannerLamDo').prop('hidden', true);   // hết "làm dở" -> bỏ cảnh báo
 
     // Khóa toàn bộ ô nhập trong các bảng + form thông tin
     $('#buocGia input, #buocGia textarea, #buocGia select').prop('disabled', true);
@@ -1433,7 +1442,7 @@ function uploadBanKy() {
     var f = document.getElementById('bkFile').files[0];
     if (!f || !bkBaoGiaId) { APP.toast('Chưa chọn file', 'warning'); return; }
 
-    APP.confirm('Tải lên bản ký này? Sau khi tải lên, báo giá chuyển sang ĐÃ XÁC NHẬN và KHÔNG sửa được nữa.',
+    APP.confirm('Tải lên bản ký này?',
     function () {
         var fd = new FormData();
         fd.append('action', 'uploadBanKy');
@@ -1523,6 +1532,8 @@ function luuThongTin() {
                 BAO_GIA_ID = parseInt(res.data.id, 10);
                 $('#bao_gia_id').val(BAO_GIA_ID);
                 $('#buocGia').prop('hidden', false);
+                // Từ giờ đã có bản nháp -> nhắc ngay: tắt trình duyệt là mất
+                if (!DA_HOAN_THANH) $('#bannerLamDo').prop('hidden', false);
                 $('#step1').removeClass('is-active').addClass('is-done');
                 $('#step2').addClass('is-active');
                 loadBang();
@@ -2158,9 +2169,49 @@ $(document).on('keydown', '.f-gia', function (e) {
     }
 });
 
+/* ============== CẢNH BÁO KHI ĐÓNG TRÌNH DUYỆT GIỮA CHỪNG ==============
+   Báo giá làm dở KHÔNG tra cứu lại được (§10.2): đóng tab là mất hết, lần sau
+   phải khai lại từ đầu. Cảnh báo ngay lúc người dùng định rời trang.
+
+   Chỉ cảnh báo khi ĐANG làm dở: đã tạo báo giá nhưng chưa chốt Hoàn thành.
+   Đã hoàn thành rồi thì dữ liệu đã lưu chắc chắn, không cần chặn.
+
+   Lưu ý: trình duyệt hiện đại KHÔNG cho tự đặt nội dung thông báo, chỉ hiện
+   câu mặc định của chính nó. Vì vậy phần dặn dò chi tiết đặt ở banner trên
+   trang (#bannerLamDo), không trông chờ vào hộp thoại này. */
+var BO_QUA_CANH_BAO = false;   // bật khi rời trang có chủ đích (đăng xuất...)
+
+window.addEventListener('beforeunload', function (e) {
+    if (BO_QUA_CANH_BAO) return;
+    if (!BAO_GIA_ID || DA_HOAN_THANH) return;
+
+    e.preventDefault();
+    e.returnValue = '';       // bắt buộc cho Chrome/Edge mới hiện hộp thoại
+    return '';
+});
+
+/* Bấm Thoát / mở trang hướng dẫn là rời trang CÓ CHỦ ĐÍCH — vẫn mất dữ liệu
+   nên vẫn phải hỏi, nhưng hỏi bằng câu tiếng Việt rõ nghĩa của mình thay vì
+   câu mặc định cụt lủn của trình duyệt. */
+$(document).on('click', '.pnav-out', function (e) {
+    if (!BAO_GIA_ID || DA_HOAN_THANH) return;
+    if (!window.confirm(
+        'Báo giá của bạn CHƯA hoàn thành.\n\n'
+        + 'Thoát bây giờ sẽ mất toàn bộ nội dung đã nhập, lần sau phải khai '
+        + 'lại từ đầu.\n\nBạn vẫn muốn thoát?'
+    )) {
+        e.preventDefault();
+        return;
+    }
+    BO_QUA_CANH_BAO = true;   // đã đồng ý -> không hỏi lại lần 2
+});
+
 $(document).ready(function () {
     if (BAO_GIA_ID) loadBang();
     tuHienHuongDan();
+
+    // Đang làm dở -> hiện banner nhắc không được tắt trình duyệt
+    if (BAO_GIA_ID && !DA_HOAN_THANH) $('#bannerLamDo').prop('hidden', false);
 });
 </script>
 </body>

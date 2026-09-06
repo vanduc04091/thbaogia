@@ -43,3 +43,21 @@ try {
 } catch (Throwable $ex) {
     echo "Lỗi dọn file tạm: " . $ex->getMessage() . "\n";
 }
+
+try {
+    // Dọn báo giá nhà thầu làm dở rồi bỏ (§10.2).
+    // Chưa bấm "Hoàn thành" thì chưa tính là đã nộp: bên mời không thấy, nhà
+    // thầu cũng không tra cứu lại được. Bản ghi chỉ tồn tại để chứa file upload
+    // ở Bước 4-5 — quá 24h không hoàn thành thì xóa hẳn cho DB khỏi tích rác.
+    //
+    // Xem trước sẽ xóa gì mà chưa xóa thật:
+    //   php -r "require 'bootstrap.php'; require 'BUS/BG_BaoGia_BUS.php';
+    //           print_r(BG_BaoGia_BUS::donBaoGiaBoDo(24, true));"
+    require_once __DIR__ . '/BUS/BG_BaoGia_BUS.php';
+    $gioBoDo = 24;
+    $kq = BG_BaoGia_BUS::donBaoGiaBoDo($gioBoDo);
+    echo "Đã xóa {$kq['so_xoa']} báo giá làm dở quá {$gioBoDo} giờ "
+       . "({$kq['so_file_xoa']} file trên đĩa).\n";
+} catch (Throwable $ex) {
+    echo "Lỗi dọn báo giá làm dở: " . $ex->getMessage() . "\n";
+}

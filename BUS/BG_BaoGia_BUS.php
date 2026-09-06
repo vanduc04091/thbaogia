@@ -468,6 +468,14 @@ class BG_BaoGia_BUS
         if ((int)$bg->so_dong_chao === 0) {
             return ['success' => false, 'message' => 'Báo giá chưa có dòng nào có đơn giá — không thể xác nhận'];
         }
+        // Chua chot 5 buoc thi con dang lam do — duyet bay gio la duyet ban nhap,
+        // ma nha thau van sua tiep duoc sau do (§10.2).
+        if ((int)($bg->da_hoan_thanh ?? 0) !== 1) {
+            return [
+                'success' => false,
+                'message' => 'Nhà thầu chưa hoàn thành nộp báo giá — chưa thể duyệt',
+            ];
+        }
 
         BG_BaoGia_DAL::updateXacNhan($id, BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN, null, $u);
         DM_NhatKyHeThong_DAL::log(
@@ -1592,14 +1600,14 @@ class BG_BaoGia_BUS
 
         DM_NhatKyHeThong_DAL::log(
             $u, self::MODULE_LOG,
-            "Nhà thầu hoàn thành 5 bước → báo giá chuyển ĐÃ XÁC NHẬN: {$bg->ten_cong_ty} (MST {$bg->ma_so_thue})",
+            "Nhà thầu hoàn thành 5 bước → báo giá CHỜ DUYỆT: {$bg->ten_cong_ty} (MST {$bg->ma_so_thue})",
             'bg_bao_gia', $baoGiaId
         );
 
         return [
             'success' => true,
-            'message' => 'Đã hoàn thành báo giá. Báo giá chuyển sang trạng thái ĐÃ XÁC NHẬN. '
-                       . 'Từ giờ bạn chỉ còn xem lại, không chỉnh sửa được nữa.',
+            'message' => 'Đã nộp báo giá thành công. Báo giá đang CHỜ BÊN MỜI DUYỆT. '
+                       . 'Từ giờ bạn không chỉnh sửa được nữa.',
             'data'    => ['da_hoan_thanh' => 1],
         ];
     }
@@ -1798,6 +1806,91 @@ class BG_BaoGia_BUS
         $zip->close();
 
         return $path;
+    }
+
+    /**
+     * Dọn báo giá làm dở bị bỏ quá lâu.
+     *
+     * Nhà thầu chưa chốt "Hoàn thành" thì báo giá chưa tính là đã nộp: bên mời
+     * không thấy, nhà thầu cũng không tra cứu lại được (§10.2). Bản ghi vẫn
+     * phải tồn tại lúc đang làm vì Bước 4-5 cần chỗ chứa file đã upload —
+     * không giữ file trong trình duyệt được.
+     *
+     * Quá $soGio mà vẫn chưa hoàn thành ⇒ coi như bỏ dở, xóa HẲN cả bản ghi,
+     * chi tiết dòng giá và file trên đĩa, để DB không tích rác.
+     *
+     * Chỉ tính theo `ngay_cap_nhat` — nhà thầu còn thao tác thì cột này còn
+     * mới, nên người làm chậm trong nhiều giờ vẫn không bị xóa oan.
+     *
+     * @param int  $soGio  Bỏ dở quá bao nhiêu giờ thì xóa
+     * @param bool $thu    true = chỉ liệt kê, không xóa (xem trước cho an toàn)
+     * @return array{so_xoa:int, so_file_xoa:int, danh_sach:array}
+     */
+    public static function donBaoGiaBoDo(int $soGio = 24, bool $thu = false): array
+    {
+        $soGio = max(1, $soGio);
+
+        $stmt = Database::getConnection()->prepare(
+            "SELECT id, ten_cong_ty, ma_so_thue, goi_thau_id, ngay_tao, ngay_cap_nhat
+             FROM bg_bao_gia
+             WHERE da_xoa = 0
+               AND da_hoan_thanh = 0
+               AND ngay_cap_nhat < DATE_SUB(NOW(), INTERVAL :gio HOUR)
+             ORDER BY id"
+        );
+        $stmt->execute([':gio' => $soGio]);
+        $rows = $stmt->fetchAll();
+
+        $soXoa = 0;
+        $soFile = 0;
+        $ds = [];
+
+        foreach ($rows as $r) {
+            $id = (int)$r['id'];
+            $ds[] = [
+                'id'            => $id,
+                'ten_cong_ty'   => $r['ten_cong_ty'],
+                'ma_so_thue'    => $r['ma_so_thue'],
+                'ngay_cap_nhat' => $r['ngay_cap_nhat'],
+            ];
+            if ($thu) continue;
+
+            // Lấy file TRƯỚC khi xóa bản ghi — xóa rồi thì không truy ngược được
+            $files = BG_File_DAL::getAllByBaoGia($id);
+
+            try {
+                Database::beginTransaction();
+                $s = Database::getConnection()->prepare(
+                    "DELETE FROM bg_bao_gia_chi_tiet WHERE bao_gia_id = :id"
+                );
+                $s->execute([':id' => $id]);
+
+                foreach ($files as $f) {
+                    $s = Database::getConnection()->prepare("DELETE FROM bg_file WHERE id = :id");
+                    $s->execute([':id' => (int)$f['id']]);
+                }
+
+                $s = Database::getConnection()->prepare("DELETE FROM bg_bao_gia WHERE id = :id");
+                $s->execute([':id' => $id]);
+                Database::commit();
+            } catch (Throwable $ex) {
+                Database::rollBack();
+                continue;   // bỏ qua bản ghi lỗi, vẫn dọn tiếp các bản ghi khác
+            }
+
+            // Xóa file trên đĩa SAU khi DB đã commit — commit hỏng thì file còn
+            // nguyên, chứ không mất file mà bản ghi vẫn còn.
+            foreach ($files as $f) {
+                $p = rtrim(AppConfig::UPLOAD_PATH, '/\\') . DIRECTORY_SEPARATOR
+                   . trim((string)$f['duong_dan'], '/\\') . DIRECTORY_SEPARATOR
+                   . (string)$f['ten_file'];
+                if (is_file($p) && @unlink($p)) $soFile++;
+            }
+
+            $soXoa++;
+        }
+
+        return ['so_xoa' => $soXoa, 'so_file_xoa' => $soFile, 'danh_sach' => $ds];
     }
 
 }

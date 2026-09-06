@@ -154,19 +154,22 @@ class BG_BaoGia_DAL
     /** Đánh dấu nhà thầu đã hoàn thành toàn bộ 5 bước → khóa sửa */
     public static function updateHoanThanh(int $id): int
     {
-        // Chot xong 5 buoc MOI chuyen sang "Da xac nhan".
-        // nguoi_xac_nhan = NULL de phan biet nha thau tu ky (10.2).
+        // Chot xong 5 buoc = nop XONG, CHUA duoc duyet.
+        // Nha thau KHONG tu duyet bao gia cua chinh minh: trang thai giu o
+        // "Cho xac nhan", nguoi duyet la quan tri/nhan vien co quyen SUA o
+        // module BG_BaoGia (xem BG_BaoGia_BUS::xacNhan).
+        // ngay_xac_nhan / nguoi_xac_nhan de NULL — chi nguoi duyet moi dien.
         $sql = "UPDATE bg_bao_gia SET
                     da_hoan_thanh = 1,
                     ngay_hoan_thanh = NOW(),
                     trang_thai = :tt,
-                    ngay_xac_nhan = NOW(),
+                    ngay_xac_nhan = NULL,
                     nguoi_xac_nhan = NULL,
                     ly_do_tu_choi = NULL,
                     ngay_cap_nhat = NOW()
                 WHERE id = :id AND da_xoa = 0";
         $stmt = Database::getConnection()->prepare($sql);
-        $stmt->execute([':tt' => BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN, ':id' => $id]);
+        $stmt->execute([':tt' => BG_BaoGia_PUBLIC::TT_CHO_XAC_NHAN, ':id' => $id]);
         return $stmt->rowCount();
     }
 
@@ -271,7 +274,11 @@ class BG_BaoGia_DAL
     ): array {
         [$page, $pageSize, $offset] = PaginationHelper::normalize($page, $pageSize);
 
-        $where = ' WHERE bg.da_xoa = :dx ';
+        // Bao gia CHUA chot hoan thanh = nha thau con dang lam do, chua nop.
+        // Ben moi KHONG duoc thay (§10.2): thay ban nhap nua chung se hieu nham
+        // la da co bao gia. Ban ghi van ton tai vi phai chua file upload o
+        // Buoc 4-5, va se bi cron_cleanup.php don sau 24h neu bo do.
+        $where = ' WHERE bg.da_xoa = :dx AND bg.da_hoan_thanh = 1 ';
         $params = [':dx' => $daXoa];
 
         // Loc theo phan quyen goi thau: khong truyen goi_thau_id thi van
@@ -327,8 +334,12 @@ class BG_BaoGia_DAL
     public static function getDaXacNhanByGoiThau(int $goiThauId): array
     {
         $stmt = Database::getConnection()->prepare(
+            // da_hoan_thanh = 1 di kem trang_thai = 1: phai khop dung dieu kien
+            // cua getPaged(), neu khong se co ban ghi VAO tong hop ma KHONG hien
+            // o danh sach quan tri -> khong ai bo duyet duoc.
             "SELECT bg.* FROM bg_bao_gia bg
              WHERE bg.goi_thau_id = :gt AND bg.da_xoa = 0 AND bg.trang_thai = 1
+               AND bg.da_hoan_thanh = 1
              ORDER BY bg.ten_cong_ty, bg.id"
         );
         $stmt->execute([':gt' => $goiThauId]);
@@ -373,6 +384,9 @@ class BG_BaoGia_DAL
      * XÁC (=, không LIKE) nên không dò được của công ty khác.
      *
      * Kèm thông tin gói thầu để nhóm kết quả theo từng gói ở giao diện.
+     *
+     * CHỈ trả báo giá ĐÃ CHỐT HOÀN THÀNH. Bản nháp đang làm dở không tra
+     * cứu lại được — nhà thầu bỏ dở thì phải làm lại từ đầu (§10.2).
      */
     public static function getAllByMst(string $mst): array
     {
@@ -393,6 +407,7 @@ class BG_BaoGia_DAL
              INNER JOIN bg_goi_thau gt ON gt.id = bg.goi_thau_id
              LEFT JOIN bg_file f ON f.id = bg.file_ban_ky_id AND f.da_xoa = 0
              WHERE bg.ma_so_thue = :mst AND bg.da_xoa = 0 AND gt.da_xoa = 0
+               AND bg.da_hoan_thanh = 1
              ORDER BY bg.ngay_nop DESC, bg.id DESC"
         );
         $stmt->execute([':mst' => $mst]);
@@ -436,7 +451,7 @@ class BG_BaoGia_DAL
                     SUM(CASE WHEN trang_thai = 0 THEN 1 ELSE 0 END) AS cho_xac_nhan,
                     SUM(CASE WHEN trang_thai = 1 THEN 1 ELSE 0 END) AS da_xac_nhan,
                     SUM(CASE WHEN trang_thai = 2 THEN 1 ELSE 0 END) AS tu_choi
-                FROM bg_bao_gia WHERE da_xoa = 0";
+                FROM bg_bao_gia WHERE da_xoa = 0 AND da_hoan_thanh = 1";
         $row = Database::getConnection()->query($sql)->fetch();
         return [
             'tong'         => (int)($row['tong'] ?? 0),

@@ -1806,6 +1806,18 @@ input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
 }
 .hd-luu-y .icon { flex: none; color: var(--warning); margin-top: 1px; }
 
+/* Dòng liên hệ hỗ trợ — cùng khối với .hd-luu-y nhưng tông xanh (thông tin,
+   không phải cảnh báo) */
+.hd-lien-he {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+    border-left-color: var(--primary);
+    color: #1e3a5f;
+}
+.hd-lien-he .icon { color: var(--primary); }
+.hd-lien-he a { color: var(--primary); font-weight: 600; text-decoration: none; }
+.hd-lien-he a:hover { text-decoration: underline; }
+
 /* Trang hướng dẫn riêng: giới hạn bề ngang cho dễ đọc */
 .hd-trang { max-width: 880px; margin: 0 auto; }
 
@@ -2090,6 +2102,24 @@ input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
     line-height: 1.55;
 }
 .banner-khoa > .icon { flex: none; margin-top: 1px; color: #b45309; }
+
+/* Banner "đang làm dở" — tông đỏ để cảnh báo mất dữ liệu nếu tắt trình duyệt.
+   Cùng bố cục với .banner-khoa, chỉ khác màu. */
+.banner-lam-do {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    border: 2px solid #ef4444;
+    border-left-width: 6px;
+    border-radius: var(--radius);
+    background: #fef2f2;
+    color: #991b1b;
+    font-size: 14.5px;
+    line-height: 1.55;
+}
+.banner-lam-do > .icon { flex: none; margin-top: 1px; color: #dc2626; }
 
 /* Bảng bị khóa — nền xám để nhận biết ngay là không sửa được */
 .table.is-locked tbody td { background: var(--gray-50, #f8fafc); }
