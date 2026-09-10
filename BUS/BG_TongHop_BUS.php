@@ -37,6 +37,7 @@ class BG_TongHop_BUS
 
         $hangHoa = BG_HangHoa_DAL::getByGoiThau($goiThauId);
         $baoGia  = BG_BaoGia_DAL::getDaXacNhanByGoiThau($goiThauId);
+        $nhomGt  = BG_Nhom_PUBLIC::chuanHoa($gt->nhom ?? null);
 
         // Nạp chi tiết từng nhà thầu 1 lần, map theo hang_hoa_id
         $chiTietTheoBaoGia = [];
@@ -72,11 +73,19 @@ class BG_TongHop_BUS
                     'model'                 => $ct['model'] ?? '',
                     'hang_san_xuat'         => $ct['hang_san_xuat'] ?? '',
                     'xuat_xu'               => $ct['xuat_xu'] ?? '',
-                    'quy_cach'              => $ct['quy_cach'] ?? '',
-                    'don_gia_trung_thau'    => $ct ? (float)$ct['don_gia_trung_thau'] : 0.0,
-                    'tai_lieu_tham_chieu'   => $ct['tai_lieu_tham_chieu'] ?? '',
+                    'nam_san_xuat'          => $ct['nam_san_xuat'] ?? '',
+                    // Mau 1 — cac cap dap ung / khong dat theo nhom
                     'thong_so_chao_gia'     => $ct['thong_so_chao_gia'] ?? '',
                     'diem_khong_dat'        => $ct['diem_khong_dat'] ?? '',
+                    'dap_ung_chung'         => $ct['dap_ung_chung'] ?? '',
+                    'khong_dat_chung'       => $ct['khong_dat_chung'] ?? '',
+                    'dap_ung_khac'          => $ct['dap_ung_khac'] ?? '',
+                    'khong_dat_khac'        => $ct['khong_dat_khac'] ?? '',
+                    'dap_ung_cau_hinh'      => $ct['dap_ung_cau_hinh'] ?? '',
+                    'khong_dat_cau_hinh'    => $ct['khong_dat_cau_hinh'] ?? '',
+                    'dap_ung_nhom_nuoc'     => $ct['dap_ung_nhom_nuoc'] ?? '',
+                    'khong_dat_nhom_nuoc'   => $ct['khong_dat_nhom_nuoc'] ?? '',
+                    'tai_lieu_chung_minh'   => $ct['tai_lieu_chung_minh'] ?? '',
                     'co_chao'               => $donGia > 0,
                 ];
 
@@ -99,7 +108,21 @@ class BG_TongHop_BUS
                 'id'                => $hhId,
                 'ma_hh'             => $hh['ma_hh'],
                 'ten_hang_hoa'      => $hh['ten_hang_hoa'],
+                // Thong tin BO — de bang tong hop gom theo bo, nhin ro co cau
+                'bo_id'             => (int)($hh['bo_id'] ?? 0),
+                'stt_bo'            => $hh['stt_bo'] ?? null,
+                'ten_bo'            => $hh['ten_bo'] ?? null,
+                'ma_bo'             => $hh['ma_bo'] ?? null,
+                'stt_chi_tiet'      => $hh['stt_chi_tiet'] ?? null,
+                // Thong so cua BO — hien duoi ten bo o dong tieu de
+                'yeu_cau_chung'     => $hh['yeu_cau_chung'] ?? null,
+                'yeu_cau_khac'      => $hh['yeu_cau_khac'] ?? null,
+                'yeu_cau_cau_hinh'  => $hh['yeu_cau_cau_hinh'] ?? null,
+                'nhom_nuoc_bo'      => $hh['nhom_nuoc_bo'] ?? null,
+                'dvt_bo'            => $hh['dvt_bo'] ?? null,
+                'so_luong_bo'       => isset($hh['so_luong_bo']) ? (float)$hh['so_luong_bo'] : null,
                 'thong_so_ky_thuat' => $hh['thong_so_ky_thuat'],
+                'nhom_nuoc'         => $hh['nhom_nuoc'] ?? null,
                 'dvt'               => $hh['dvt'],
                 'so_luong'          => $soLuong,
                 'chao'              => $chao,
@@ -125,6 +148,11 @@ class BG_TongHop_BUS
                 ];
             }, $baoGia),
             'hang_hoa' => $rows,
+            // Nhom quyet dinh hien yeu cau chung/khac/cau hinh nao o dong BO
+            'nhom'     => $nhomGt,
+            'ten_nhom' => BG_Nhom_PUBLIC::tenNhom($nhomGt),
+            'co_yc_chung'    => BG_Nhom_PUBLIC::coYeuCauChung($nhomGt),
+            'co_yc_cau_hinh' => BG_Nhom_PUBLIC::coYeuCauCauHinh($nhomGt),
             'tong_ket' => [
                 'so_nha_thau'         => count($baoGia),
                 'so_hang_hoa'         => count($rows),
@@ -148,6 +176,7 @@ class BG_TongHop_BUS
         $gt = $d['goi_thau'];
         $nhaThau = $d['nha_thau'];
         $hangHoa = $d['hang_hoa'];
+        $nhom    = (string)($d['nhom'] ?? BG_Nhom_PUBLIC::MAC_DINH);
 
         if (empty($nhaThau)) {
             throw new RuntimeException('Chưa có báo giá nào được xác nhận bản giấy — không có gì để tổng hợp.');
@@ -162,15 +191,62 @@ class BG_TongHop_BUS
         $B  = ExcelHelper::S_BEST;
 
         // =============================================================
-        // SHEET 1: SO SÁNH GIÁ — MỖI NHÀ THẦU MỘT DÒNG
+        // SHEET 1: SO SÁNH GIÁ — MỖI NHÀ THẦU MỘT DÒNG, GOM THEO BỘ
         // =============================================================
         // Bố cục: 1 hàng hóa có N nhà thầu -> N dòng liên tiếp, tên nhà thầu và
-        // MST nằm thành CỘT trên chính dòng đó. Đọc theo chiều ngang là ra ngay
-        // ai chào bao nhiêu; lọc / sắp xếp / PivotTable trong Excel đều dùng
-        // được (bố cục cũ gộp mỗi nhà thầu thành 1 nhóm cột thì không lọc nổi).
-        $soCot = 19;   // 6 bên mời (Phụ lục III) + 13 nhà thầu (Mẫu 1+2)
+        // MST nằm thành CỘT trên chính dòng đó. Đọc ngang là ra ai chào bao
+        // nhiêu; lọc / PivotTable trong Excel đều dùng được.
+        //
+        // Mỗi BỘ có 1 dòng tiêu đề riêng mang yêu cầu chung/khác/cấu hình —
+        // các yêu cầu này gắn với BỘ chứ không gắn với từng hàng hóa (Phụ lục III).
+
+        // --- Dựng header động theo NHÓM ---
+        $capDapUng = BG_Nhom_PUBLIC::capDapUng($nhom);
+
+        $hdr  = [];
+        $cols = [];
+        $them = function (string $ten, string $style, int $rong) use (&$hdr, &$cols) {
+            $hdr[]  = ['v' => $ten, 's' => $style];
+            $cols[] = $rong;
+        };
+
+        // Cột bên mời (Phụ lục III)
+        $them('STT', $H, 6);
+        $them('Mã', $H, 13);
+        $them('Tên bộ / hàng hóa chi tiết', $H, 40);
+        $them('Yêu cầu kỹ thuật mời chào giá', $H, 42);
+        $them('Nhóm nước, vùng lãnh thổ', $H, 18);
+        $them('ĐVT', $H, 8);
+        $them("Số lượng /\nkhối lượng", $H, 11);
+        $soCotMoi = count($hdr);   // số cột bên mời — dùng để gộp dọc
+
+        // Cột nhà thầu
+        $them('Nhà thầu', $HA, 30);
+        $them('Mã số thuế', $HA, 14);
+
+        // Mẫu 1 — các cặp đáp ứng, SỐ LƯỢNG THAY ĐỔI THEO NHÓM
+        foreach ($capDapUng as $c) {
+            $them('Đáp ứng về ' . mb_strtolower($c[0]), $HA, 34);
+            $them('Không đáp ứng về ' . mb_strtolower($c[0]), $HA, 30);
+        }
+        $them('Tài liệu chứng minh', $HA, 30);
+
+        // Mẫu 2 — thông tin chào giá
+        $them('Tên thương mại', $HA, 26);
+        $them("Ký, mã, nhãn hiệu,\nmodel", $HA, 20);
+        $them('Hãng sản xuất', $HA, 22);
+        $them('Năm sản xuất', $HA, 12);
+        $them('Xuất xứ', $HA, 16);
+        $them("Đơn giá\n(VND)", $HA, 17);
+        $them("Thành tiền\n(VND)", $HA, 18);
+
+        $soCot   = count($hdr);
         $colCuoi = ExcelHelper::colLetter($soCot - 1);
-        $merges = [];
+        $merges  = [];
+
+        // Vị trí 2 cột tiền — dùng cho dòng TỔNG CỘNG ở cuối
+        $iDonGia    = $soCot - 2;
+        $iThanhTien = $soCot - 1;
 
         // --- Tiêu đề ---
         $r1 = array_fill(0, $soCot, ['v' => '', 's' => ExcelHelper::S_TITLE]);
@@ -181,7 +257,8 @@ class BG_TongHop_BUS
                   's' => ExcelHelper::S_SUBTITLE];
 
         $r3 = array_fill(0, $soCot, ['v' => '', 's' => ExcelHelper::S_SUBTITLE]);
-        $r3[0] = ['v' => 'Số nhà thầu đã xác nhận bản giấy: ' . count($nhaThau)
+        $r3[0] = ['v' => 'Nhóm: ' . BG_Nhom_PUBLIC::tenNhom($nhom)
+                       . '   |   Số nhà thầu đã duyệt: ' . count($nhaThau)
                        . '   |   Số hàng hoá: ' . count($hangHoa)
                        . '   |   Xuất lúc: ' . date('d/m/Y H:i'),
                   's' => ExcelHelper::S_SUBTITLE];
@@ -192,85 +269,102 @@ class BG_TongHop_BUS
         $merges[] = 'A2:' . $colCuoi . '2';
         $merges[] = 'A3:' . $colCuoi . '3';
 
-        // --- Header 1 tầng, không gộp cột ---
-        // Header: 6 cột bên mời (Phụ lục III) + 13 cột nhà thầu (Mẫu 1 + Mẫu 2)
-        $rowHeader = [
-            // --- Thông tin mời chào giá (Phụ lục III) ---
-            ['v' => 'STT', 's' => $H],
-            ['v' => 'Mã HH', 's' => $H],
-            ['v' => 'Tên hàng hóa mời chào giá', 's' => $H],
-            ['v' => 'Yêu cầu kỹ thuật mời chào giá', 's' => $H],
-            ['v' => 'ĐVT', 's' => $H],
-            ['v' => "Số lượng /\nkhối lượng", 's' => $H],
-            // --- Nhà thầu ---
-            ['v' => 'Nhà thầu', 's' => $HA],
-            ['v' => 'Mã số thuế', 's' => $HA],
-            // --- Mẫu 1: Bảng đáp ứng kỹ thuật (để cạnh yêu cầu kỹ thuật cho dễ đối chiếu) ---
-            ['v' => 'Yêu cầu kỹ thuật chào giá', 's' => $HA],
-            ['v' => 'Các điểm không đạt', 's' => $HA],
-            // --- Mẫu 2: Bảng chào giá ---
-            ['v' => 'Tên thương mại', 's' => $HA],
-            ['v' => "Ký, mã, nhãn hiệu,\nmodel", 's' => $HA],
-            ['v' => 'Hãng sản xuất', 's' => $HA],
-            ['v' => 'Xuất xứ', 's' => $HA],
-            ['v' => 'Quy cách', 's' => $HA],
-            ['v' => "Đơn giá\n(VND)", 's' => $HA],
-            ['v' => "Thành tiền\n(VND)", 's' => $HA],
-            ['v' => "Đơn giá trúng thầu\ngần nhất (VNĐ)", 's' => $HA],
-            ['v' => 'Tài liệu tham chiếu', 's' => $HA],
-        ];
+        $rows1 = [$r1, $r2, $r3, $r4, $hdr];
+        $dongHienTai = count($rows1);   // dòng Excel cuối đã ghi (header = dòng 5)
 
-        $rows1 = [$r1, $r2, $r3, $r4, $rowHeader];
-        $dongHienTai = count($rows1);   // dòng Excel cuối cùng đã ghi (header = dòng 5)
-
-        // --- Dữ liệu: mỗi (hàng hóa × nhà thầu) = 1 dòng ---
+        // --- Dữ liệu ---
         $stt = 0;
+        $boHienTai = null;
+
         foreach ($hangHoa as $hh) {
+            // ===== Dòng tiêu đề BỘ =====
+            $boId = (int)($hh['bo_id'] ?? 0);
+            if ($boId !== $boHienTai) {
+                $boHienTai = $boId;
+                if ($boId > 0 && !empty($hh['ten_bo'])) {
+                    // Gộp yêu cầu cấp bộ vào 1 ô — chỉ lấy phần nhóm này dùng
+                    $yc = [];
+                    if (BG_Nhom_PUBLIC::coYeuCauChung($nhom) && !empty($hh['yeu_cau_chung'])) {
+                        $yc[] = 'YÊU CẦU CHUNG: ' . $hh['yeu_cau_chung'];
+                    }
+                    if (BG_Nhom_PUBLIC::coYeuCauKhac($nhom) && !empty($hh['yeu_cau_khac'])) {
+                        $yc[] = 'YÊU CẦU KHÁC: ' . $hh['yeu_cau_khac'];
+                    }
+                    if (BG_Nhom_PUBLIC::coYeuCauCauHinh($nhom) && !empty($hh['yeu_cau_cau_hinh'])) {
+                        $yc[] = 'YÊU CẦU CẤU HÌNH: ' . $hh['yeu_cau_cau_hinh'];
+                    }
+
+                    $rBo = array_fill(0, $soCot, ['v' => '', 's' => $H]);
+                    $rBo[0] = ['v' => (string)($hh['stt_bo'] ?? ''), 's' => $C];
+                    $rBo[1] = ['v' => (string)($hh['ma_bo'] ?? ''), 's' => $C];
+                    $rBo[2] = ['v' => (string)$hh['ten_bo'], 's' => $H];
+                    $rBo[3] = ['v' => implode("\n", $yc), 's' => $W];
+                    $rBo[4] = ['v' => (string)($hh['nhom_nuoc_bo'] ?? ''), 's' => $C];
+                    $rBo[5] = ['v' => (string)($hh['dvt_bo'] ?? ''), 's' => $C];
+                    $rBo[6] = isset($hh['so_luong_bo'])
+                        ? ['v' => (float)$hh['so_luong_bo'], 's' => $N, 't' => 'n']
+                        : ['v' => '', 's' => $N];
+
+                    $rows1[] = $rBo;
+                    $dongHienTai++;
+                }
+            }
+
+            // ===== Các dòng chào giá của hàng hóa =====
             $stt++;
             $dongDau = $dongHienTai + 1;
-            $soDong = 0;
+            $soDong  = 0;
 
             foreach ($nhaThau as $nt) {
                 $ch = $hh['chao'][$nt['id']] ?? null;
                 $coChao = $ch && $ch['co_chao'];
                 $laMin  = $coChao && $hh['nha_thau_min'] === $nt['id'];
 
-                // 6 cột thông tin hàng hóa chỉ ghi ở dòng đầu rồi gộp dọc
+                // Cột bên mời chỉ ghi ở dòng đầu rồi gộp dọc
                 $laDongDau = ($soDong === 0);
-                $rows1[] = [
-                    $laDongDau ? ['v' => $stt, 's' => $C, 't' => 'n'] : ['v' => '', 's' => $C],
-                    $laDongDau ? ['v' => (string)($hh['ma_hh'] ?? ''), 's' => $C] : ['v' => '', 's' => $C],
-                    $laDongDau ? ['v' => (string)$hh['ten_hang_hoa'], 's' => $W] : ['v' => '', 's' => $W],
-                    $laDongDau ? ['v' => (string)($hh['thong_so_ky_thuat'] ?? ''), 's' => $W] : ['v' => '', 's' => $W],
-                    $laDongDau ? ['v' => (string)($hh['dvt'] ?? ''), 's' => $C] : ['v' => '', 's' => $C],
-                    $laDongDau ? ['v' => (float)$hh['so_luong'], 's' => $N, 't' => 'n'] : ['v' => '', 's' => $N],
-                    // --- Phần nhà thầu ---
-                    ['v' => (string)$nt['ten_cong_ty'], 's' => $W],
-                    ['v' => (string)($nt['ma_so_thue'] ?? ''), 's' => $C],
-                    ['v' => (string)($ch['thong_so_chao_gia'] ?? ''), 's' => $W],
-                    ['v' => (string)($ch['diem_khong_dat'] ?? ''), 's' => $W],
-                    ['v' => (string)($ch['ten_thuong_mai'] ?? ''), 's' => $W],
-                    ['v' => (string)($ch['model'] ?? ''), 's' => $W],
-                    ['v' => (string)($ch['hang_san_xuat'] ?? ''), 's' => $W],
-                    ['v' => (string)($ch['xuat_xu'] ?? ''), 's' => $W],
-                    ['v' => (string)($ch['quy_cach'] ?? ''), 's' => $W],
-                    // Đơn giá: tô vàng khi là GIÁ THẤP NHẤT của CHÍNH hàng hóa này
-                    $coChao ? ['v' => $ch['don_gia'], 's' => $laMin ? $B : $M, 't' => 'n']
-                            : ['v' => 'Không chào', 's' => $C],
-                    $coChao ? ['v' => $ch['thanh_tien'], 's' => $M, 't' => 'n']
-                            : ['v' => '', 's' => $M],
-                    $coChao ? ['v' => (float)($ch['don_gia_trung_thau'] ?? 0), 's' => $M, 't' => 'n']
-                            : ['v' => '', 's' => $M],
-                    ['v' => (string)($ch['tai_lieu_tham_chieu'] ?? ''), 's' => $W],
+                $o = static fn($v, $s) => ['v' => $v, 's' => $s];
+
+                $dong = [
+                    $laDongDau ? ['v' => $stt, 's' => $C, 't' => 'n'] : $o('', $C),
+                    $laDongDau ? $o((string)($hh['ma_hh'] ?? ''), $C) : $o('', $C),
+                    $laDongDau ? $o((string)$hh['ten_hang_hoa'], $W) : $o('', $W),
+                    $laDongDau ? $o((string)($hh['thong_so_ky_thuat'] ?? ''), $W) : $o('', $W),
+                    $laDongDau ? $o((string)($hh['nhom_nuoc'] ?? ''), $C) : $o('', $C),
+                    $laDongDau ? $o((string)($hh['dvt'] ?? ''), $C) : $o('', $C),
+                    $laDongDau ? ['v' => (float)$hh['so_luong'], 's' => $N, 't' => 'n'] : $o('', $N),
+                    // --- Nhà thầu ---
+                    $o((string)$nt['ten_cong_ty'], $W),
+                    $o((string)($nt['ma_so_thue'] ?? ''), $C),
                 ];
+
+                // Mẫu 1 — các cặp đáp ứng theo nhóm
+                foreach ($capDapUng as $c) {
+                    $dong[] = $o((string)($ch[$c[1]] ?? ''), $W);
+                    $dong[] = $o((string)($ch[$c[2]] ?? ''), $W);
+                }
+                $dong[] = $o((string)($ch['tai_lieu_chung_minh'] ?? ''), $W);
+
+                // Mẫu 2
+                $dong[] = $o((string)($ch['ten_thuong_mai'] ?? ''), $W);
+                $dong[] = $o((string)($ch['model'] ?? ''), $W);
+                $dong[] = $o((string)($ch['hang_san_xuat'] ?? ''), $W);
+                $dong[] = $o((string)($ch['nam_san_xuat'] ?? ''), $C);
+                $dong[] = $o((string)($ch['xuat_xu'] ?? ''), $W);
+                // Đơn giá: tô vàng khi là GIÁ THẤP NHẤT của chính hàng hóa này
+                $dong[] = $coChao ? ['v' => $ch['don_gia'], 's' => $laMin ? $B : $M, 't' => 'n']
+                                  : $o('Không chào', $C);
+                $dong[] = $coChao ? ['v' => $ch['thanh_tien'], 's' => $M, 't' => 'n']
+                                  : $o('', $M);
+
+                $rows1[] = $dong;
                 $soDong++;
                 $dongHienTai++;
             }
 
-            // Gộp dọc 6 cột thông tin hàng hóa khi có từ 2 nhà thầu trở lên
+            // Gộp dọc các cột bên mời khi có từ 2 nhà thầu trở lên
             if ($soDong > 1) {
                 $dongCuoi = $dongDau + $soDong - 1;
-                for ($c = 0; $c < 6; $c++) {
+                for ($c = 0; $c < $soCotMoi; $c++) {
                     $L = ExcelHelper::colLetter($c);
                     $merges[] = $L . $dongDau . ':' . $L . $dongCuoi;
                 }
@@ -281,27 +375,20 @@ class BG_TongHop_BUS
         $rows1[] = array_fill(0, $soCot, null);
 
         $rowTieuDeTong = array_fill(0, $soCot, ['v' => '', 's' => $H]);
-        $rowTieuDeTong[6]  = ['v' => 'TỔNG CỘNG THEO NHÀ THẦU', 's' => $H];
-        $rowTieuDeTong[7]  = ['v' => 'Mã số thuế', 's' => $H];
-        $rowTieuDeTong[16] = ['v' => "Tổng tiền\n(VND)", 's' => $H];
+        $rowTieuDeTong[$soCotMoi]     = ['v' => 'TỔNG CỘNG THEO NHÀ THẦU', 's' => $H];
+        $rowTieuDeTong[$soCotMoi + 1] = ['v' => 'Mã số thuế', 's' => $H];
+        $rowTieuDeTong[$iThanhTien]   = ['v' => "Tổng tiền\n(VND)", 's' => $H];
         $rows1[] = $rowTieuDeTong;
 
         foreach ($nhaThau as $nt) {
             $r = array_fill(0, $soCot, ['v' => '', 's' => $W]);
-            $r[6]  = ['v' => (string)$nt['ten_cong_ty'], 's' => $W];
-            $r[7]  = ['v' => (string)($nt['ma_so_thue'] ?? ''), 's' => $C];
-            $r[16] = ['v' => (float)$nt['tong_tien'], 's' => ExcelHelper::S_TOTAL, 't' => 'n'];
+            $r[$soCotMoi]     = ['v' => (string)$nt['ten_cong_ty'], 's' => $W];
+            $r[$soCotMoi + 1] = ['v' => (string)($nt['ma_so_thue'] ?? ''), 's' => $C];
+            $r[$iThanhTien]   = ['v' => (float)$nt['tong_tien'], 's' => ExcelHelper::S_TOTAL, 't' => 'n'];
             $rows1[] = $r;
         }
 
-        // Độ rộng 19 cột — khớp thứ tự $rowHeader
-        $cols1 = [
-            6, 12, 36, 44, 8, 11,               // bên mời (Phụ lục III)
-            30, 14,                             // nhà thầu: tên, MST
-            36, 32,                             // Mẫu 1: YCKT chào giá, điểm không đạt
-            26, 20, 22, 16, 18,                 // Mẫu 2: tên TM..quy cách
-            17, 18, 20, 38,                     // đơn giá, thành tiền, giá TT, tài liệu (kèm số TB mời thầu)
-        ];
+        $cols1 = $cols;
 
         // =============================================================
         // SHEET 2: GIÁ THẤP NHẤT

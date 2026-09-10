@@ -145,46 +145,6 @@ if (!$boQuaBaoGia) {
     say('  ĐÃ TẠO: MPS/bao_gia.docx');
 }
 
-// ---------------------------------------------------------------
-// MẪU 2: Chỉ dẫn vị trí tài liệu (Bước 5)
-// ---------------------------------------------------------------
-$dich2 = $dir . DIRECTORY_SEPARATOR . 'chi_dan_tai_lieu.docx';
-if (!is_file($dich2) || $ghiDe) {
-    $c = [];
-    $c[] = ['p' => 'CHỈ DẪN VỊ TRÍ TÀI LIỆU', 'style' => 'title', 'after' => 120];
-    $c[] = ['p' => '(Kèm theo báo giá của {{TEN_CONG_TY}} — MST: {{MST}})',
-            'style' => 'italic', 'align' => 'center', 'after' => 60];
-    $c[] = ['p' => 'Thư mời số {{SO_THONG_BAO}} — {{TEN_GOI_THAU}}',
-            'style' => 'italic', 'align' => 'center', 'after' => 200];
-    $c[] = ['p' => 'Chúng tôi chỉ dẫn vị trí tài liệu chứng minh thông số kỹ thuật '
-                 . 'của hàng hóa đã chào như sau:', 'align' => 'both', 'indent' => 567];
-
-    $c[] = [
-        'tbl' => [
-            ['STT', 'Mã HH', 'Tên hàng thương mại', 'Trang catalog chứng minh'],
-            ['{{#CATALOG}}{{STT}}', '{{MA_HH}}', '{{TEN_THUONG_MAI}}', '{{TRANG_CATALOG}}'],
-        ],
-        'widths' => [800, 1400, 4800, 2800],
-        'aligns' => ['center', 'center', 'left', 'left'],
-    ];
-
-    $c[] = ['p' => '', 'after' => 300];
-    $c[] = ['p' => '………., ngày      tháng      năm 202…',
-            'style' => 'italic', 'align' => 'right', 'after' => 60];
-    $c[] = ['p' => 'Đại diện hợp pháp của hãng sản xuất, nhà cung cấp',
-            'bold' => true, 'align' => 'right', 'after' => 60];
-    $c[] = ['p' => '(Ký tên, đóng dấu)', 'style' => 'italic', 'align' => 'right'];
-
-    WordHelper::write($dich2, $c, WordHelper::A4_DOC);
-    say('');
-    say('  ĐÃ TẠO: MPS/chi_dan_tai_lieu.docx');
-    say('    Key: {{TEN_CONG_TY}} {{MST}} {{SO_THONG_BAO}} {{TEN_GOI_THAU}} {{NGAY_IN}}');
-    say('    Nhóm lặp {{#CATALOG}}: {{STT}} {{MA_HH}} {{TEN_THUONG_MAI}} {{TRANG_CATALOG}}');
-} else {
-    say('');
-    say('  = MPS/chi_dan_tai_lieu.docx đã có, bỏ qua (dùng --ghi-de để tạo lại)');
-}
-
 say('');
 say('===========================================================');
 say('  ĐÃ TẠO FILE MẪU: MPS/bao_gia.docx');

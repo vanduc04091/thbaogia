@@ -52,9 +52,21 @@ try {
             $id = Helper::postInt('id');
             $bg = BG_BaoGia_BUS::getById($id);
             if (!$bg) ResponseHelper::error('Không tìm thấy báo giá');
+            // Gửi kèm NHÓM + nhãn các cặp đáp ứng: màn hình chi tiết dựng
+            // cột theo nhóm, không hardcode ở JS (nguồn duy nhất BG_Nhom_PUBLIC).
+            $gtCt  = BG_GoiThau_DAL::getById((int)$bg->goi_thau_id);
+            $nhomCt = BG_Nhom_PUBLIC::chuanHoa($gtCt->nhom ?? null);
+            $capCt = [];
+            foreach (BG_Nhom_PUBLIC::capDapUng($nhomCt) as $khoa => $c) {
+                $capCt[] = ['khoa' => $khoa, 'nhan' => $c[0],
+                             'cot_dat' => $c[1], 'cot_khong' => $c[2]];
+            }
             ResponseHelper::success('OK', [
                 'bao_gia'  => $bg,
                 'chi_tiet' => BG_BaoGia_BUS::getChiTiet($id),
+                'nhom'     => $nhomCt,
+                'ten_nhom' => BG_Nhom_PUBLIC::tenNhom($nhomCt),
+                'cap'      => $capCt,
             ]);
             break;
 

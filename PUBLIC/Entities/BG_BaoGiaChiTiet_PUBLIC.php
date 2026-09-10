@@ -30,10 +30,24 @@ class BG_BaoGiaChiTiet_PUBLIC
     /** Các điểm không đạt kèm thuyết minh */
     public ?string $diem_khong_dat = null;
 
+    // --- Các cặp đáp ứng khác — CHỈ dùng ở một số nhóm gói thầu,
+    //     xem BG_Nhom_PUBLIC::capDapUng() để biết nhóm nào có cột nào ---
+    public ?string $dap_ung_chung = null;        // (11) Mẫu 1
+    public ?string $khong_dat_chung = null;      // (12)
+    public ?string $dap_ung_khac = null;         // (13)
+    public ?string $khong_dat_khac = null;       // (14)
+    public ?string $dap_ung_cau_hinh = null;     // (15) chỉ hệ thống TBYT
+    public ?string $khong_dat_cau_hinh = null;   // (16) chỉ hệ thống TBYT
+    public ?string $dap_ung_nhom_nuoc = null;    // (19)
+    public ?string $khong_dat_nhom_nuoc = null;  // (20)
+    /** (21) Tài liệu chứng minh: cam kết, catalog, HDSD... */
+    public ?string $tai_lieu_chung_minh = null;
+
     // ===== Mẫu 2: Bảng chào giá =====
     public ?string $ten_thuong_mai = null;      // (2) Tên thương mại
     public ?string $model = null;               // (3) Ký, mã, nhãn hiệu, model
     public ?string $hang_san_xuat = null;       // (4) Hãng sản xuất
+    public ?string $nam_san_xuat = null;        // Năm sản xuất (Mẫu 2 mới)
     public ?string $xuat_xu = null;             // (5) Xuất xứ
     public ?string $quy_cach = null;            // (7) Quy cách
 

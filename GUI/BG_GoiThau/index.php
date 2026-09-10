@@ -23,6 +23,32 @@ require __DIR__ . '/../layouts/header.php';
     <span class="sep">›</span> <span>Gói thầu / Mời chào giá</span>
 </nav>
 
+<!-- ============ TAB THEO NHÓM ============
+     Thay cho việc đổ chung 3 nhóm rồi lọc bằng select: mỗi nhóm có cột
+     yêu cầu khác nhau nên xem tách bạch mới đúng nghiệp vụ. -->
+<div class="tab-nhom" id="tabNhom" role="tablist">
+    <button type="button" class="tab-item is-active" data-nhom="" role="tab" aria-selected="true">
+        <?= IconHelper::svg('layout-list', 16) ?>
+        <span>Tất cả</span>
+        <span class="tab-dem" id="dem_">0</span>
+    </button>
+    <?php
+        $iconNhom = [
+            BG_Nhom_PUBLIC::BO_DUNG_CU    => 'clipboard-list',
+            BG_Nhom_PUBLIC::HE_THONG_TBYT => 'package',
+            BG_Nhom_PUBLIC::VAT_TU_DUOC   => 'inbox',
+        ];
+        foreach (BG_Nhom_PUBLIC::danhSach() as $ma => $ten):
+    ?>
+        <button type="button" class="tab-item" data-nhom="<?= Helper::h($ma) ?>" role="tab"
+                aria-selected="false" title="<?= Helper::h(BG_Nhom_PUBLIC::moTa($ma)) ?>">
+            <?= IconHelper::svg($iconNhom[$ma] ?? 'package', 16) ?>
+            <span><?= Helper::h($ten) ?></span>
+            <span class="tab-dem" id="dem_<?= Helper::h($ma) ?>">0</span>
+        </button>
+    <?php endforeach; ?>
+</div>
+
 <div class="card">
     <div class="toolbar">
         <div class="left">
@@ -62,9 +88,10 @@ require __DIR__ . '/../layouts/header.php';
             <thead>
                 <tr>
                     <th class="col-id">ID</th>
-                    <th>Số thông báo</th>
-                    <th>Tên gói thầu</th>
-                    <th>Thời gian nhận báo giá</th>
+                    <th style="width:110px">Số thông báo</th>
+                    <th style="min-width:280px">Tên gói thầu</th>
+                    <th style="width:130px">Nhóm</th>
+                    <th style="width:190px">Thời gian nhận báo giá</th>
                     <th>Trạng thái báo giá</th>
                     <th>Hàng hóa</th>
                     <th>Báo giá</th>
@@ -112,6 +139,24 @@ require __DIR__ . '/../layouts/header.php';
                     <label for="ten_goi_thau">Tên gói thầu <span class="req">*</span></label>
                     <input type="text" id="ten_goi_thau" name="ten_goi_thau" class="form-control"
                            required maxlength="500" placeholder="VD: Mua vật tư tiêu hao phẫu thuật cột sống năm 2026">
+                </div>
+
+                <div class="form-group">
+                    <label for="nhom">Nhóm gói thầu <span class="req">*</span></label>
+                    <select id="nhom" name="nhom" class="form-control" required onchange="moTaNhom()">
+                        <?php foreach (BG_Nhom_PUBLIC::danhSach() as $ma => $ten): ?>
+                            <option value="<?= Helper::h($ma) ?>"
+                                    <?= $ma === BG_Nhom_PUBLIC::MAC_DINH ? 'selected' : '' ?>>
+                                <?= Helper::h($ten) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <div class="form-hint" id="nhomMoTa"></div>
+                    <div class="form-hint">
+                        Nhóm quyết định <strong>cột nào hiện</strong> ở file mẫu danh mục và
+                        ở Mẫu 1 / Mẫu 2 của nhà thầu. Đổi nhóm sau khi đã import danh mục
+                        có thể làm lệch cột — nên chọn đúng ngay từ đầu.
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -287,6 +332,7 @@ var BG_TT = {
 };
 
 var currentPage = 1, pageSize = <?= (int)AppConfig::DEFAULT_PAGE_SIZE ?>, isLoading = false;
+var NHOM_HIEN = '';   // tab đang chọn — '' = tất cả các nhóm
 var firstLoad = true;
 var qrId = 0;
 
@@ -310,6 +356,38 @@ function toInputDateTime(s) {
     return String(s).replace(' ', 'T').slice(0, 16);
 }
 
+/* ============ TAB THEO NHÓM ============ */
+
+/** Đổi tab -> lọc lại danh sách, về trang 1 */
+function chonNhom(nhom) {
+    if (NHOM_HIEN === nhom) return;
+    NHOM_HIEN = nhom;
+    currentPage = 1;
+
+    $('#tabNhom .tab-item').each(function () {
+        var la = String($(this).data('nhom') || '') === nhom;
+        $(this).toggleClass('is-active', la).attr('aria-selected', la ? 'true' : 'false');
+    });
+    loadData();
+}
+
+/** Nạp số gói của từng nhóm lên tab — gọi lại sau mỗi lần thêm/xóa */
+function napDemNhom() {
+    APP.ajax(AJAX_URL, { action: 'demTheoNhom', da_xoa: $('#filterDaXoa').val() }, {
+        success: function (res) {
+            var d = res.data || {};
+            $('#tabNhom .tab-item').each(function () {
+                var ma = String($(this).data('nhom') || '');
+                $(this).find('.tab-dem').text(d[ma] || 0);
+            });
+        }
+    });
+}
+
+$(document).on('click', '#tabNhom .tab-item', function () {
+    chonNhom(String($(this).data('nhom') || ''));
+});
+
 function loadData() {
     if (isLoading) return;
     isLoading = true;
@@ -323,7 +401,8 @@ function loadData() {
         search: $('#search').val(),
         trang_thai: $('#filterTrangThai').val(),
         trang_thai_bao_gia: $('#filterTrangThaiBaoGia').val(),
-        da_xoa: $('#filterDaXoa').val()
+        da_xoa: $('#filterDaXoa').val(),
+        nhom: NHOM_HIEN
     }, {
         success: function (res) {
             renderTable(res.data || []);
@@ -372,7 +451,7 @@ function badgeTrangThaiBaoGia(r) {
 
 function renderTable(rows) {
     if (!rows.length) {
-        $('#tbody').html(APP.emptyRow(9, currentTrash()
+        $('#tbody').html(APP.emptyRow(10, currentTrash()
             ? 'Thùng rác trống'
             : 'Chưa có gói thầu nào. Bấm "Thêm gói thầu" để tạo thông báo mời chào giá đầu tiên.'));
         return;
@@ -422,6 +501,7 @@ function renderTable(rows) {
             '<td><span class="cell-main">' + APP.escape(r.ten_goi_thau) + '</span>' +
                 (r.noi_dung ? '<span class="cell-sub">' + APP.escape(String(r.noi_dung).substring(0, 90)) + (String(r.noi_dung).length > 90 ? '…' : '') + '</span>' : '') +
             '</td>' +
+            '<td>' + badgeNhom(r.nhom) + '</td>' +
             '<td>' + moTaThoiGian(r) + '</td>' +
             '<td>' + badgeTrangThaiBaoGia(r) + '</td>' +
             '<td>' + cellHH + '</td>' +
@@ -433,6 +513,31 @@ function renderTable(rows) {
     $('#tbody').html(html);
 }
 
+/* Nhãn nhóm gói thầu — tên lấy từ PHP, không chép chuỗi ở JS */
+var TEN_NHOM = <?= json_encode(BG_Nhom_PUBLIC::danhSach(), JSON_UNESCAPED_UNICODE) ?>;
+var MAU_NHOM = {
+    bo_dung_cu:    'badge-info',
+    he_thong_tbyt: 'badge-success',
+    vat_tu_duoc:   'badge-neutral'
+};
+function badgeNhom(n) {
+    n = n || 'vat_tu_duoc';
+    return '<span class="badge ' + (MAU_NHOM[n] || 'badge-neutral') + '">' +
+           APP.escape(TEN_NHOM[n] || n) + '</span>';
+}
+
+/* Mô tả nhóm — nội dung lấy thẳng từ BG_Nhom_PUBLIC để không phải
+   chép lại chuỗi ở JS (sửa 1 chỗ, cả 2 nơi theo). */
+var MO_TA_NHOM = <?= json_encode([
+    BG_Nhom_PUBLIC::BO_DUNG_CU    => BG_Nhom_PUBLIC::moTa(BG_Nhom_PUBLIC::BO_DUNG_CU),
+    BG_Nhom_PUBLIC::HE_THONG_TBYT => BG_Nhom_PUBLIC::moTa(BG_Nhom_PUBLIC::HE_THONG_TBYT),
+    BG_Nhom_PUBLIC::VAT_TU_DUOC   => BG_Nhom_PUBLIC::moTa(BG_Nhom_PUBLIC::VAT_TU_DUOC),
+], JSON_UNESCAPED_UNICODE) ?>;
+
+function moTaNhom() {
+    $('#nhomMoTa').text(MO_TA_NHOM[$('#nhom').val()] || '');
+}
+
 function openCreate() {
     $('#modalTitle').text('Thêm gói thầu');
     $('#form')[0].reset();
@@ -440,6 +545,8 @@ function openCreate() {
     $('#hieu_luc_bao_gia').val(180);
     $('#thoi_gian_hop_dong').val(0);
     $('#trang_thai').val('0');
+    $('#nhom').val('vat_tu_duoc');
+    moTaNhom();
     // Mặc định: phát hành hôm nay, mở báo giá ngay, đóng sau 14 ngày
     var now = new Date();
     $('#ngay_phat_hanh').val(dateLocal(now));
@@ -461,6 +568,8 @@ function edit(id) {
             $('#id').val(d.id);
             $('#so_thong_bao').val(d.so_thong_bao);
             $('#ten_goi_thau').val(d.ten_goi_thau);
+            $('#nhom').val(d.nhom || 'vat_tu_duoc');
+            moTaNhom();
             $('#noi_dung').val(d.noi_dung || '');
             $('#ngay_phat_hanh').val(d.ngay_phat_hanh || '');
             $('#thoi_gian_mo_bao_gia').val(toInputDateTime(d.thoi_gian_mo_bao_gia));
@@ -479,7 +588,7 @@ function save() {
     var data = APP.serializeForm('#form');
     data.action = data.id ? 'update' : 'insert';
     APP.ajax(AJAX_URL, data, {
-        success: function (res) { APP.toast(res.message, 'success'); closeModal(); loadData(); }
+        success: function (res) { APP.toast(res.message, 'success'); closeModal(); loadData(); napDemNhom(); }
     });
     return false;
 }
@@ -487,7 +596,7 @@ function save() {
 function del(id) {
     APP.confirm('Chuyển gói thầu này vào thùng rác?', function () {
         APP.ajax(AJAX_URL, { action: 'trash', id: id }, {
-            success: function (res) { APP.toast(res.message, 'success'); loadData(); }
+            success: function (res) { APP.toast(res.message, 'success'); loadData(); napDemNhom(); }
         });
     });
 }
@@ -495,7 +604,7 @@ function del(id) {
 function restore(id) {
     APP.confirm('Khôi phục gói thầu này?', function () {
         APP.ajax(AJAX_URL, { action: 'restore', id: id }, {
-            success: function (res) { APP.toast(res.message, 'success'); loadData(); }
+            success: function (res) { APP.toast(res.message, 'success'); loadData(); napDemNhom(); }
         });
     }, { yesClass: 'btn-primary', yesText: 'Khôi phục' });
 }
@@ -503,7 +612,7 @@ function restore(id) {
 function delForever(id) {
     APP.confirm('Xóa VĨNH VIỄN gói thầu này cùng danh mục hàng hóa? Không thể hoàn tác.', function () {
         APP.ajax(AJAX_URL, { action: 'delete', id: id }, {
-            success: function (res) { APP.toast(res.message, 'success'); loadData(); }
+            success: function (res) { APP.toast(res.message, 'success'); loadData(); napDemNhom(); }
         });
     }, { yesText: 'Xóa vĩnh viễn' });
 }
@@ -660,7 +769,11 @@ function closeModal() { $('#modal').removeClass('open'); }
 function closeQr() { $('#qrModal').removeClass('open'); }
 
 $('#search').on('keyup', APP.debounce(function () { currentPage = 1; loadData(); }, 350));
-$('#filterTrangThai, #filterTrangThaiBaoGia, #filterDaXoa').on('change', function () { currentPage = 1; loadData(); });
+$('#filterTrangThai, #filterTrangThaiBaoGia, #filterDaXoa').on('change', function () {
+    currentPage = 1; loadData();
+    // Thùng rác có số gói khác -> nạp lại số trên tab
+    if (this.id === 'filterDaXoa') napDemNhom();
+});
 $('#modal, #qrModal').on('click', function (e) { if (e.target === this) $(this).removeClass('open'); });
 $(document).on('keydown', function (e) {
     if (e.key === 'Escape') { closeModal(); closeQr(); }
@@ -668,7 +781,7 @@ $(document).on('keydown', function (e) {
 
 APP.bindPagination('#paginationWrap', function (p) { currentPage = p; loadData(); });
 
-$(document).ready(loadData);
+$(document).ready(function () { loadData(); napDemNhom(); });
 </script>
 
 <?php require __DIR__ . '/../layouts/footer.php'; ?>

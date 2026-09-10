@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/BG_Nhom_PUBLIC.php';
 /**
  * BG_GoiThau_PUBLIC — DTO gói thầu / thông báo mời chào giá
  */
@@ -7,6 +8,12 @@ class BG_GoiThau_PUBLIC
     public ?int $id = null;
     public string $so_thong_bao = '';
     public string $ten_goi_thau = '';
+
+    /**
+     * Nhóm gói thầu — quyết định cột nào hiện/ẩn ở Mẫu 1, Mẫu 2 và
+     * file import danh mục. Xem BG_Nhom_PUBLIC (nguồn duy nhất).
+     */
+    public string $nhom = BG_Nhom_PUBLIC::MAC_DINH;
     public ?string $noi_dung = null;
     public ?string $ngay_phat_hanh = null;
     public ?string $thoi_gian_mo_bao_gia = null;    // DATETIME — bắt đầu nhận báo giá

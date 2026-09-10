@@ -2149,3 +2149,111 @@ input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .45; }
     z-index: 2;
 }
 .tracuu-overlay .portal-header h1 { font-size: 16px; }
+
+/* ============================================================
+   CÂY BỘ → HÀNG HÓA CHI TIẾT
+   Dùng ở: danh mục hàng hóa (quản trị) và bảng tóm tắt (cổng nhà thầu).
+   Bảng phẳng không phân biệt được hàng nào thuộc bộ nào, nên dòng BỘ
+   phải nổi bật rõ và dòng chi tiết thụt vào.
+   ============================================================ */
+.table tr.row-bo > td {
+    background: #f0fdf4;                 /* xanh rất nhạt — cùng tông primary */
+    border-top: 2px solid var(--primary);
+    padding-top: 10px;
+    padding-bottom: 10px;
+    vertical-align: top;
+}
+.ten-bo {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 700;
+    font-size: 14px;
+    color: #14532d;
+    text-transform: uppercase;
+    letter-spacing: .01em;
+}
+.ten-bo .icon { color: var(--primary); flex: none; }
+
+/* Yêu cầu cấp bộ — nhãn nhỏ bên trái, nội dung bên phải */
+.yc-bo {
+    margin-top: 5px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--gray-700);
+}
+.yc-bo .yc-nhan {
+    display: inline-block;
+    min-width: 132px;
+    padding-right: 8px;
+    font-weight: 600;
+    color: var(--gray-500);
+}
+.yc-bo .yc-nhan::after { content: ':'; }
+
+/* Hàng hóa chi tiết: thụt vào cho thấy quan hệ cha–con */
+.cell-thut { padding-left: 18px; position: relative; display: inline-block; }
+.cell-thut::before {
+    content: '';
+    position: absolute;
+    left: 4px; top: 50%;
+    width: 8px; height: 1px;
+    background: var(--gray-300);
+}
+
+/* ============================================================
+   TAB THEO NHÓM — danh sách gói thầu
+   Mỗi nhóm có bộ cột yêu cầu khác nhau nên tách tab xem cho rõ,
+   thay vì đổ chung rồi lọc bằng select.
+   ============================================================ */
+.tab-nhom {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+    padding: 5px;
+    background: var(--gray-100, #f1f5f9);
+    border-radius: var(--radius);
+    overflow-x: auto;            /* màn hẹp thì cuộn ngang, không vỡ layout */
+}
+.tab-nhom .tab-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    flex: none;
+    padding: 9px 16px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--gray-600);
+    font-size: 13.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background .15s, color .15s, box-shadow .15s;
+}
+.tab-nhom .tab-item:hover { background: rgba(255, 255, 255, .7); color: var(--gray-800); }
+.tab-nhom .tab-item .icon { flex: none; opacity: .75; }
+
+.tab-nhom .tab-item.is-active {
+    background: #fff;
+    color: var(--primary);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, .12);
+}
+.tab-nhom .tab-item.is-active .icon { opacity: 1; }
+
+/* Số gói trong nhóm */
+.tab-nhom .tab-dem {
+    min-width: 22px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--gray-200, #e2e8f0);
+    color: var(--gray-600);
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+}
+.tab-nhom .tab-item.is-active .tab-dem { background: var(--primary); color: #fff; }
+
+@media (max-width: 768px) {
+    .tab-nhom .tab-item { padding: 8px 12px; font-size: 12.5px; }
+}

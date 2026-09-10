@@ -20,19 +20,13 @@ class BG_BaoGia_DAL
                        f.kich_thuoc AS kich_thuoc_file,
                        f.loai_file,
                        f.ngay_tao AS ngay_upload_ban_ky,
-                       fc.ten_file_goc AS ten_file_catalog,
-                       fc.ngay_tao AS ngay_upload_catalog,
-                       fx.ten_file_goc AS ten_file_catalog_excel,
-                       fx.ngay_tao AS ngay_upload_catalog_excel,
                        (SELECT COUNT(*) FROM bg_bao_gia_chi_tiet ct
                          WHERE ct.bao_gia_id = bg.id AND ct.da_xoa = 0
                            AND ct.don_gia > 0) AS so_dong_chao
                 FROM bg_bao_gia bg
                 LEFT JOIN bg_goi_thau gt ON gt.id = bg.goi_thau_id
                 LEFT JOIN dm_nguoi_dung nd ON nd.id = bg.nguoi_xac_nhan
-                LEFT JOIN bg_file f  ON f.id  = bg.file_ban_ky_id AND f.da_xoa = 0
-                LEFT JOIN bg_file fc ON fc.id = bg.file_catalog_id AND fc.da_xoa = 0
-                LEFT JOIN bg_file fx ON fx.id = bg.file_catalog_excel_id AND fx.da_xoa = 0";
+                LEFT JOIN bg_file f  ON f.id  = bg.file_ban_ky_id AND f.da_xoa = 0";
     }
 
     public static function insert(BG_BaoGia_PUBLIC $e): int
@@ -124,32 +118,7 @@ class BG_BaoGia_DAL
      * `nguoi_xac_nhan` = NULL vì đây là nhà thầu tự xác nhận bằng bản ký,
      * không phải nhân viên bên mời tích tay.
      */
-    /**
-     * Gán file catalog (Bước 5). KHÔNG đụng tới trạng thái báo giá — catalog
-     * chỉ là tài liệu chứng minh, việc xác nhận vẫn do bản ký quyết định.
-     */
-    public static function updateCatalog(int $id, ?int $fileId): int
-    {
-        $sql = "UPDATE bg_bao_gia SET
-                    file_catalog_id = :fid,
-                    ngay_cap_nhat = NOW()
-                WHERE id = :id AND da_xoa = 0";
-        $stmt = Database::getConnection()->prepare($sql);
-        $stmt->execute([':fid' => $fileId, ':id' => $id]);
-        return $stmt->rowCount();
-    }
 
-    /** Gán file Excel chỉ dẫn vị trí tài liệu (Bước 5) */
-    public static function updateCatalogExcel(int $id, ?int $fileId): int
-    {
-        $sql = "UPDATE bg_bao_gia SET
-                    file_catalog_excel_id = :fid,
-                    ngay_cap_nhat = NOW()
-                WHERE id = :id AND da_xoa = 0";
-        $stmt = Database::getConnection()->prepare($sql);
-        $stmt->execute([':fid' => $fileId, ':id' => $id]);
-        return $stmt->rowCount();
-    }
 
     /** Đánh dấu nhà thầu đã hoàn thành toàn bộ 5 bước → khóa sửa */
     public static function updateHoanThanh(int $id): int
@@ -469,12 +438,20 @@ class BG_BaoGia_DAL
     public static function getChiTiet(int $baoGiaId): array
     {
         $stmt = Database::getConnection()->prepare(
+            // JOIN bg_bo de man hinh chi tiet gom duoc theo BO va hien
+            // yeu cau chung/khac/cau hinh cua bo (khong phai truy van them).
             "SELECT ct.*, hh.ma_hh, hh.ten_hang_hoa, hh.dvt,
-                    hh.so_luong, hh.thong_so_ky_thuat
+                    hh.so_luong, hh.thong_so_ky_thuat, hh.stt_chi_tiet,
+                    hh.nhom_nuoc, hh.bo_id,
+                    b.ma_bo, b.stt_bo, b.ten_bo,
+                    b.yeu_cau_chung, b.yeu_cau_khac, b.yeu_cau_cau_hinh,
+                    b.nhom_nuoc AS nhom_nuoc_bo,
+                    b.dvt AS dvt_bo, b.so_luong AS so_luong_bo
              FROM bg_bao_gia_chi_tiet ct
              INNER JOIN bg_hang_hoa hh ON hh.id = ct.hang_hoa_id
+             LEFT  JOIN bg_bo b ON b.id = hh.bo_id AND b.da_xoa = 0
              WHERE ct.bao_gia_id = :bg AND ct.da_xoa = 0 AND hh.da_xoa = 0
-             ORDER BY hh.thu_tu, hh.id"
+             ORDER BY b.thu_tu, b.stt_bo, b.id, hh.stt_chi_tiet, hh.thu_tu, hh.id"
         );
         $stmt->execute([':bg' => $baoGiaId]);
         return $stmt->fetchAll();
@@ -506,15 +483,30 @@ class BG_BaoGia_DAL
         $sql = "INSERT INTO bg_bao_gia_chi_tiet
                     (bao_gia_id, hang_hoa_id,
                      thong_so_chao_gia, diem_khong_dat,
-                     ten_thuong_mai, model, hang_san_xuat, xuat_xu, quy_cach,
+                     dap_ung_chung, khong_dat_chung, dap_ung_khac, khong_dat_khac,
+                     dap_ung_cau_hinh, khong_dat_cau_hinh,
+                     dap_ung_nhom_nuoc, khong_dat_nhom_nuoc, tai_lieu_chung_minh,
+                     ten_thuong_mai, model, hang_san_xuat, nam_san_xuat, xuat_xu, quy_cach,
                      don_gia, thanh_tien,
                      don_gia_trung_thau, tai_lieu_tham_chieu,
                      ngay_tao, ngay_cap_nhat, da_xoa)
-                VALUES (:bg, :hh, :tsc, :dkd, :ttm, :md, :hsx, :xx, :qc,
+                VALUES (:bg, :hh, :tsc, :dkd,
+                        :duc, :kdc, :duk, :kdk, :duch, :kdch, :dunn, :kdnn, :tlcm,
+                        :ttm, :md, :hsx, :nsx, :xx, :qc,
                         :dg, :tt, :dgtt, :tltc, NOW(), NOW(), 0)
                 ON DUPLICATE KEY UPDATE
                     thong_so_chao_gia = VALUES(thong_so_chao_gia),
                     diem_khong_dat = VALUES(diem_khong_dat),
+                    dap_ung_chung = VALUES(dap_ung_chung),
+                    khong_dat_chung = VALUES(khong_dat_chung),
+                    dap_ung_khac = VALUES(dap_ung_khac),
+                    khong_dat_khac = VALUES(khong_dat_khac),
+                    dap_ung_cau_hinh = VALUES(dap_ung_cau_hinh),
+                    khong_dat_cau_hinh = VALUES(khong_dat_cau_hinh),
+                    dap_ung_nhom_nuoc = VALUES(dap_ung_nhom_nuoc),
+                    khong_dat_nhom_nuoc = VALUES(khong_dat_nhom_nuoc),
+                    tai_lieu_chung_minh = VALUES(tai_lieu_chung_minh),
+                    nam_san_xuat = VALUES(nam_san_xuat),
                     ten_thuong_mai = VALUES(ten_thuong_mai),
                     model = VALUES(model),
                     hang_san_xuat = VALUES(hang_san_xuat),
@@ -532,6 +524,16 @@ class BG_BaoGia_DAL
             ':hh'    => $e->hang_hoa_id,
             ':tsc'   => $e->thong_so_chao_gia,
             ':dkd'   => $e->diem_khong_dat,
+            ':duc'   => $e->dap_ung_chung,
+            ':kdc'   => $e->khong_dat_chung,
+            ':duk'   => $e->dap_ung_khac,
+            ':kdk'   => $e->khong_dat_khac,
+            ':duch'  => $e->dap_ung_cau_hinh,
+            ':kdch'  => $e->khong_dat_cau_hinh,
+            ':dunn'  => $e->dap_ung_nhom_nuoc,
+            ':kdnn'  => $e->khong_dat_nhom_nuoc,
+            ':tlcm'  => $e->tai_lieu_chung_minh,
+            ':nsx'   => $e->nam_san_xuat,
             ':ttm'   => $e->ten_thuong_mai,
             ':md'    => $e->model,
             ':hsx'   => $e->hang_san_xuat,

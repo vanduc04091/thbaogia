@@ -44,7 +44,7 @@ try {
             break;
 
 
-        /** Chi tiết 1 file theo ID FILE (mọi nhóm: bản ký, catalog, Excel) */
+        /** Chi tiết 1 file theo ID FILE */
         case 'getFile':
             PhanQuyenHelper::requireQuyen($MODULE, PhanQuyenHelper::QUYEN_XEM);
             $r = BG_QuanLyFile_BUS::getFileById(Helper::postInt('id'));
@@ -54,8 +54,6 @@ try {
             $bgF = BG_File_DAL::baoGiaDungFile((int)$r['id']);
             $tenNhom = [
                 'ban_ky'        => 'Bản báo giá đã ký',
-                'catalog'       => 'Catalog đã ký',
-                'catalog_excel' => 'Excel chỉ dẫn vị trí tài liệu',
             ];
             $r['ten_cong_ty'] = $bgF['ten_cong_ty'] ?? '';
             $r['ma_so_thue']  = $bgF['ma_so_thue'] ?? '';

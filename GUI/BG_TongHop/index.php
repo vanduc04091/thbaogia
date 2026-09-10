@@ -90,6 +90,23 @@ var DATA = null;
 
 function money(v) { return Number(v || 0).toLocaleString('vi-VN'); }
 
+/* Nhóm gói thầu quyết định hiện yêu cầu chung/khác/cấu hình nào ở dòng BỘ.
+   Server gửi kèm trong duLieuTongHop() — không hardcode ở JS. */
+var CO_YC_CHUNG = false, CO_YC_CAU_HINH = false;
+
+/**
+ * Thông số của BỘ do bên mời đặt — hiện dưới tên bộ.
+ * Chỉ hiện phần nhóm gói thầu này thực sự dùng.
+ */
+function thongSoBo(r) {
+    var h = '';
+    if (CO_YC_CHUNG && r.yeu_cau_chung)       h += '<div class="yc-bo"><span class="yc-nhan">Yêu cầu chung</span>' + APP.escape(r.yeu_cau_chung) + '</div>';
+    if (CO_YC_CHUNG && r.yeu_cau_khac)        h += '<div class="yc-bo"><span class="yc-nhan">Yêu cầu khác</span>' + APP.escape(r.yeu_cau_khac) + '</div>';
+    if (CO_YC_CAU_HINH && r.yeu_cau_cau_hinh) h += '<div class="yc-bo"><span class="yc-nhan">Yêu cầu cấu hình</span>' + APP.escape(r.yeu_cau_cau_hinh) + '</div>';
+    if (r.nhom_nuoc_bo)                       h += '<div class="yc-bo"><span class="yc-nhan">Nhóm nước</span>' + APP.escape(r.nhom_nuoc_bo) + '</div>';
+    return h;
+}
+
 function loadData() {
     if (!GOI_THAU_ID) return;
     APP.showLoading('#tableWrap');
@@ -99,6 +116,9 @@ function loadData() {
     APP.ajax(AJAX_URL, { action: 'getTongHop', goi_thau_id: GOI_THAU_ID }, {
         success: function (res) {
             DATA = res.data;
+            // Cờ ẩn/hiện yêu cầu ở dòng BỘ — theo nhóm của gói thầu
+            CO_YC_CHUNG    = !!DATA.co_yc_chung;
+            CO_YC_CAU_HINH = !!DATA.co_yc_cau_hinh;
             render();
         },
         error: function () { $('#tbody').html(APP.emptyRow(6, 'Không tải được dữ liệu tổng hợp')); },
@@ -163,7 +183,7 @@ function render() {
     // -> N dòng liên tiếp, tên nhà thầu + MST nằm thành CỘT trên chính dòng đó.
     var h = '<tr>' +
         '<th class="col-id">STT</th>' +
-        '<th>Phần</th>' +
+        '<th>Mã</th>' +
         '<th class="sticky-col">Tên hàng hóa</th>' +
         '<th>ĐVT</th>' +
         '<th class="col-qty">SL</th>' +
@@ -185,6 +205,7 @@ function render() {
     // ---- Dữ liệu ----
     var html = '';
     var stt = 0;
+    var boHienTai = null;   // theo dõi bộ đang in để chèn dòng tiêu đề
 
     for (var k = 0; k < hh.length; k++) {
         var r = hh[k];
@@ -197,6 +218,28 @@ function render() {
         }
 
         stt++;
+
+        // ---- Dòng tiêu đề BỘ: in khi chuyển sang bộ khác ----
+        // Bảng so sánh dài, không có mốc phân cách thì rất khó dò hàng nào
+        // thuộc bộ nào khi cuộn.
+        var boId = r.bo_id || 0;
+        if (boId !== boHienTai) {
+            boHienTai = boId;
+            if (r.ten_bo) {
+                html += '<tr class="row-bo"><td class="col-id">' +
+                    APP.escape(String(r.stt_bo || '')) + '</td>' +
+                    '<td>' + APP.escape(r.ma_bo || '') + '</td>' +
+                    '<td colspan="' + (colsFix - 4) + '">' +
+                        '<span class="ten-bo">' + APP.icon('package', 14) + ' ' +
+                        APP.escape(r.ten_bo) + '</span>' + thongSoBo(r) +
+                    '</td>' +
+                    '<td>' + APP.escape(r.dvt_bo || '') + '</td>' +
+                    '<td class="col-qty">' +
+                        (r.so_luong_bo ? Number(r.so_luong_bo).toLocaleString('vi-VN') : '') +
+                    '</td>' +
+                    '<td colspan="' + soCotNt + '"></td></tr>';
+            }
+        }
 
         // Không nhà thầu nào chào -> 1 dòng báo trống, không lặp tên nhà thầu
         if (!dsChao.length) {

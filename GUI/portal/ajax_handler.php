@@ -166,18 +166,20 @@ try {
         case 'getBangChaoGia':
             $id = Helper::postInt('bao_gia_id');
             $bg = kiemTraBaoGiaThuocPhien($id, $gt);
-            ResponseHelper::success('OK', [
-                'bao_gia' => [
-                    'id'          => (int)$bg->id,
-                    'ten_cong_ty' => $bg->ten_cong_ty,
-                    'ma_so_thue'  => $bg->ma_so_thue,
-                    'trang_thai'  => (int)$bg->trang_thai,
-                    'tong_tien'   => (float)$bg->tong_tien,
-                    'ngay_nop'    => $bg->ngay_nop,
-                    'so_dong_chao' => (int)$bg->so_dong_chao,
-                ],
-                'dong' => BG_BaoGia_BUS::getBangChaoGia($id),
-            ]);
+            // Tra THANG cau truc tom tat (nhom / cap / bo / tong) — GUI doc
+            // res.data.bo, res.data.cap... khong long them 1 tang nua.
+            $tt = BG_BaoGia_BUS::getBangChaoGia($id);
+            $tt['bao_gia'] = [
+                'id'           => (int)$bg->id,
+                'ten_cong_ty'  => $bg->ten_cong_ty,
+                'ma_so_thue'   => $bg->ma_so_thue,
+                'trang_thai'   => (int)$bg->trang_thai,
+                'tong_tien'    => (float)$bg->tong_tien,
+                'ngay_nop'     => $bg->ngay_nop,
+                'so_dong_chao' => (int)$bg->so_dong_chao,
+                'da_hoan_thanh' => (int)($bg->da_hoan_thanh ?? 0),
+            ];
+            ResponseHelper::success('OK', $tt);
             break;
 
         /** Lưu 1 dòng chào giá (nhập tay) */
@@ -231,73 +233,15 @@ try {
             break;
 
         /** Bước 5 — bảng chỉ dẫn vị trí tài liệu */
-        case 'getBangCatalog':
+        /** Bước 4 — trạng thái bản ký của báo giá đang làm */
+        case 'trangThaiBanKy':
             $id = Helper::postInt('bao_gia_id');
             kiemTraBaoGiaThuocPhien($id, $gt);
             ResponseHelper::success('OK', [
-                'dong'        => BG_BaoGia_BUS::getBangCatalog($id),
-                'file'        => BG_BaoGia_BUS::fileCatalog($id),
-                // Bước 4 dùng chung action này để biết đã có bản ký chưa
-                'file_excel'  => BG_BaoGia_BUS::fileCatalogExcel($id),
-                'file_ban_ky' => BG_BaoGia_BUS::fileBanKy($id),
+                'file_ban_ky'   => BG_BaoGia_BUS::fileBanKy($id),
                 // UI dùng cờ này để chuyển sang chế độ CHỈ XEM
                 'da_hoan_thanh' => (int)(BG_BaoGia_BUS::getById($id)->da_hoan_thanh ?? 0),
             ]);
-            break;
-
-        /** Bước 5 — lưu bảng chỉ dẫn vị trí tài liệu */
-        case 'luuCatalog':
-            $id = Helper::postInt('bao_gia_id');
-            kiemTraBaoGiaThuocPhien($id, $gt);
-
-            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
-            if (!$conNhan['ok']) ResponseHelper::error($conNhan['message'], 403);
-
-            $json = (string)Helper::post('dong', '');
-            $dong = json_decode($json, true);
-            if (!is_array($dong)) ResponseHelper::error('Dữ liệu gửi lên không hợp lệ');
-
-            $res = BG_BaoGia_BUS::luuCatalog($id, $dong, $u);
-            $res['success']
-                ? ResponseHelper::success($res['message'], $res['data'] ?? null)
-                : ResponseHelper::error($res['message']);
-            break;
-
-        /** Bước 5 — upload file Excel chỉ dẫn vị trí tài liệu */
-        case 'uploadCatalogExcel':
-            $id = Helper::postInt('bao_gia_id');
-
-            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
-            if (!$conNhan['ok']) ResponseHelper::error($conNhan['message'], 403);
-
-            $duocPhep = false;
-            $idsCuaToi = SessionHelper::get(SS_BAO_GIA_CUA_TOI, []);
-            if (is_array($idsCuaToi) && in_array($id, $idsCuaToi, true)) {
-                $duocPhep = true;
-            }
-            if (!$duocPhep) {
-                $mst = (string)SessionHelper::get('portal_mst_tra_cuu', '');
-                if ($mst !== '' && BG_BaoGia_BUS::baoGiaCuaMst($id, $mst)) {
-                    $duocPhep = true;
-                }
-            }
-            if (!$duocPhep) {
-                ResponseHelper::error(
-                    'Bạn không có quyền tải file cho báo giá này. Hãy tra cứu bằng mã số thuế của công ty trước.',
-                    403
-                );
-            }
-
-            $bgKt = BG_BaoGia_BUS::getById($id);
-            if (!$bgKt || (int)$bgKt->da_xoa === 1) {
-                ResponseHelper::error('Không tìm thấy báo giá', 404);
-            }
-            if (!isset($_FILES['file'])) ResponseHelper::error('Chưa chọn file');
-
-            $res = BG_BaoGia_BUS::uploadCatalogExcel($id, $_FILES['file'], $u);
-            $res['success']
-                ? ResponseHelper::success($res['message'], $res['data'] ?? null)
-                : ResponseHelper::error($res['message']);
             break;
 
         /** Bước 5 — nhà thầu chốt hoàn thành, khóa mọi chỉnh sửa */
@@ -309,44 +253,6 @@ try {
             kiemTraBaoGiaThuocPhien($id, $gt);
 
             $res = BG_BaoGia_BUS::hoanThanh($id, $u);
-            $res['success']
-                ? ResponseHelper::success($res['message'], $res['data'] ?? null)
-                : ResponseHelper::error($res['message']);
-            break;
-
-        /** Bước 5 — upload file catalog đã ký */
-        case 'uploadCatalog':
-            $id = Helper::postInt('bao_gia_id');
-
-            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
-            if (!$conNhan['ok']) ResponseHelper::error($conNhan['message'], 403);
-
-            // Cùng quy tắc quyền như uploadBanKy: của phiên này HOẶC đúng MST đã tra cứu
-            $duocPhep = false;
-            $idsCuaToi = SessionHelper::get(SS_BAO_GIA_CUA_TOI, []);
-            if (is_array($idsCuaToi) && in_array($id, $idsCuaToi, true)) {
-                $duocPhep = true;
-            }
-            if (!$duocPhep) {
-                $mst = (string)SessionHelper::get('portal_mst_tra_cuu', '');
-                if ($mst !== '' && BG_BaoGia_BUS::baoGiaCuaMst($id, $mst)) {
-                    $duocPhep = true;
-                }
-            }
-            if (!$duocPhep) {
-                ResponseHelper::error(
-                    'Bạn không có quyền tải file cho báo giá này. Hãy tra cứu bằng mã số thuế của công ty trước.',
-                    403
-                );
-            }
-
-            $bgKt = BG_BaoGia_BUS::getById($id);
-            if (!$bgKt || (int)$bgKt->da_xoa === 1) {
-                ResponseHelper::error('Không tìm thấy báo giá', 404);
-            }
-            if (!isset($_FILES['file'])) ResponseHelper::error('Chưa chọn file');
-
-            $res = BG_BaoGia_BUS::uploadCatalog($id, $_FILES['file'], $u);
             $res['success']
                 ? ResponseHelper::success($res['message'], $res['data'] ?? null)
                 : ResponseHelper::error($res['message']);

@@ -34,11 +34,11 @@ function loiXemFile(string $msg): void
 if ($id <= 0) loiXemFile('Thiếu mã file');
 
 // Nhận ID FILE (không phải id báo giá) — 1 báo giá giờ có nhiều file:
-// bản ký, catalog, Excel chỉ dẫn.
+// bản ký.
 $r = BG_QuanLyFile_BUS::getFileById($id);
 if (!$r) loiXemFile('Không tìm thấy file');
 
-// Đường dẫn do BUS dựng theo nhóm file (ban_ky/ hay catalog/), đã basename()
+// Đường dẫn do BUS dựng theo nhóm file, đã basename()
 $path = $r['duong_dan_day'];
 if (!is_file($path)) loiXemFile('File không còn trên hệ thống');
 

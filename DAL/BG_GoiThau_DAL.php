@@ -26,16 +26,17 @@ class BG_GoiThau_DAL
     public static function insert(BG_GoiThau_PUBLIC $e): int
     {
         $sql = "INSERT INTO bg_goi_thau
-                    (so_thong_bao, ten_goi_thau, noi_dung, ngay_phat_hanh,
+                    (so_thong_bao, ten_goi_thau, nhom, noi_dung, ngay_phat_hanh,
                      thoi_gian_mo_bao_gia, thoi_gian_dong_bao_gia, han_cuoi,
                      thoi_gian_hop_dong, hieu_luc_bao_gia, token, trang_thai,
                      ngay_tao, ngay_cap_nhat, nguoi_tao, nguoi_cap_nhat, da_xoa)
-                VALUES (:stb, :ten, :nd, :npg, :mo, :dong, :hc, :tghd, :hlbg, :token, :tt,
+                VALUES (:stb, :ten, :nhom, :nd, :npg, :mo, :dong, :hc, :tghd, :hlbg, :token, :tt,
                         NOW(), NOW(), :nt1, :nt2, 0)";
         $stmt = Database::getConnection()->prepare($sql);
         $stmt->execute([
             ':stb'   => $e->so_thong_bao,
             ':ten'   => $e->ten_goi_thau,
+            ':nhom'  => $e->nhom,
             ':nd'    => $e->noi_dung,
             ':npg'   => $e->ngay_phat_hanh ?: null,
             ':mo'    => $e->thoi_gian_mo_bao_gia ?: null,
@@ -56,6 +57,7 @@ class BG_GoiThau_DAL
         $sql = "UPDATE bg_goi_thau SET
                     so_thong_bao = :stb,
                     ten_goi_thau = :ten,
+                    nhom = :nhom,
                     noi_dung = :nd,
                     ngay_phat_hanh = :npg,
                     thoi_gian_mo_bao_gia = :mo,
@@ -71,6 +73,7 @@ class BG_GoiThau_DAL
         $stmt->execute([
             ':stb'  => $e->so_thong_bao,
             ':ten'  => $e->ten_goi_thau,
+            ':nhom' => $e->nhom,
             ':nd'   => $e->noi_dung,
             ':npg'  => $e->ngay_phat_hanh ?: null,
             ':mo'   => $e->thoi_gian_mo_bao_gia ?: null,
@@ -157,6 +160,37 @@ class BG_GoiThau_DAL
     }
 
     /**
+     * Đếm gói thầu theo TỪNG NHÓM — để hiện số trên tab.
+     * Áp dụng ĐÚNG bộ lọc phân quyền như getPaged(), nếu không số trên tab
+     * sẽ lớn hơn số dòng thực thấy (§3B.1).
+     *
+     * @return array [mã nhóm => số gói], kèm khóa '' = tổng tất cả
+     */
+    public static function demTheoNhom(int $daXoa = 0, int $nguoiDungId = 0): array
+    {
+        $where = ' WHERE gt.da_xoa = :dx ';
+        $params = [':dx' => $daXoa];
+
+        if ($nguoiDungId > 0) {
+            [$sqlQuyen, $pQuyen] = BG_QuyenGoiThau_DAL::dieuKienLoc($nguoiDungId, 'gt');
+            $where .= $sqlQuyen;
+            $params += $pQuyen;
+        }
+
+        $stmt = Database::getConnection()->prepare(
+            "SELECT gt.nhom, COUNT(*) n FROM bg_goi_thau gt{$where} GROUP BY gt.nhom"
+        );
+        $stmt->execute($params);
+
+        $out = ['' => 0];
+        foreach ($stmt->fetchAll() as $r) {
+            $out[(string)$r['nhom']] = (int)$r['n'];
+            $out[''] += (int)$r['n'];
+        }
+        return $out;
+    }
+
+    /**
      * @param string $trangThaiBaoGia Lọc theo trạng thái báo giá suy từ thời gian:
      *                                '' | chua_mo | dang_mo | het_han | khong_nhan
      *                                (hằng BG_* trong BG_GoiThau_PUBLIC)
@@ -168,7 +202,8 @@ class BG_GoiThau_DAL
         int $daXoa = 0,
         int $trangThai = -1,
         string $trangThaiBaoGia = '',
-        int $nguoiDungId = 0
+        int $nguoiDungId = 0,
+        string $nhom = ''
     ): array {
         [$page, $pageSize, $offset] = PaginationHelper::normalize($page, $pageSize);
 
@@ -194,6 +229,11 @@ class BG_GoiThau_DAL
         if ($trangThai >= 0) {
             $where .= ' AND gt.trang_thai = :tt ';
             $params[':tt'] = $trangThai;
+        }
+        // Loc theo NHOM — tab tren giao dien. Chuoi la da whitelist o BUS.
+        if ($nhom !== '') {
+            $where .= ' AND gt.nhom = :nhom ';
+            $params[':nhom'] = $nhom;
         }
 
         // Lọc theo trạng thái báo giá — điều kiện phải KHỚP LOGIC

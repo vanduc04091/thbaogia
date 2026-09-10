@@ -3,6 +3,7 @@ require_once __DIR__ . '/../PUBLIC/Common/QrHelper.php';
 require_once __DIR__ . '/../PUBLIC/Common/WordTemplate.php';
 require_once __DIR__ . '/../PUBLIC/Common/WordHelper.php';
 require_once __DIR__ . '/../DAL/BG_GoiThau_DAL.php';
+require_once __DIR__ . '/../PUBLIC/Entities/BG_Nhom_PUBLIC.php';
 require_once __DIR__ . '/../DAL/BG_HangHoa_DAL.php';
 require_once __DIR__ . '/../DAL/DM_NhatKyHeThong_DAL.php';
 
@@ -35,6 +36,10 @@ class BG_GoiThau_BUS
         if (mb_strlen($e->so_thong_bao) > 100) return 'Số thông báo tối đa 100 ký tự';
         if ($e->ten_goi_thau === '') return 'Tên gói thầu không được để trống';
         if (mb_strlen($e->ten_goi_thau) > 500) return 'Tên gói thầu tối đa 500 ký tự';
+
+        // Nhóm sai/rỗng -> ép về mặc định thay vì báo lỗi: nhóm quyết định
+        // ẩn/hiện cột, để rỗng sẽ làm hỏng file mẫu và bảng Mẫu 1/2.
+        $e->nhom = BG_Nhom_PUBLIC::chuanHoa($e->nhom);
 
         // Khoảng thời gian nhận báo giá
         if ($e->thoi_gian_mo_bao_gia && $e->thoi_gian_dong_bao_gia
@@ -232,13 +237,20 @@ class BG_GoiThau_BUS
         return BG_GoiThau_DAL::getById($id);
     }
 
+    /** Số gói thầu theo từng nhóm — cho tab ở danh sách gói thầu */
+    public static function demTheoNhom(int $daXoa = 0): array
+    {
+        return BG_GoiThau_DAL::demTheoNhom($daXoa, (int)SessionHelper::userId());
+    }
+
     public static function getPaged(
         int $page,
         int $pageSize,
         string $search = '',
         int $daXoa = 0,
         int $trangThai = -1,
-        string $trangThaiBaoGia = ''
+        string $trangThaiBaoGia = '',
+        string $nhom = ''
     ): array {
         // Chỉ nhận mã trạng thái báo giá hợp lệ (whitelist) — không tin input
         if ($trangThaiBaoGia !== ''
@@ -249,9 +261,12 @@ class BG_GoiThau_BUS
         // Lọc theo phân quyền gói thầu của CHÍNH người đang đăng nhập.
         // Lấy từ session ngay tại đây để mọi nơi gọi đều được lọc, không phải
         // sửa 10 chỗ gọi và không sợ chỗ nào quên truyền (§3B.1).
+        // Nhom sai -> bo qua bo loc thay vi bao loi (whitelist, §3B.5)
+        $nhom = BG_Nhom_PUBLIC::hopLe($nhom) ? $nhom : '';
+
         $res = BG_GoiThau_DAL::getPaged(
             $page, $pageSize, $search, $daXoa, $trangThai, $trangThaiBaoGia,
-            (int)SessionHelper::userId()
+            (int)SessionHelper::userId(), $nhom
         );
 
         // Bổ sung trạng thái báo giá đã tính sẵn để GUI khỏi lặp lại logic
@@ -365,11 +380,14 @@ class BG_GoiThau_BUS
             'DUONG_DAN'           => $url,
             'TAI_KHOAN'           => AppConfig::PORTAL_TAI_KHOAN,
             'MAT_KHAU'            => AppConfig::PORTAL_MAT_KHAU,
-            // Cac muc bo trong de ben moi tu dien khi in
-            'NGUOI_LIEN_HE'       => '………………',
-            'EMAIL_LIEN_HE'       => '…………',
-            'SDT_LIEN_HE'         => '…………',
-            'DIA_CHI_NHAN'        => '………………………',
+            // Cac muc bo trong de ben moi tu dien tay khi in ra giay
+            'NGUOI_LIEN_HE'       => '………………………',
+            'CHUC_VU_LIEN_HE'     => '………………………',
+            'EMAIL_LIEN_HE'       => '………………………',
+            'SDT_LIEN_HE'         => '………………………',
+            'DIA_CHI_NHAN'        => 'Bệnh viện Hữu nghị Đa khoa Nghệ An '
+                                     . '(Km5, đại lộ Lênin, phường Vinh Phú, tỉnh Nghệ An)',
+            'THOI_GIAN_GIAO_HANG' => '………………………',
         ];
 
         $path = $dir . '/ThuMoi_'

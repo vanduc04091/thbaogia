@@ -9,26 +9,39 @@ class BG_HangHoa_DAL
 
     private static function selectSql(): string
     {
-        return "SELECT hh.* FROM bg_hang_hoa hh";
+        // JOIN bg_bo để GUI hiện được "hàng này thuộc bộ nào" mà không phải
+        // truy vấn thêm cho từng dòng (N+1).
+        return "SELECT hh.*,
+                       b.ma_bo, b.stt_bo, b.ten_bo,
+                       b.yeu_cau_chung, b.yeu_cau_khac, b.yeu_cau_cau_hinh,
+                       b.nhom_nuoc AS nhom_nuoc_bo,
+                       b.dvt AS dvt_bo, b.so_luong AS so_luong_bo,
+                       b.thu_tu AS thu_tu_bo
+                FROM bg_hang_hoa hh
+                LEFT JOIN bg_bo b ON b.id = hh.bo_id AND b.da_xoa = 0";
     }
 
     public static function insert(BG_HangHoa_PUBLIC $e): int
     {
         $sql = "INSERT INTO bg_hang_hoa
-                    (goi_thau_id, ma_hh, ten_hang_hoa, thong_so_ky_thuat, dvt, so_luong,
+                    (goi_thau_id, bo_id, stt_chi_tiet, ma_hh, ten_hang_hoa,
+                     thong_so_ky_thuat, nhom_nuoc, dvt, so_luong,
                      thu_tu, ngay_tao, ngay_cap_nhat, nguoi_tao, nguoi_cap_nhat, da_xoa)
-                VALUES (:gt, :ma, :thh, :tskt, :dvt, :sl, :ttu, NOW(), NOW(), :nt1, :nt2, 0)";
+                VALUES (:gt, :bo, :sttct, :ma, :thh, :tskt, :nn, :dvt, :sl, :ttu, NOW(), NOW(), :nt1, :nt2, 0)";
         $stmt = Database::getConnection()->prepare($sql);
         $stmt->execute([
-            ':gt'   => $e->goi_thau_id,
-            ':ma'   => $e->ma_hh,
-            ':thh'  => $e->ten_hang_hoa,
-            ':tskt' => $e->thong_so_ky_thuat,
-            ':dvt'  => $e->dvt,
-            ':sl'   => $e->so_luong,
-            ':ttu'  => $e->thu_tu,
-            ':nt1'  => $e->nguoi_tao,
-            ':nt2'  => $e->nguoi_tao,
+            ':gt'    => $e->goi_thau_id,
+            ':bo'    => $e->bo_id,
+            ':sttct' => $e->stt_chi_tiet,
+            ':ma'    => $e->ma_hh,
+            ':thh'   => $e->ten_hang_hoa,
+            ':tskt'  => $e->thong_so_ky_thuat,
+            ':nn'    => $e->nhom_nuoc,
+            ':dvt'   => $e->dvt,
+            ':sl'    => $e->so_luong,
+            ':ttu'   => $e->thu_tu,
+            ':nt1'   => $e->nguoi_tao,
+            ':nt2'   => $e->nguoi_tao,
         ]);
         return (int)Database::getConnection()->lastInsertId();
     }
@@ -36,9 +49,12 @@ class BG_HangHoa_DAL
     public static function update(BG_HangHoa_PUBLIC $e): int
     {
         $sql = "UPDATE bg_hang_hoa SET
+                    bo_id = :bo,
+                    stt_chi_tiet = :sttct,
                     ma_hh = :ma,
                     ten_hang_hoa = :thh,
                     thong_so_ky_thuat = :tskt,
+                    nhom_nuoc = :nn,
                     dvt = :dvt,
                     so_luong = :sl,
                     thu_tu = :ttu,
@@ -47,14 +63,17 @@ class BG_HangHoa_DAL
                 WHERE id = :id AND da_xoa = 0";
         $stmt = Database::getConnection()->prepare($sql);
         $stmt->execute([
-            ':ma'   => $e->ma_hh,
-            ':thh'  => $e->ten_hang_hoa,
-            ':tskt' => $e->thong_so_ky_thuat,
-            ':dvt'  => $e->dvt,
-            ':sl'   => $e->so_luong,
-            ':ttu'  => $e->thu_tu,
-            ':ncn'  => $e->nguoi_cap_nhat,
-            ':id'   => $e->id,
+            ':bo'    => $e->bo_id,
+            ':sttct' => $e->stt_chi_tiet,
+            ':ma'    => $e->ma_hh,
+            ':thh'   => $e->ten_hang_hoa,
+            ':tskt'  => $e->thong_so_ky_thuat,
+            ':nn'    => $e->nhom_nuoc,
+            ':dvt'   => $e->dvt,
+            ':sl'    => $e->so_luong,
+            ':ttu'   => $e->thu_tu,
+            ':ncn'   => $e->nguoi_cap_nhat,
+            ':id'    => $e->id,
         ]);
         return $stmt->rowCount();
     }
@@ -157,7 +176,7 @@ class BG_HangHoa_DAL
     {
         $stmt = Database::getConnection()->prepare(
             self::selectSql() . " WHERE hh.goi_thau_id = :gt AND hh.da_xoa = 0
-                                  ORDER BY hh.thu_tu, hh.id"
+                                  ORDER BY b.thu_tu, b.stt_bo, b.id, hh.stt_chi_tiet, hh.thu_tu, hh.id"
         );
         $stmt->execute([':gt' => $goiThauId]);
         return $stmt->fetchAll();
@@ -212,7 +231,7 @@ class BG_HangHoa_DAL
         $total = (int)$stmt->fetchColumn();
 
         $sql = self::selectSql() . $where
-             . " ORDER BY hh.thu_tu, hh.id LIMIT {$pageSize} OFFSET {$offset}";
+             . " ORDER BY b.thu_tu, b.stt_bo, b.id, hh.stt_chi_tiet, hh.thu_tu, hh.id LIMIT {$pageSize} OFFSET {$offset}";
         $stmt = Database::getConnection()->prepare($sql);
         $stmt->execute($params);
 
@@ -247,24 +266,29 @@ class BG_HangHoa_DAL
     {
         if (empty($items)) return 0;
 
-        $cols = '(goi_thau_id, ma_hh, ten_hang_hoa, thong_so_ky_thuat, dvt, so_luong,
+        $cols = '(goi_thau_id, bo_id, stt_chi_tiet, ma_hh, ten_hang_hoa,
+                  thong_so_ky_thuat, nhom_nuoc, dvt, so_luong,
                   thu_tu, ngay_tao, ngay_cap_nhat, nguoi_tao, nguoi_cap_nhat, da_xoa)';
 
         $rows = [];
         $params = [];
         foreach ($items as $i => $e) {
             // Placeholder PHẢI có dấu ngăn `_` (§3.3): :ma{$i} + :ma2{$i} sẽ đụng nhau
-            $rows[] = "(:gt_{$i}, :ma_{$i}, :thh_{$i}, :tskt_{$i}, :dvt_{$i}, :sl_{$i},
+            $rows[] = "(:gt_{$i}, :bo_{$i}, :sttct_{$i}, :ma_{$i}, :thh_{$i},
+                        :tskt_{$i}, :nn_{$i}, :dvt_{$i}, :sl_{$i},
                         :ttu_{$i}, NOW(), NOW(), :ntao_{$i}, :ncn_{$i}, 0)";
-            $params[":gt_{$i}"]   = $e->goi_thau_id;
-            $params[":ma_{$i}"]   = $e->ma_hh;
-            $params[":thh_{$i}"]  = $e->ten_hang_hoa;
-            $params[":tskt_{$i}"] = $e->thong_so_ky_thuat;
-            $params[":dvt_{$i}"]  = $e->dvt;
-            $params[":sl_{$i}"]   = $e->so_luong;
-            $params[":ttu_{$i}"]  = $e->thu_tu;
-            $params[":ntao_{$i}"] = $e->nguoi_tao;
-            $params[":ncn_{$i}"]  = $e->nguoi_tao;
+            $params[":gt_{$i}"]    = $e->goi_thau_id;
+            $params[":bo_{$i}"]    = $e->bo_id;
+            $params[":sttct_{$i}"] = $e->stt_chi_tiet;
+            $params[":ma_{$i}"]    = $e->ma_hh;
+            $params[":thh_{$i}"]   = $e->ten_hang_hoa;
+            $params[":tskt_{$i}"]  = $e->thong_so_ky_thuat;
+            $params[":nn_{$i}"]    = $e->nhom_nuoc;
+            $params[":dvt_{$i}"]   = $e->dvt;
+            $params[":sl_{$i}"]    = $e->so_luong;
+            $params[":ttu_{$i}"]   = $e->thu_tu;
+            $params[":ntao_{$i}"]  = $e->nguoi_tao;
+            $params[":ncn_{$i}"]   = $e->nguoi_tao;
         }
 
         $sql = "INSERT INTO bg_hang_hoa {$cols} VALUES " . implode(',', $rows);

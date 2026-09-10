@@ -11,6 +11,12 @@ $MODULE = BG_GoiThau_BUS::MODULE_KEY;
 
 try {
     switch ($action) {
+        /** Số gói theo từng nhóm — hiện trên tab */
+        case 'demTheoNhom':
+            PhanQuyenHelper::requireQuyen($MODULE, PhanQuyenHelper::QUYEN_XEM);
+            ResponseHelper::success('OK', BG_GoiThau_BUS::demTheoNhom(Helper::postInt('da_xoa', 0)));
+            break;
+
         case 'getPaged':
             PhanQuyenHelper::requireQuyen($MODULE, PhanQuyenHelper::QUYEN_XEM);
             $page = Helper::postInt('page', 1);
@@ -21,7 +27,8 @@ try {
                 Helper::postStr('search'),
                 Helper::postInt('da_xoa', 0),
                 Helper::postInt('trang_thai', -1),
-                Helper::postStr('trang_thai_bao_gia')
+                Helper::postStr('trang_thai_bao_gia'),
+                Helper::postStr('nhom')
             );
             ResponseHelper::paged($res['data'], $page, $size, $res['totalRecords']);
             break;
@@ -48,6 +55,7 @@ try {
                 'svg'                    => QrHelper::svg($url, 260),
                 'so_thong_bao'           => $gt->so_thong_bao,
                 'ten_goi_thau'           => $gt->ten_goi_thau,
+                'nhom'                   => $gt->nhom,
                 'han_cuoi'               => $gt->han_cuoi,
                 'thoi_gian_mo_bao_gia'   => $gt->thoi_gian_mo_bao_gia,
                 'thoi_gian_dong_bao_gia' => $gt->thoi_gian_dong_bao_gia,
@@ -61,6 +69,7 @@ try {
             $e = new BG_GoiThau_PUBLIC();
             $e->so_thong_bao       = Helper::postStr('so_thong_bao');
             $e->ten_goi_thau       = Helper::postStr('ten_goi_thau');
+            $e->nhom               = Helper::postStr('nhom');
             $e->noi_dung           = Helper::postStr('noi_dung');
             $e->ngay_phat_hanh     = Helper::postStr('ngay_phat_hanh');
             // input datetime-local gửi "Y-m-dTH:i" → chuẩn hóa về DATETIME của MySQL
@@ -83,6 +92,7 @@ try {
             $e->id                 = Helper::postInt('id');
             $e->so_thong_bao       = Helper::postStr('so_thong_bao');
             $e->ten_goi_thau       = Helper::postStr('ten_goi_thau');
+            $e->nhom               = Helper::postStr('nhom');
             $e->noi_dung           = Helper::postStr('noi_dung');
             $e->ngay_phat_hanh     = Helper::postStr('ngay_phat_hanh');
             // input datetime-local gửi "Y-m-dTH:i" → chuẩn hóa về DATETIME của MySQL

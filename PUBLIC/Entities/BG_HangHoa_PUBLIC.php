@@ -15,6 +15,15 @@ class BG_HangHoa_PUBLIC
     public ?int $id = null;
     public int $goi_thau_id = 0;
 
+    /**
+     * Thuộc bộ nào (bg_bo.id). Mọi hàng hóa đều nằm trong 1 bộ — hàng lẻ
+     * cũng là 1 bộ chứa đúng 1 chi tiết, để truy vấn không phải phân nhánh.
+     */
+    public ?int $bo_id = null;
+
+    /** STT chi tiết trong bộ — cột (4) Phụ lục III */
+    public ?int $stt_chi_tiet = null;
+
     /** Mã HH — mã hàng hóa do bên mời đặt (VD: VT001). Duy nhất trong 1 gói thầu. */
     public ?string $ma_hh = null;
 
@@ -23,6 +32,9 @@ class BG_HangHoa_PUBLIC
 
     /** Yêu cầu kỹ thuật mời chào giá */
     public ?string $thong_so_ky_thuat = null;
+
+    /** Yêu cầu nhóm nước / vùng lãnh thổ riêng cho hàng chi tiết — cột (10) */
+    public ?string $nhom_nuoc = null;
 
     /** Đơn vị tính */
     public ?string $dvt = null;

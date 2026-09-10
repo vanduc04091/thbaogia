@@ -79,8 +79,6 @@ require __DIR__ . '/../layouts/header.php';
                     <th class="col-price">Tổng tiền</th>
                     <th>Ngày nộp</th>
                     <th>Bản ký</th>
-                    <th>Catalog</th>
-                    <th>Chỉ dẫn vị trí</th>
                     <th>Trạng thái</th>
                     <th class="col-actions">Thao tác</th>
                 </tr>
@@ -94,27 +92,30 @@ require __DIR__ . '/../layouts/header.php';
 
 <!-- ============ Modal chi tiết báo giá ============ -->
 <div class="modal" id="ctModal">
-    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="ctTitle" style="max-width:1180px">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="ctTitle" style="max-width:min(1560px, 96vw)">
         <div class="modal-header">
             <h3 id="ctTitle">Chi tiết báo giá</h3>
             <button type="button" class="close" onclick="closeCt()" aria-label="Đóng"><?= IconHelper::svg('x', 20) ?></button>
         </div>
         <div class="modal-body">
             <div id="ctThongTin"></div>
-            <h4 style="font-size:14px;margin:20px 0 10px;color:var(--gray-700)">Các dòng chào giá</h4>
-            <div class="table-wrap" id="ctTableWrap" style="max-height:420px;overflow:auto">
+            <div style="display:flex;align-items:center;gap:12px;margin:20px 0 10px;flex-wrap:wrap">
+                <h4 style="font-size:14px;margin:0;color:var(--gray-700)">Danh mục hàng hóa nhà thầu đã khai</h4>
+                <!-- Mẫu 1 tới 21 cột — tách 2 tab cho đọc được, thay vì nhồi 1 bảng -->
+                <div class="tab-nhom" id="ctTab" role="tablist" style="margin:0">
+                    <button type="button" class="tab-item is-active" data-tab="gia"
+                            role="tab" aria-selected="true" onclick="doiTabCt('gia')">
+                        <?= IconHelper::svg('bar-chart', 15) ?><span>Bảng chào giá</span>
+                    </button>
+                    <button type="button" class="tab-item" data-tab="dap_ung"
+                            role="tab" aria-selected="false" onclick="doiTabCt('dap_ung')">
+                        <?= IconHelper::svg('clipboard-list', 15) ?><span>Bảng đáp ứng</span>
+                    </button>
+                </div>
+            </div>
+            <div class="table-wrap" id="ctTableWrap" style="max-height:460px;overflow:auto">
                 <table class="table" id="ctTable">
-                    <thead>
-                        <tr>
-                            <th class="col-id">STT</th>
-                            <th>Hàng hóa</th>
-                            <th>Tên thương mại / Model</th>
-                            <th>Hãng SX / Xuất xứ</th>
-                            <th class="col-qty">SL</th>
-                            <th class="col-price">Đơn giá</th>
-                            <th class="col-price">Thành tiền</th>
-                        </tr>
-                    </thead>
+                    <thead id="ctHead"></thead>
                     <tbody id="ctBody"></tbody>
                 </table>
             </div>
@@ -302,8 +303,8 @@ function renderTable(rows) {
             if (CAN.del)  actions += '<button class="btn btn-sm btn-outline-danger" onclick="delForever(' + r.id + ')" title="Xóa vĩnh viễn">' + APP.icon('trash', 15) + '</button>';
         } else {
             actions += '<button class="btn btn-sm btn-outline-secondary" onclick="showCt(' + r.id + ')" title="Xem chi tiết">' + APP.icon('eye', 15) + '</button>';
-            // Tải TẤT CẢ tài liệu (bản ký + catalog + bảng chỉ dẫn) trong 1 file .zip
-            if (r.ten_file_goc || r.ten_file_catalog || r.ten_file_catalog_excel) {
+            // Tải tài liệu nhà thầu nộp trong 1 file .zip
+            if (r.ten_file_goc) {
                 actions += '<a class="btn btn-sm btn-outline-primary" href="' + URL_BAN_KY +
                     '?id=' + r.id + '&loai=tat_ca" title="Tải tất cả tài liệu (.zip)">' +
                     APP.icon('download', 15) + '</a>';
@@ -344,29 +345,6 @@ function renderTable(rows) {
             oBanKy = '<span class="text-muted">Chưa có</span>';
         }
 
-        /**
-         * Ô file phụ (catalog / Excel chỉ dẫn).
-         * Excel không xem được trên trình duyệt nên chỉ có nút tải.
-         */
-        function oFile(coFile, loai, nhan, chiTai) {
-            if (!coFile) return '<span class="text-muted">Chưa có</span>';
-            var u = URL_BAN_KY + '?id=' + r.id + '&loai=' + loai;
-            var h = '<span class="row-actions" style="justify-content:flex-start">';
-            if (!chiTai) {
-                h += '<button type="button" class="btn btn-sm btn-outline-primary js-xem-file"' +
-                     ' data-id="' + r.id + '" data-loai="' + loai + '"' +
-                     ' data-ten="' + APP.escape(coFile) + '"' +
-                     ' title="Xem ' + nhan + ': ' + APP.escape(coFile) + '">' +
-                     APP.icon('eye', 15) + '</button>';
-            }
-            h += '<a class="btn btn-sm btn-outline-secondary" href="' + u + '&tai_ve=1"' +
-                 ' title="Tải ' + nhan + ' về máy">' + APP.icon('download', 15) + '</a>';
-            return h + '</span>';
-        }
-
-        var oCatalog = oFile(r.ten_file_catalog, 'catalog', 'catalog', false);
-        var oChiDan  = oFile(r.ten_file_catalog_excel, 'catalog_excel', 'file chỉ dẫn', true);
-
         html += '<tr>' +
             '<td class="col-id">' + r.id + '</td>' +
             '<td><span class="cell-main">' + APP.escape(r.ten_cong_ty) + '</span>' +
@@ -380,8 +358,6 @@ function renderTable(rows) {
                 ? APP.escape(APP.formatDateTime(r.ngay_nop))
                 : '<span class="text-muted">Chưa nộp</span>') + '</td>' +
             '<td>' + oBanKy + '</td>' +
-            '<td>' + oCatalog + '</td>' +
-            '<td>' + oChiDan + '</td>' +
             '<td>' + badgeTrangThai(tt) + lyDo + '</td>' +
             '<td class="col-actions"><span class="row-actions">' + actions + '</span></td>' +
             '</tr>';
@@ -393,7 +369,9 @@ function renderTable(rows) {
 function showCt(id) {
     APP.ajax(AJAX_URL, { action: 'getChiTiet', id: id }, {
         success: function (res) {
-            var bg = res.data.bao_gia, ct = res.data.chi_tiet || [];
+            var bg  = res.data.bao_gia,
+                ct  = res.data.chi_tiet || [],
+                cap = res.data.cap || [];
 
             $('#ctTitle').text('Báo giá — ' + bg.ten_cong_ty);
             $('#btnXuatBaoGia').attr('href', URL_XUAT_BG + '?id=' + bg.id);
@@ -406,6 +384,7 @@ function showCt(id) {
                 dItem('Địa chỉ', bg.dia_chi, 'span-2') +
                 dItem('Hiệu lực báo giá', bg.hieu_luc_bao_gia ? bg.hieu_luc_bao_gia + ' ngày' : '') +
                 dItem('Gói thầu', (bg.so_thong_bao || '') + ' — ' + (bg.ten_goi_thau || ''), 'span-2') +
+                dItem('Nhóm gói thầu', res.data.ten_nhom || '') +
                 dItem('Ngày nộp online', bg.ngay_nop ? APP.formatDateTime(bg.ngay_nop) : '') +
                 dItem('Ngày xác nhận bản giấy', bg.ngay_xac_nhan ? APP.formatDateTime(bg.ngay_xac_nhan) : '') +
                 dItem('Người xác nhận', bg.tai_khoan_xac_nhan
@@ -418,34 +397,147 @@ function showCt(id) {
                 '</div>';
             $('#ctThongTin').html(info);
 
-            var html = '';
-            if (!ct.length) {
-                html = APP.emptyRow(7, 'Nhà thầu chưa điền dòng chào giá nào');
-            } else {
-                for (var i = 0; i < ct.length; i++) {
-                    var r = ct[i];
-                    var coGia = Number(r.don_gia) > 0;
-                    var tenModel = APP.escape(r.ten_thuong_mai || '');
-                    if (r.model) tenModel += '<span class="cell-sub">' + APP.escape(r.model) + '</span>';
-                    var hangXx = APP.escape(r.hang_san_xuat || '');
-                    if (r.xuat_xu) hangXx += '<span class="cell-sub">' + APP.escape(r.xuat_xu) + '</span>';
-
-                    html += '<tr>' +
-                        '<td class="col-id">' + (i + 1) + '</td>' +
-                        '<td><span class="cell-main">' + APP.escape(r.ten_hang_hoa) + '</span>' +
-                            (r.ma_hh ? '<span class="cell-sub text-mono">' + APP.escape(r.ma_hh) + '</span>' : '') + '</td>' +
-                        '<td>' + (tenModel || '<span class="text-muted">—</span>') + '</td>' +
-                        '<td>' + (hangXx || '<span class="text-muted">—</span>') + '</td>' +
-                        '<td class="col-qty">' + Number(r.so_luong || 0).toLocaleString('vi-VN') + '</td>' +
-                        '<td class="cell-money">' + (coGia ? money(r.don_gia) : '<span class="text-muted">Không chào</span>') + '</td>' +
-                        '<td class="cell-total">' + (coGia ? money(r.thanh_tien) : '—') + '</td>' +
-                        '</tr>';
-                }
-            }
-            $('#ctBody').html(html);
+            renderChiTiet(ct, cap);
             $('#ctModal').addClass('open');
         }
     });
+}
+
+/**
+ * Bảng chi tiết chào giá — 2 chế độ xem, gom theo BỘ.
+ *
+ * Mẫu 1 có tới 21 cột nên nhồi hết vào 1 bảng sẽ không đọc nổi; tách thành
+ * 2 tab: "Chào giá" (Mẫu 2) và "Đáp ứng kỹ thuật" (Mẫu 1). Số cặp đáp ứng
+ * thay đổi theo nhóm gói thầu — server gửi sẵn qua `cap`.
+ */
+var CT_DONG = [], CT_CAP = [], CT_TAB = 'gia';
+
+function renderChiTiet(ct, cap) {
+    CT_DONG = ct || [];
+    CT_CAP  = cap || [];
+    veBangCt();
+}
+
+function doiTabCt(tab) {
+    CT_TAB = tab;
+    $('#ctTab .tab-item').each(function () {
+        var la = String($(this).data('tab')) === tab;
+        $(this).toggleClass('is-active', la).attr('aria-selected', la ? 'true' : 'false');
+    });
+    veBangCt();
+}
+
+function veBangCt() {
+    var laGia = CT_TAB === 'gia';
+
+    // ---- Tiêu đề ----
+    var th = '<tr>' +
+        '<th class="col-id" style="width:56px">STT</th>' +
+        '<th style="width:100px">Mã</th>' +
+        '<th style="min-width:210px">Tên bộ / hàng hóa</th>';
+    if (laGia) {
+        th += '<th>Tên thương mại</th><th>Model</th><th>Hãng SX</th>' +
+              '<th style="width:70px">Năm SX</th><th>Xuất xứ</th>' +
+              '<th style="width:60px">ĐVT</th><th class="col-qty" style="width:60px">SL</th>' +
+              '<th class="col-price">Đơn giá</th><th class="col-price">Thành tiền</th>';
+    } else {
+        th += '<th>Yêu cầu kỹ thuật mời chào giá</th>';
+        for (var i = 0; i < CT_CAP.length; i++) {
+            th += '<th>' + APP.escape(CT_CAP[i].nhan) + '</th>';
+        }
+        th += '<th>Tài liệu chứng minh</th>';
+    }
+    th += '</tr>';
+    $('#ctHead').html(th);
+
+    var soCot = $('#ctHead tr th').length;
+
+    if (!CT_DONG.length) {
+        $('#ctBody').html(APP.emptyRow(soCot, 'Nhà thầu chưa điền dòng chào giá nào'));
+        return;
+    }
+
+    // ---- Thân bảng ----
+    var html = '', boHienTai = null, stt = 0;
+
+    for (var k = 0; k < CT_DONG.length; k++) {
+        var r = CT_DONG[k];
+
+        // Dòng tiêu đề BỘ — chỉ in khi đổi bộ, và chỉ khi hàng THUỘC bộ
+        var boId = r.bo_id || 0;
+        if (boId !== boHienTai) {
+            boHienTai = boId;
+            if (boId && r.ten_bo) {
+                html += '<tr class="row-bo">' +
+                    '<td class="col-id">' + APP.escape(String(r.stt_bo || '')) + '</td>' +
+                    '<td>' + APP.escape(r.ma_bo || '') + '</td>' +
+                    '<td colspan="' + (soCot - 2) + '">' +
+                        '<span class="ten-bo">' + APP.icon('package', 14) + ' ' +
+                        APP.escape(r.ten_bo) + '</span>' +
+                        (laGia ? '' : yeuCauCuaBo(r)) +
+                    '</td></tr>';
+            }
+        }
+
+        stt++;
+        var coGia = Number(r.don_gia) > 0;
+
+        html += '<tr class="row-ct">' +
+            '<td class="col-id">' + (r.stt_chi_tiet || stt) + '</td>' +
+            '<td><span class="text-mono">' + APP.escape(r.ma_hh || '') + '</span></td>' +
+            '<td><span class="cell-main' + (boId ? ' cell-thut' : '') + '">' +
+                APP.escape(r.ten_hang_hoa) + '</span></td>';
+
+        if (laGia) {
+            html += '<td>' + oHoac(r.ten_thuong_mai) + '</td>' +
+                '<td>' + oHoac(r.model) + '</td>' +
+                '<td>' + oHoac(r.hang_san_xuat) + '</td>' +
+                '<td>' + oHoac(r.nam_san_xuat) + '</td>' +
+                '<td>' + oHoac(r.xuat_xu) + '</td>' +
+                '<td>' + oHoac(r.dvt) + '</td>' +
+                '<td class="col-qty">' + Number(r.so_luong || 0).toLocaleString('vi-VN') + '</td>' +
+                '<td class="cell-money">' + (coGia ? money(r.don_gia)
+                    : '<span class="text-muted">Không chào</span>') + '</td>' +
+                '<td class="cell-total">' + (coGia ? money(r.thanh_tien) : '—') + '</td>';
+        } else {
+            html += '<td class="cell-wrap">' + oHoac(r.thong_so_ky_thuat) + '</td>';
+            for (var c = 0; c < CT_CAP.length; c++) {
+                html += '<td class="cell-wrap">' + oDapUngCt(r, CT_CAP[c]) + '</td>';
+            }
+            html += '<td class="cell-wrap">' + oHoac(r.tai_lieu_chung_minh) + '</td>';
+        }
+        html += '</tr>';
+    }
+
+    $('#ctBody').html(html);
+}
+
+/** Ô đáp ứng: thông số nhà thầu khai + điểm không đạt (nếu có) */
+function oDapUngCt(r, cap) {
+    var dat = r[cap.cot_dat] || '';
+    var khong = r[cap.cot_khong] || '';
+    var h = '';
+    if (dat) h += APP.escape(dat);
+    if (khong) {
+        h += (h ? '<br>' : '') +
+             '<span class="badge badge-warning badge-quote">Không đạt</span> ' +
+             APP.escape(khong);
+    }
+    return h || '<span class="text-muted">—</span>';
+}
+
+/** Yêu cầu cấp BỘ do bên mời đặt — hiện dưới tên bộ ở tab Đáp ứng */
+function yeuCauCuaBo(r) {
+    var h = '';
+    if (r.yeu_cau_chung)    h += '<div class="yc-bo"><span class="yc-nhan">Yêu cầu chung</span>' + APP.escape(r.yeu_cau_chung) + '</div>';
+    if (r.yeu_cau_khac)     h += '<div class="yc-bo"><span class="yc-nhan">Yêu cầu khác</span>' + APP.escape(r.yeu_cau_khac) + '</div>';
+    if (r.yeu_cau_cau_hinh) h += '<div class="yc-bo"><span class="yc-nhan">Yêu cầu cấu hình</span>' + APP.escape(r.yeu_cau_cau_hinh) + '</div>';
+    if (r.nhom_nuoc_bo)     h += '<div class="yc-bo"><span class="yc-nhan">Nhóm nước</span>' + APP.escape(r.nhom_nuoc_bo) + '</div>';
+    return h;
+}
+
+function oHoac(v) {
+    return v ? APP.escape(String(v)) : '<span class="text-muted">—</span>';
 }
 
 /** Ô "Bản có dấu & chữ ký" — kèm nút xem và tải nếu nhà thầu đã upload */
@@ -572,7 +664,7 @@ function delForever(id) {
  * (có kiểm tra đăng nhập + quyền), không trỏ thẳng vào file trong uploads.
  */
 /**
- * @param {string} loai 'ban_ky' (mặc định) | 'catalog' — Excel không xem được
+ * @param {string} loai 'ban_ky' (mặc định)
  *                      nên không gọi hàm này, chỉ có nút tải.
  */
 function moXemBanKy(id, tenFile, loai) {
@@ -614,12 +706,6 @@ function closeXemBanKy() {
 $(document).on('click', '.js-xem-bk', function () {
     var $b = $(this);
     moXemBanKy(parseInt($b.data('id'), 10), String($b.data('ten') || ''));
-});
-// Xem file phụ (catalog) — dùng chung hộp thoại với bản ký
-$(document).on('click', '.js-xem-file', function () {
-    var $b = $(this);
-    moXemBanKy(parseInt($b.data('id'), 10), String($b.data('ten') || ''),
-               String($b.data('loai') || 'ban_ky'));
 });
 
 function closeCt() { $('#ctModal').removeClass('open'); }

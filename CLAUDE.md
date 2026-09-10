@@ -472,16 +472,15 @@ Ghi dữ liệu test (INSERT/UPDATE/DELETE bản ghi) thì được, nhưng ph�
 
 ### 10.1. Luồng chính
 ```
-Gói thầu (bg_goi_thau) → sinh token QR
-   ↓ import Excel cột A-K
-Hàng hóa (bg_hang_hoa)
+Gói thầu (bg_goi_thau) + chọn NHÓM → sinh token QR
+   ↓ import Excel 12 cột theo Phụ lục III Thư mời
+BỘ (bg_bo) → HÀNG HÓA CHI TIẾT (bg_hang_hoa.bo_id)
    ↓ mở nhận báo giá + phát QR
 Nhà thầu quét QR → login tài khoản chung (guest/123456)
    → B1 khai thông tin công ty → bg_bao_gia (BẢN NHÁP, da_hoan_thanh = 0)
-   → B2/B3 tải file mẫu, điền cột L-AD, import  HOẶC  điền trực tiếp bảng web
-   → nộp online (ngay_nop)
+   → B2 tải Mẫu 1, điền trong file, import lên  (màn hình chỉ hiện TÓM TẮT)
+   → B3 tải Mẫu 2, điền trong file, import lên  → nộp online (ngay_nop)
    → B4 upload bản báo giá đã ký + đóng dấu
-   → B5 upload catalog + bảng chỉ dẫn vị trí tài liệu
    → bấm HOÀN THÀNH → da_hoan_thanh = 1, trang_thai = 0 (Chờ duyệt)
    ↓                    (bỏ dở giữa chừng: cron xóa sau 24h, làm lại từ đầu)
 Bên mời DUYỆT (quyền SỬA ở BG_BaoGia) → trang_thai = 1
@@ -490,6 +489,38 @@ Xuất Excel tổng hợp — CHỈ gộp báo giá đã duyệt
 ```
 
 ### 10.2. Quy tắc nghiệp vụ không được phá
+
+- **3 NHÓM GÓI THẦU quyết định ẩn/hiện cột** — `bg_goi_thau.nhom`:
+
+  | Nhóm | YC chung | YC khác | YC cấu hình | YC kỹ thuật | Mẫu 1 |
+  |---|:---:|:---:|:---:|:---:|:---:|
+  | `bo_dung_cu` | có | có | — | có (chi tiết) | 18 cột |
+  | `he_thong_tbyt` | có | có | có | có (chi tiết) | 21 cột |
+  | `vat_tu_duoc` | — | — | — | có | 12 cột |
+
+  **`BG_Nhom_PUBLIC` là NGUỒN DUY NHẤT** quyết định nhóm nào có cột nào
+  (`coYeuCauChung()`, `coYeuCauCauHinh()`, `capDapUng()`). Mọi nơi cần biết
+  đều hỏi class này — KHÔNG tự viết lại điều kiện, sửa 1 chỗ là cả hệ thống theo.
+  Mẫu 2 giữ **14 cột cho cả 3 nhóm** (đúng Phụ lục II).
+
+- **Cấu trúc BỘ → HÀNG HÓA CHI TIẾT** (Phụ lục III): yêu cầu chung/khác/cấu hình
+  gắn với **bộ** (`bg_bo`), yêu cầu kỹ thuật gắn với **hàng hóa chi tiết**
+  (`bg_hang_hoa.bo_id`). Hàng lẻ (vd vật tư "Bơm tiêm") vẫn là 1 bộ chứa đúng
+  1 chi tiết → mọi truy vấn đi chung một đường, không phải phân nhánh.
+
+- **Nhà thầu KHÔNG điền tay trên web** — Mẫu 1 tới 21 cột, điền trên trình duyệt
+  rất khó. Luồng: tải file mẫu → điền trong Excel → import lên → màn hình chỉ
+  hiện **tóm tắt** để đối chiếu (`BG_BaoGia_BUS::getBangChaoGia()` trả cây bộ).
+
+- **Import Mẫu 1/2 dò cột theo TÊN, không theo vị trí** —
+  `BG_BaoGia_BUS::doCotTheoTieuDe()`. Số cột Mẫu 1 khác nhau giữa 3 nhóm nên
+  hardcode chỉ số cột sẽ lệch dữ liệu. Khớp dòng theo **Mã** (bên mời phát).
+  Dòng BỘ cũng mang mã (`ma_bo`) nhưng không phải hàng hóa → bỏ qua im lặng
+  (`laMaBo()`), không cảnh báo nhầm cho nhà thầu.
+
+- **Đã BỎ Bước 5 (catalog + Excel chỉ dẫn vị trí)** — bảng `bg_catalog`, cột
+  `file_catalog_id` / `file_catalog_excel_id` và file trên đĩa đều xóa hẳn
+  (`database/migrate_nhom_bo.php`). Cổng nhà thầu còn **4 bước**.
 - **Chỉ báo giá `trang_thai = 1` (Đã duyệt) vào bảng tổng hợp.** Đây là chốt kiểm soát chính.
   Điều kiện đầy đủ là `trang_thai = 1 AND da_hoan_thanh = 1` — phải khớp ĐÚNG với
   `BG_BaoGia_DAL::getPaged()`, nếu lệch sẽ có báo giá vào tổng hợp mà KHÔNG hiện ở
@@ -589,9 +620,11 @@ script giải mã ngược độc lập, kiểm format info có trong bảng chu
 | `database/migrate_chong_brute_force.php` | Bảng đếm đăng nhập sai theo IP |
 | `database/sao_luu.php` | Sao lưu DB ra .sql (chạy cron hằng ngày) |
 | `database/migrate_bao_gia_cho_duyet.php` | Chuẩn hóa báo giá cũ cho quy trình duyệt |
+| `database/migrate_nhom_bo.php` | Nhóm gói thầu + bảng `bg_bo` + bỏ hẳn catalog |
 | `cron_cleanup.php` | Dọn nhật ký, bộ đếm login, file tạm, **báo giá bỏ dở > 24h** |
 | `database/migrate_bang_file.php` | Tách file ra bảng `bg_file`, bg_bao_gia chỉ giữ `file_ban_ky_id` |
-| `database/seed_bao_gia.php` | Dữ liệu test (`--reset` để làm sạch) |
+| `database/seed_bao_gia.php` | Dữ liệu test nhóm vật tư dược (`--reset` để làm sạch) |
+| `database/seed_nhom_bo.php` | Dữ liệu test nhóm **bộ y dụng cụ** + **hệ thống TBYT** |
 | `GUI/BG_GoiThau/` | CRUD gói thầu + modal QR |
 | `GUI/BG_HangHoa/` | CRUD + import Excel danh mục hàng hóa |
 | `GUI/BG_BaoGia/` | Xem báo giá, **xác nhận bản giấy**, từ chối, **xem/tải bản ký** |

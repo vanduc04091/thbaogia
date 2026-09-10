@@ -14,9 +14,9 @@ PhanQuyenHelper::requireQuyenView(BG_BaoGia_BUS::MODULE_KEY);
 
 $id = (int)Helper::get('id', 0);
 $taiVe = (int)Helper::get('tai_ve', 0) === 1;
-// loai=ban_ky (mặc định) | catalog | catalog_excel | tat_ca (gói .zip)
+// loai=ban_ky (mặc định) | tat_ca (gói .zip)
 $loai  = (string)Helper::get('loai', 'ban_ky');
-if (!in_array($loai, ['ban_ky', 'catalog', 'catalog_excel', 'tat_ca'], true)) $loai = 'ban_ky';
+if (!in_array($loai, ['ban_ky', 'tat_ca'], true)) $loai = 'ban_ky';
 
 function loiXem(string $msg): void
 {
@@ -62,18 +62,7 @@ if ($loai === 'tat_ca') {
 }
 
 // Thông tin file nằm ở bảng bg_file, bg_bao_gia chỉ giữ khóa
-if ($loai === 'catalog') {
-    if (empty($bg->file_catalog_id)) loiXem('Báo giá này chưa có catalog');
-    $fileBk = BG_BaoGia_BUS::fileCatalog($id);
-    $path   = BG_BaoGia_BUS::duongDanCatalog($id);
-    $nhanFile = 'catalog';
-} elseif ($loai === 'catalog_excel') {
-    if (empty($bg->file_catalog_excel_id)) loiXem('Báo giá này chưa có file Excel chỉ dẫn');
-    $fileBk = BG_BaoGia_BUS::fileCatalogExcel($id);
-    $path   = BG_BaoGia_BUS::duongDanCatalogExcel($id);
-    $nhanFile = 'Excel chỉ dẫn';
-    $taiVe = true;   // Excel không xem được trên trình duyệt
-} else {
+{
     if (empty($bg->file_ban_ky_id)) loiXem('Báo giá này chưa có bản ký');
     $fileBk = BG_BaoGia_BUS::fileBanKy($id);
     $path   = BG_BaoGia_BUS::duongDanBanKy($id);

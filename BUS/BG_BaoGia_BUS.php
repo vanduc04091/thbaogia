@@ -1,10 +1,10 @@
 <?php
 require_once __DIR__ . '/../DAL/BG_BaoGia_DAL.php';
 require_once __DIR__ . '/../DAL/BG_HangHoa_DAL.php';
+require_once __DIR__ . '/../DAL/BG_Bo_DAL.php';
 require_once __DIR__ . '/../DAL/BG_GoiThau_DAL.php';
 require_once __DIR__ . '/../DAL/DM_NhatKyHeThong_DAL.php';
 require_once __DIR__ . '/../DAL/BG_File_DAL.php';
-require_once __DIR__ . '/../DAL/BG_Catalog_DAL.php';
 require_once __DIR__ . '/../PUBLIC/Common/ExcelHelper.php';
 require_once __DIR__ . '/../PUBLIC/Common/WordHelper.php';
 require_once __DIR__ . '/../PUBLIC/Common/WordTemplate.php';
@@ -18,27 +18,13 @@ class BG_BaoGia_BUS
 
     // ===== Cột sheet "Mau1_DapUngKyThuat" (Phụ lục II — Mẫu 1) =====
     //   A: Mã HH | B: Tên HH mời | C: YCKT mời | D: YCKT chào giá | E: Điểm không đạt
-    const M1_MA_HH           = 0;
-    const M1_THONG_SO_CHAO   = 3;
-    const M1_DIEM_KHONG_DAT  = 4;
 
     // ===== Cột sheet "Mau2_BangChaoGia" (Phụ lục II — Mẫu 2) =====
     //   A: TT | B: Mã HH | C: Tên HH mời | D: Tên TM | E: Model | F: Hãng SX
     //   G: Xuất xứ | H: SL | I: Quy cách | J: ĐVT | K: Đơn giá | L: Thành tiền
     //   M: Giá trúng thầu gần nhất | N: Tài liệu TC | O: Số TB mời thầu
-    const M2_MA_HH           = 1;
-    const M2_TEN_THUONG_MAI  = 3;
-    const M2_MODEL           = 4;
-    const M2_HANG_SX         = 5;
-    const M2_XUAT_XU         = 6;
-    const M2_QUY_CACH        = 8;
-    const M2_DON_GIA         = 10;
-    const M2_GIA_TRUNG_THAU  = 12;
-    const M2_TAI_LIEU        = 13;
 
     /** Dòng bắt đầu dữ liệu trong file mẫu (1-3 tiêu đề, 4 header, 5 hướng dẫn) */
-    const M1_DATA_ROW = 6;
-    const M2_DATA_ROW = 5;
 
     /** Dòng bắt đầu dữ liệu trong file mẫu do hệ thống sinh ra (1=header, 2=HD) */
     const EXCEL_DATA_ROW = 3;
@@ -305,16 +291,13 @@ class BG_BaoGia_BUS
      * đồng thời đối chiếu tên hàng hóa để phát hiện lệch.
      */
     /**
-     * Nhà thầu import file Excel đã điền (file mẫu 2 sheet do hệ thống sinh).
+     * Nhà thầu import file Mẫu 1 (bảng đáp ứng) hoặc Mẫu 2 (bảng chào giá).
      *
-     * Khớp dòng theo **Mã HH** — không khớp theo tên hàng hóa nữa vì tên dài,
-     * dễ bị sửa/xuống dòng khi copy, còn Mã HH là duy nhất trong 1 gói thầu.
+     * Số cột Mẫu 1 THAY ĐỔI theo nhóm gói thầu (12 / 18 / 21 cột) nên KHÔNG
+     * dò theo vị trí cột cố định nữa: đọc dòng tiêu đề rồi map "tên cột → chỉ
+     * số". Nhà thầu chèn/xóa cột hay đổi nhóm cũng không lệch dữ liệu.
      *
-     * Đọc CẢ HAI sheet:
-     *   Mau1_DapUngKyThuat → thong_so_chao_gia, diem_khong_dat
-     *   Mau2_BangChaoGia   → tên TM, model, hãng SX, xuất xứ, quy cách, đơn giá...
-     *
-     * Sheet nào thiếu thì bỏ qua sheet đó (nhà thầu có thể nộp dần).
+     * Khớp dòng theo **Mã** (cột A) — mã do bên mời phát, nhà thầu không sửa.
      */
     public static function importFileBaoGia(int $baoGiaId, string $filePath, int $u): array
     {
@@ -325,77 +308,121 @@ class BG_BaoGia_BUS
         }
 
         $gt = BG_GoiThau_DAL::getById((int)$bg->goi_thau_id);
-        if ($gt) {
-            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
-            if (!$conNhan['ok']) return ['success' => false, 'message' => $conNhan['message']];
-        }
+        if (!$gt) return ['success' => false, 'message' => 'Không tìm thấy gói thầu'];
+
+        $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
+        if (!$conNhan['ok']) return ['success' => false, 'message' => $conNhan['message']];
 
         $hangHoa = BG_HangHoa_DAL::getByGoiThau((int)$bg->goi_thau_id);
         if (empty($hangHoa)) return ['success' => false, 'message' => 'Gói thầu chưa có danh mục hàng hóa'];
 
-        // Map Mã HH (chuẩn hóa hoa/thường) → thông tin hàng hóa
+        // Map Mã HH (chuẩn hóa hoa/thường) → hàng hóa
         $theoMa = [];
         foreach ($hangHoa as $hh) {
             $ma = mb_strtoupper(trim((string)($hh['ma_hh'] ?? '')));
             if ($ma !== '') $theoMa[$ma] = $hh;
         }
 
-        $tenSheet = ExcelHelper::sheetNames($filePath);
+        $nhom     = BG_Nhom_PUBLIC::chuanHoa($gt->nhom ?? null);
         $canhBao  = [];
-        $duLieu   = [];   // ma_hh => mảng giá trị gom từ 2 sheet
+        $duLieu   = [];
 
-        // ---------- Sheet 1: Bảng đáp ứng kỹ thuật ----------
-        if (in_array('Mau1_DapUngKyThuat', $tenSheet, true)) {
-            $rows = ExcelHelper::readSheet($filePath, 'Mau1_DapUngKyThuat');
-            foreach ($rows as $rowNo => $cells) {
-                if ($rowNo < self::M1_DATA_ROW) continue;
-                $ma = mb_strtoupper(ExcelHelper::toText($cells[self::M1_MA_HH] ?? '', 50));
-                if ($ma === '') continue;
-                if (!isset($theoMa[$ma])) {
-                    $canhBao[] = "Mẫu 1 dòng {$rowNo}: Mã HH \"{$ma}\" không có trong gói thầu — bỏ qua";
-                    continue;
+        try {
+            $tenSheet = ExcelHelper::sheetNames($filePath);
+        } catch (Throwable $ex) {
+            return ['success' => false, 'message' => 'Không đọc được file: ' . $ex->getMessage()];
+        }
+
+        // ---------- MẪU 1 — Bảng đáp ứng ----------
+        if (in_array('Mau1_BangDapUng', $tenSheet, true)) {
+            $rows = ExcelHelper::readSheet($filePath, 'Mau1_BangDapUng');
+            [$cot, $dongDau] = self::doCotTheoTieuDe($rows);
+
+            if ($dongDau === 0) {
+                $canhBao[] = 'Mẫu 1: không tìm thấy dòng tiêu đề — bỏ qua sheet này';
+            } else {
+                // Cặp (đáp ứng, không đạt) đúng theo nhóm — xem BG_Nhom_PUBLIC
+                $cap = BG_Nhom_PUBLIC::capDapUng($nhom);
+
+                foreach ($rows as $rowNo => $cells) {
+                    if ($rowNo <= $dongDau) continue;
+                    $ma = mb_strtoupper(ExcelHelper::toText($cells[$cot['ma'] ?? 0] ?? '', 50));
+                    if ($ma === '') continue;                 // dòng BỘ, không có mã hàng
+                    if (!isset($theoMa[$ma])) {
+                        // Dòng BỘ cũng có mã (ma_bo) nhưng không phải hàng hóa —
+                        // bỏ qua im lặng, chỉ cảnh báo mã lạ thật sự.
+                        if (!self::laMaBo($ma, (int)$bg->goi_thau_id)) {
+                            $canhBao[] = "Mẫu 1 dòng {$rowNo}: Mã \"{$ma}\" không có trong gói thầu — bỏ qua";
+                        }
+                        continue;
+                    }
+
+                    foreach ($cap as $khoa => $c) {
+                        // $c = [nhãn, cột đáp ứng, cột không đạt]
+                        $iDu    = $cot['dap_ung_' . $khoa]   ?? null;
+                        $iKhong = $cot['khong_dat_' . $khoa] ?? null;
+                        if ($iDu !== null) {
+                            $duLieu[$ma][$c[1]] = ExcelHelper::toText($cells[$iDu] ?? '');
+                        }
+                        if ($iKhong !== null) {
+                            $duLieu[$ma][$c[2]] = ExcelHelper::toText($cells[$iKhong] ?? '');
+                        }
+                    }
+                    if (isset($cot['tai_lieu_chung_minh'])) {
+                        $duLieu[$ma]['tai_lieu_chung_minh'] =
+                            ExcelHelper::toText($cells[$cot['tai_lieu_chung_minh']] ?? '');
+                    }
                 }
-                $duLieu[$ma]['thong_so_chao_gia'] = ExcelHelper::toText($cells[self::M1_THONG_SO_CHAO] ?? '');
-                $duLieu[$ma]['diem_khong_dat']    = ExcelHelper::toText($cells[self::M1_DIEM_KHONG_DAT] ?? '');
             }
         }
-        // File mẫu nay tách riêng từng mẫu nên thiếu sheet kia là BÌNH THƯỜNG,
-        // không cảnh báo. Chỉ báo lỗi khi cả 2 sheet đều không có (kiểm ở dưới).
 
-        // ---------- Sheet 2: Bảng chào giá ----------
+        // ---------- MẪU 2 — Bảng chào giá ----------
         if (in_array('Mau2_BangChaoGia', $tenSheet, true)) {
             $rows = ExcelHelper::readSheet($filePath, 'Mau2_BangChaoGia');
-            foreach ($rows as $rowNo => $cells) {
-                if ($rowNo < self::M2_DATA_ROW) continue;
-                $ma = mb_strtoupper(ExcelHelper::toText($cells[self::M2_MA_HH] ?? '', 50));
-                if ($ma === '') continue;
-                if (!isset($theoMa[$ma])) {
-                    $canhBao[] = "Mẫu 2 dòng {$rowNo}: Mã HH \"{$ma}\" không có trong gói thầu — bỏ qua";
-                    continue;
-                }
+            [$cot, $dongDau] = self::doCotTheoTieuDe($rows);
 
-                $donGia = ExcelHelper::toNumber($cells[self::M2_DON_GIA] ?? 0);
-                if ($donGia < 0) {
-                    $canhBao[] = "Mẫu 2 dòng {$rowNo}: đơn giá âm → đặt về 0";
-                    $donGia = 0;
-                }
+            if ($dongDau === 0) {
+                $canhBao[] = 'Mẫu 2: không tìm thấy dòng tiêu đề — bỏ qua sheet này';
+            } else {
+                foreach ($rows as $rowNo => $cells) {
+                    if ($rowNo <= $dongDau) continue;
+                    $ma = mb_strtoupper(ExcelHelper::toText($cells[$cot['ma'] ?? 0] ?? '', 50));
+                    if ($ma === '') continue;
+                    if (!isset($theoMa[$ma])) {
+                        if (!self::laMaBo($ma, (int)$bg->goi_thau_id)) {
+                            $canhBao[] = "Mẫu 2 dòng {$rowNo}: Mã \"{$ma}\" không có trong gói thầu — bỏ qua";
+                        }
+                        continue;
+                    }
 
-                $duLieu[$ma]['ten_thuong_mai']        = ExcelHelper::toText($cells[self::M2_TEN_THUONG_MAI] ?? '', 1000);
-                $duLieu[$ma]['model']                 = ExcelHelper::toText($cells[self::M2_MODEL] ?? '', 500);
-                $duLieu[$ma]['hang_san_xuat']         = ExcelHelper::toText($cells[self::M2_HANG_SX] ?? '', 500);
-                $duLieu[$ma]['xuat_xu']               = ExcelHelper::toText($cells[self::M2_XUAT_XU] ?? '', 500);
-                $duLieu[$ma]['quy_cach']              = ExcelHelper::toText($cells[self::M2_QUY_CACH] ?? '', 500);
-                $duLieu[$ma]['don_gia']               = $donGia;
-                $duLieu[$ma]['don_gia_trung_thau']    = ExcelHelper::toNumber($cells[self::M2_GIA_TRUNG_THAU] ?? 0);
-                $duLieu[$ma]['tai_lieu_tham_chieu']   = ExcelHelper::toText($cells[self::M2_TAI_LIEU] ?? '');
+                    $donGia = isset($cot['don_gia'])
+                        ? ExcelHelper::toNumber($cells[$cot['don_gia']] ?? 0) : 0;
+                    if ($donGia < 0) {
+                        $canhBao[] = "Mẫu 2 dòng {$rowNo}: đơn giá âm → đặt về 0";
+                        $donGia = 0;
+                    }
+
+                    $lay = function (string $k, int $max = 0) use ($cot, $cells): string {
+                        return isset($cot[$k]) ? ExcelHelper::toText($cells[$cot[$k]] ?? '', $max) : '';
+                    };
+
+                    $duLieu[$ma]['ten_thuong_mai'] = $lay('ten_thuong_mai', 1000);
+                    $duLieu[$ma]['model']          = $lay('model', 500);
+                    $duLieu[$ma]['hang_san_xuat']  = $lay('hang_san_xuat', 500);
+                    $duLieu[$ma]['nam_san_xuat']   = $lay('nam_san_xuat', 20);
+                    $duLieu[$ma]['xuat_xu']        = $lay('xuat_xu', 500);
+                    $duLieu[$ma]['don_gia']        = $donGia;
+                }
             }
         }
 
         if (empty($duLieu)) {
             return [
                 'success' => false,
-                'message' => 'Không đọc được dòng nào khớp Mã HH của gói thầu. '
-                           . 'Hãy tải lại file mẫu và giữ nguyên cột Mã HH.',
+                'message' => 'Không đọc được dòng nào khớp Mã của gói thầu. Hãy tải lại '
+                           . 'file mẫu và giữ nguyên cột Mã cùng tên sheet '
+                           . '(Mau1_BangDapUng / Mau2_BangChaoGia).',
+                'data'    => ['canh_bao' => $canhBao],
             ];
         }
 
@@ -403,27 +430,52 @@ class BG_BaoGia_BUS
         try {
             Database::beginTransaction();
 
+            // Đọc 1 LẦN trước vòng lặp — gọi trong lặp là N+1 truy vấn
+            $chiTietCu = BG_BaoGia_DAL::getChiTietMap($baoGiaId);
+
             $soDong = 0;
             foreach ($duLieu as $ma => $v) {
                 $hh = $theoMa[$ma];
                 $soLuong = (float)$hh['so_luong'];
-                $donGia  = (float)($v['don_gia'] ?? 0);
+
+                // Giữ giá trị cũ khi file lần này không có cột đó (import Mẫu 1
+                // rồi Mẫu 2 ở 2 lần khác nhau thì không được xóa dữ liệu lần trước)
+                $cu = $chiTietCu[(int)$hh['id']] ?? null;
+                $giu = function (string $k) use ($v, $cu) {
+                    if (array_key_exists($k, $v)) return self::nullIfEmpty((string)$v[$k]);
+                    return $cu[$k] ?? null;
+                };
+
+                $donGia = array_key_exists('don_gia', $v)
+                    ? (float)$v['don_gia']
+                    : (float)($cu['don_gia'] ?? 0);
 
                 $ct = new BG_BaoGiaChiTiet_PUBLIC();
-                $ct->bao_gia_id            = $baoGiaId;
-                $ct->hang_hoa_id           = (int)$hh['id'];
-                $ct->thong_so_chao_gia     = self::nullIfEmpty($v['thong_so_chao_gia'] ?? '');
-                $ct->diem_khong_dat        = self::nullIfEmpty($v['diem_khong_dat'] ?? '');
-                $ct->ten_thuong_mai        = self::nullIfEmpty($v['ten_thuong_mai'] ?? '', 1000);
-                $ct->model                 = self::nullIfEmpty($v['model'] ?? '', 500);
-                $ct->hang_san_xuat         = self::nullIfEmpty($v['hang_san_xuat'] ?? '', 500);
-                $ct->xuat_xu               = self::nullIfEmpty($v['xuat_xu'] ?? '', 500);
-                $ct->quy_cach              = self::nullIfEmpty($v['quy_cach'] ?? '', 500);
-                $ct->don_gia               = $donGia;
+                $ct->bao_gia_id  = $baoGiaId;
+                $ct->hang_hoa_id = (int)$hh['id'];
+
+                // Mẫu 1 — các cặp đáp ứng / không đạt
+                $ct->thong_so_chao_gia     = $giu('thong_so_chao_gia');
+                $ct->diem_khong_dat        = $giu('diem_khong_dat');
+                $ct->dap_ung_chung         = $giu('dap_ung_chung');
+                $ct->khong_dat_chung       = $giu('khong_dat_chung');
+                $ct->dap_ung_khac          = $giu('dap_ung_khac');
+                $ct->khong_dat_khac        = $giu('khong_dat_khac');
+                $ct->dap_ung_cau_hinh      = $giu('dap_ung_cau_hinh');
+                $ct->khong_dat_cau_hinh    = $giu('khong_dat_cau_hinh');
+                $ct->dap_ung_nhom_nuoc     = $giu('dap_ung_nhom_nuoc');
+                $ct->khong_dat_nhom_nuoc   = $giu('khong_dat_nhom_nuoc');
+                $ct->tai_lieu_chung_minh   = $giu('tai_lieu_chung_minh');
+
+                // Mẫu 2 — thông tin chào giá
+                $ct->ten_thuong_mai = $giu('ten_thuong_mai');
+                $ct->model          = $giu('model');
+                $ct->hang_san_xuat  = $giu('hang_san_xuat');
+                $ct->nam_san_xuat   = $giu('nam_san_xuat');
+                $ct->xuat_xu        = $giu('xuat_xu');
+                $ct->don_gia        = $donGia;
                 // Thành tiền LUÔN tính ở server, không tin cột Thành tiền trong file
-                $ct->thanh_tien            = round($donGia * $soLuong, 2);
-                $ct->don_gia_trung_thau    = (float)($v['don_gia_trung_thau'] ?? 0);
-                $ct->tai_lieu_tham_chieu   = self::nullIfEmpty($v['tai_lieu_tham_chieu'] ?? '');
+                $ct->thanh_tien     = round($donGia * $soLuong, 2);
 
                 BG_BaoGia_DAL::upsertChiTiet($ct);
                 $soDong++;
@@ -440,13 +492,110 @@ class BG_BaoGia_BUS
 
             return [
                 'success' => true,
-                'message' => "Đã import {$soDong} dòng",
-                'data' => ['tong_dong' => $soDong, 'canh_bao' => $canhBao],
+                'message' => "Đã đọc {$soDong} dòng từ file",
+                'data'    => ['so_dong' => $soDong, 'canh_bao' => $canhBao],
             ];
         } catch (Throwable $ex) {
             Database::rollBack();
-            return ['success' => false, 'message' => 'Lỗi: ' . $ex->getMessage()];
+            return ['success' => false, 'message' => 'Lỗi khi import: ' . $ex->getMessage()];
         }
+    }
+
+    /**
+     * Dò dòng tiêu đề của sheet rồi map "khóa cột → chỉ số cột".
+     *
+     * Dò theo TÊN CỘT thay vì vị trí cố định vì Mẫu 1 có số cột khác nhau
+     * giữa 3 nhóm gói thầu. So khớp sau khi bỏ dấu để không phụ thuộc dấu
+     * tiếng Việt hay hoa/thường.
+     *
+     * @return array [mảng khóa=>chỉ số, số hiệu dòng tiêu đề (0 = không thấy)]
+     */
+    private static function doCotTheoTieuDe(array $rows): array
+    {
+        // Thứ tự QUAN TRỌNG: khóa dài/đặc trưng đặt TRƯỚC khóa ngắn, vì so khớp
+        // bằng "chứa chuỗi" — 'dap ung ve yeu cau chung' cũng chứa 'yeu cau chung'.
+        $mau = [
+            'khong_dat_chung'     => ['khong dap ung ve yeu cau chung'],
+            'khong_dat_khac'      => ['khong dap ung ve yeu cau khac'],
+            'khong_dat_cau_hinh'  => ['khong dap ung ve yeu cau cau hinh'],
+            'khong_dat_ky_thuat'  => ['khong dap ung ve yeu cau ky thuat'],
+            'khong_dat_nhom_nuoc' => ['khong dap ung ve nhom nuoc'],
+            'dap_ung_chung'       => ['dap ung ve yeu cau chung'],
+            'dap_ung_khac'        => ['dap ung ve yeu cau khac'],
+            'dap_ung_cau_hinh'    => ['dap ung ve yeu cau cau hinh'],
+            'dap_ung_ky_thuat'    => ['dap ung ve yeu cau ky thuat'],
+            'dap_ung_nhom_nuoc'   => ['dap ung ve nhom nuoc'],
+            'tai_lieu_chung_minh' => ['tai lieu chung minh'],
+            'ten_thuong_mai'      => ['ten thuong mai'],
+            'model'               => ['ky ma, nhan hieu', 'nhan hieu, model', 'model'],
+            'hang_san_xuat'       => ['hang san xuat'],
+            'nam_san_xuat'        => ['nam san xuat'],
+            'xuat_xu'             => ['xuat xu'],
+            'don_gia'             => ['don gia'],
+            'ma'                  => ['ma bo/hang hoa', 'ma bo', 'ma hh', 'ma hang hoa'],
+        ];
+
+        for ($d = 1; $d <= 10; $d++) {
+            if (!isset($rows[$d])) continue;
+
+            $cot = [];
+            foreach ($rows[$d] as $i => $v) {
+                $t = self::boDauChuoi(ExcelHelper::toText($v));
+                if ($t === '') continue;
+                foreach ($mau as $khoa => $tuKhoa) {
+                    if (isset($cot[$khoa])) continue;
+                    foreach ($tuKhoa as $tk) {
+                        if (mb_strpos($t, $tk) !== false) { $cot[$khoa] = (int)$i; break 2; }
+                    }
+                }
+            }
+
+            // Đủ điều kiện là dòng tiêu đề: có cột Mã + ít nhất 1 cột nhà thầu điền
+            if (isset($cot['ma']) && count($cot) >= 2) {
+                return [$cot, $d];
+            }
+        }
+        return [[], 0];
+    }
+
+    /**
+     * Mã này có phải mã của một BỘ trong gói thầu không?
+     *
+     * Dòng bộ ở Mẫu 1/2 cũng mang mã (ma_bo) nhưng không phải hàng hóa chi tiết
+     * nên không khớp $theoMa. Phân biệt để không cảnh báo nhầm cho nhà thầu.
+     */
+    private static function laMaBo(string $ma, int $goiThauId): bool
+    {
+        static $cache = [];
+        if (!isset($cache[$goiThauId])) {
+            $cache[$goiThauId] = [];
+            foreach (BG_Bo_DAL::getByGoiThau($goiThauId) as $b) {
+                $m = mb_strtoupper(trim((string)($b['ma_bo'] ?? '')));
+                if ($m !== '') $cache[$goiThauId][$m] = true;
+            }
+        }
+        return isset($cache[$goiThauId][$ma]);
+    }
+
+    /** Bỏ dấu tiếng Việt + hạ chữ thường để so khớp tiêu đề cột */
+    private static function boDauChuoi(string $s): string
+    {
+        $s = mb_strtolower(trim($s), 'UTF-8');
+        $map = [
+            'a' => 'áàảãạăắằẳẵặâấầẩẫậ',
+            'e' => 'éèẻẽẹêếềểễệ',
+            'i' => 'íìỉĩị',
+            'o' => 'óòỏõọôốồổỗộơớờởỡợ',
+            'u' => 'úùủũụưứừửữự',
+            'y' => 'ýỳỷỹỵ',
+            'd' => 'đ',
+        ];
+        foreach ($map as $khong => $co) {
+            foreach (preg_split('//u', $co, -1, PREG_SPLIT_NO_EMPTY) as $ch) {
+                $s = str_replace($ch, $khong, $s);
+            }
+        }
+        return preg_replace('/\s+/u', ' ', $s);
     }
 
 
@@ -595,43 +744,157 @@ class BG_BaoGia_BUS
     }
 
     /**
-     * Danh mục hàng hóa của gói thầu ghép với dòng chào giá đã có của báo giá.
-     * Dùng để render bảng điền giá ở cổng nhà thầu.
+     * Dữ liệu TÓM TẮT cho cổng nhà thầu — gom theo BỘ, kèm cấu hình cột theo nhóm.
+     *
+     * Nhà thầu không điền tay trên web nữa (bảng Mẫu 1 có tới 21 cột, điền trên
+     * trình duyệt rất khó): tải file mẫu về điền rồi import, màn hình chỉ hiện
+     * tóm tắt để đối chiếu.
+     *
+     * @return array{nhom:string, cap:array, bo:array, tong:array}
      */
     public static function getBangChaoGia(int $baoGiaId): array
     {
         $bg = BG_BaoGia_DAL::getById($baoGiaId);
-        if (!$bg) return [];
+        if (!$bg) return ['nhom' => '', 'cap' => [], 'bo' => [], 'tong' => []];
 
+        $gt   = BG_GoiThau_DAL::getById((int)$bg->goi_thau_id);
+        $nhom = BG_Nhom_PUBLIC::chuanHoa($gt->nhom ?? null);
+
+        $dsBo    = BG_Bo_DAL::getByGoiThau((int)$bg->goi_thau_id);
         $hangHoa = BG_HangHoa_DAL::getByGoiThau((int)$bg->goi_thau_id);
-        $daChao = BG_BaoGia_DAL::getChiTietMap($baoGiaId);
+        $daChao  = BG_BaoGia_DAL::getChiTietMap($baoGiaId);
 
-        $out = [];
+        // Gom hàng hóa theo bộ
+        $theoBo = [];
         foreach ($hangHoa as $hh) {
-            $id = (int)$hh['id'];
-            $ct = $daChao[$id] ?? null;
-            $out[] = [
-                // --- Bên mời điền sẵn (Phụ lục III) ---
-                'hang_hoa_id'           => $id,
-                'ma_hh'                 => $hh['ma_hh'],
-                'ten_hang_hoa'          => $hh['ten_hang_hoa'],
-                'thong_so_ky_thuat'     => $hh['thong_so_ky_thuat'],
-                'dvt'                   => $hh['dvt'],
-                'so_luong'              => (float)$hh['so_luong'],
-                // --- Mẫu 1: Bảng đáp ứng kỹ thuật ---
-                'thong_so_chao_gia'     => $ct['thong_so_chao_gia'] ?? '',
-                'diem_khong_dat'        => $ct['diem_khong_dat'] ?? '',
-                // --- Mẫu 2: Bảng chào giá ---
-                'ten_thuong_mai'        => $ct['ten_thuong_mai'] ?? '',
-                'model'                 => $ct['model'] ?? '',
-                'hang_san_xuat'         => $ct['hang_san_xuat'] ?? '',
-                'xuat_xu'               => $ct['xuat_xu'] ?? '',
-                'quy_cach'              => $ct['quy_cach'] ?? '',
-                'don_gia'               => (float)($ct['don_gia'] ?? 0),
-                'thanh_tien'            => (float)($ct['thanh_tien'] ?? 0),
-                'don_gia_trung_thau'    => (float)($ct['don_gia_trung_thau'] ?? 0),
-                'tai_lieu_tham_chieu'   => $ct['tai_lieu_tham_chieu'] ?? '',
+            $theoBo[(int)($hh['bo_id'] ?? 0)][] = $hh;
+        }
+
+        $soDaDapUng = 0;
+        $soDaChao   = 0;
+        $tongTien   = 0.0;
+
+        // Dựng danh sách dòng chi tiết của 1 nhóm hàng hóa (dùng cho cả bộ
+        // lẫn hàng lẻ) — gom vào closure để 2 nhánh không lệch nhau.
+        $dungDong = function (array $ds) use ($daChao, $nhom, &$soDaDapUng, &$soDaChao, &$tongTien): array {
+            $dong = [];
+            foreach ($ds as $hh) {
+                $id = (int)$hh['id'];
+                $c  = $daChao[$id] ?? null;
+
+                $daDapUng = trim((string)($c['thong_so_chao_gia'] ?? '')) !== '';
+                $giaTri   = (float)($c['don_gia'] ?? 0);
+                if ($daDapUng) $soDaDapUng++;
+                if ($giaTri > 0) {
+                    $soDaChao++;
+                    $tongTien += (float)($c['thanh_tien'] ?? 0);
+                }
+
+                $dong[] = [
+                    'hang_hoa_id'       => $id,
+                    'ma_hh'             => $hh['ma_hh'],
+                    'stt_chi_tiet'      => $hh['stt_chi_tiet'],
+                    'ten_hang_hoa'      => $hh['ten_hang_hoa'],
+                    'thong_so_ky_thuat' => $hh['thong_so_ky_thuat'],
+                    'dvt'               => $hh['dvt'],
+                    'so_luong'          => (float)$hh['so_luong'],
+
+                    // Mẫu 1 — chỉ trả các cặp nhóm này dùng, GUI khỏi tự lọc
+                    'dap_ung'           => self::gomDapUng($c, $nhom),
+                    'da_dap_ung'        => $daDapUng,
+
+                    // Mẫu 2
+                    'ten_thuong_mai'    => $c['ten_thuong_mai'] ?? '',
+                    'model'             => $c['model'] ?? '',
+                    'hang_san_xuat'     => $c['hang_san_xuat'] ?? '',
+                    'nam_san_xuat'      => $c['nam_san_xuat'] ?? '',
+                    'xuat_xu'           => $c['xuat_xu'] ?? '',
+                    'don_gia'           => $giaTri,
+                    'thanh_tien'        => (float)($c['thanh_tien'] ?? 0),
+                    'da_chao'           => $giaTri > 0,
+                ];
+            }
+            return $dong;
+        };
+
+        $boOut = [];
+
+        // ---- HÀNG LẺ (bo_id rỗng) đứng TRƯỚC các bộ ----
+        // Vật tư, dược phần lớn là hàng lẻ. Trước đây chỉ duyệt $dsBo nên
+        // nhóm này rơi vào $theoBo[0] và KHÔNG bao giờ hiện ra — bảng đáp ứng
+        // và bảng chào giá trống trơn dù danh mục có hàng.
+        $hangLe = $theoBo[0] ?? [];
+        if ($hangLe) {
+            $boOut[] = [
+                'id'               => 0,
+                'la_hang_le'       => true,   // GUI dùng cờ này để KHÔNG in dòng tiêu đề bộ
+                'ma_bo'            => null,
+                'stt_bo'           => null,
+                'ten_bo'           => null,
+                'yeu_cau_chung'    => null,
+                'yeu_cau_khac'     => null,
+                'yeu_cau_cau_hinh' => null,
+                'nhom_nuoc'        => null,
+                'dvt'              => null,
+                'so_luong'         => 0.0,
+                'chi_tiet'         => $dungDong($hangLe),
             ];
+        }
+
+        foreach ($dsBo as $b) {
+            $boOut[] = [
+                'id'               => (int)$b['id'],
+                'la_hang_le'       => false,
+                'ma_bo'            => $b['ma_bo'],
+                'stt_bo'           => $b['stt_bo'],
+                'ten_bo'           => $b['ten_bo'],
+                'yeu_cau_chung'    => $b['yeu_cau_chung'],
+                'yeu_cau_khac'     => $b['yeu_cau_khac'],
+                'yeu_cau_cau_hinh' => $b['yeu_cau_cau_hinh'],
+                'nhom_nuoc'        => $b['nhom_nuoc'],
+                'dvt'              => $b['dvt'],
+                'so_luong'         => (float)$b['so_luong'],
+                'chi_tiet'         => $dungDong($theoBo[(int)$b['id']] ?? []),
+            ];
+        }
+
+        // Nhãn các cặp đáp ứng để GUI dựng cột — không hardcode ở JS
+        $cap = [];
+        foreach (BG_Nhom_PUBLIC::capDapUng($nhom) as $khoa => $c) {
+            $cap[] = ['khoa' => $khoa, 'nhan' => $c[0]];
+        }
+
+        return [
+            'nhom'     => $nhom,
+            'ten_nhom' => BG_Nhom_PUBLIC::tenNhom($nhom),
+            'cap'      => $cap,
+            'bo'       => $boOut,
+            'tong'     => [
+                'so_hang_hoa' => count($hangHoa),
+                'so_bo'       => count($dsBo),
+                'so_dap_ung'  => $soDaDapUng,
+                'so_chao'     => $soDaChao,
+                'tong_tien'   => $tongTien,
+            ],
+        ];
+    }
+
+    /**
+     * Gom các cặp (đáp ứng / không đạt) của 1 dòng chi tiết theo nhóm gói thầu.
+     * Trả mảng khóa => ['dap_ung' => ..., 'khong_dat' => ...] để GUI in thẳng.
+     */
+    private static function gomDapUng(?array $ct, string $nhom): array
+    {
+        $out = [];
+        foreach (BG_Nhom_PUBLIC::capDapUng($nhom) as $khoa => $c) {
+            // $c = [nhãn, cột đáp ứng, cột không đạt]
+            $out[$khoa] = [
+                'dap_ung'   => (string)($ct[$c[1]] ?? ''),
+                'khong_dat' => (string)($ct[$c[2]] ?? ''),
+            ];
+        }
+        if (($ct['tai_lieu_chung_minh'] ?? '') !== '') {
+            $out['tai_lieu'] = ['dap_ung' => (string)$ct['tai_lieu_chung_minh'], 'khong_dat' => ''];
         }
         return $out;
     }
@@ -716,8 +979,6 @@ class BG_BaoGia_BUS
 
     /** Dung lượng tối đa cho bản ký (20MB — ảnh chụp/scan thường lớn) */
     const BAN_KY_MAX_SIZE = 20971520;
-    /** Catalog thường là bản scan nhiều trang nên cho dung lượng lớn hơn */
-    const CATALOG_MAX_SIZE = 52428800;   // 50MB
 
     // Đuôi/MIME cho phép khai báo ở BG_File_PUBLIC (dùng chung cho mọi loại file)
 
@@ -1083,6 +1344,19 @@ class BG_BaoGia_BUS
      *
      * Xem danh sach Key: php database/tao_mau_word.php
      */
+    /**
+     * Ten hang hoa kem ten bo — bang Word phang khong the long cay, phai ghi
+     * "Bo X > Hang Y" de ben moi biet hang nay thuoc bo nao.
+     * Hang le (ten bo trung ten hang) thi chi in 1 lan cho gon.
+     */
+    private static function tenKemBo(array $d): string
+    {
+        $ten = trim((string)($d['ten_hang_hoa'] ?? ''));
+        $bo  = trim((string)($d['ten_bo'] ?? ''));
+        if ($bo === '' || mb_strtolower($bo) === mb_strtolower($ten)) return $ten;
+        return $bo . ' › ' . $ten;
+    }
+
     public static function xuatWordBanKy(int $baoGiaId): string
     {
         $bg = BG_BaoGia_DAL::getById($baoGiaId);
@@ -1091,7 +1365,18 @@ class BG_BaoGia_BUS
         $gt = BG_GoiThau_DAL::getById((int)$bg->goi_thau_id);
         if (!$gt) throw new RuntimeException('Không tìm thấy gói thầu');
 
-        $dong = self::getBangChaoGia($baoGiaId);
+        // getBangChaoGia() tra CAY BO (nhom/cap/bo/tong) — trai phang lai
+        // thanh danh sach hang hoa chi tiet cho 2 bang Word.
+        $tt = self::getBangChaoGia($baoGiaId);
+        $dong = [];
+        foreach (($tt['bo'] ?? []) as $b) {
+            foreach (($b['chi_tiet'] ?? []) as $d) {
+                // Giu ten bo de in kem — bang Word phang nen phai ghi ro
+                // hang nay thuoc bo nao, neu khong ben moi khong doi chieu duoc.
+                $d['ten_bo'] = (string)($b['ten_bo'] ?? '');
+                $dong[] = $d;
+            }
+        }
 
         $ten  = trim((string)$bg->ten_cong_ty);
         $mst  = trim((string)($bg->ma_so_thue ?? ''));
@@ -1114,8 +1399,9 @@ class BG_BaoGia_BUS
         $sttKt = 0;   // STT rieng cho bang dap ung ky thuat
         foreach ($dong as $d) {
             $coGia = (float)$d['don_gia'] > 0;
-            $coKyThuat = trim((string)$d['thong_so_chao_gia']) !== ''
-                      || trim((string)$d['diem_khong_dat']) !== '';
+            $kt = $d['dap_ung']['ky_thuat'] ?? [];
+            $coKyThuat = trim((string)($kt['dap_ung'] ?? '')) !== ''
+                      || trim((string)($kt['khong_dat'] ?? '')) !== '';
 
             // Bang DAP UNG KY THUAT: giu ca hang da khai ky thuat nhung chua
             // chao gia — de ben moi biet cong ty co dap ung duoc mat hang do khong.
@@ -1124,10 +1410,10 @@ class BG_BaoGia_BUS
                 $dapUng[] = [
                     'STT'                => (string)$sttKt,
                     'MA_HH'              => (string)$d['ma_hh'],
-                    'TEN_HANG_HOA'       => (string)$d['ten_hang_hoa'],
+                    'TEN_HANG_HOA'       => self::tenKemBo($d),
                     'YEU_CAU_KY_THUAT'   => (string)$d['thong_so_ky_thuat'],
-                    'THONG_SO_CHAO_GIA'  => (string)$d['thong_so_chao_gia'],
-                    'DIEM_KHONG_DAT'     => (string)$d['diem_khong_dat'],
+                    'THONG_SO_CHAO_GIA'  => (string)($d['dap_ung']['ky_thuat']['dap_ung'] ?? ''),
+                    'DIEM_KHONG_DAT'     => (string)($d['dap_ung']['ky_thuat']['khong_dat'] ?? ''),
                 ];
             }
 
@@ -1141,18 +1427,18 @@ class BG_BaoGia_BUS
             $chaoGia[] = [
                 'STT'                  => (string)$stt,
                 'MA_HH'                => (string)$d['ma_hh'],
-                'TEN_HANG_HOA'         => (string)$d['ten_hang_hoa'],
+                'TEN_HANG_HOA'         => self::tenKemBo($d),
                 'TEN_THUONG_MAI'       => (string)$d['ten_thuong_mai'],
                 'MODEL'                => (string)$d['model'],
                 'HANG_SAN_XUAT'        => (string)$d['hang_san_xuat'],
                 'XUAT_XU'              => (string)$d['xuat_xu'],
                 'SO_LUONG'             => self::soVN((float)$d['so_luong']),
-                'QUY_CACH'             => (string)$d['quy_cach'],
+                'QUY_CACH'             => '',
                 'DVT'                  => (string)$d['dvt'],
                 'DON_GIA'              => self::soVN((float)$d['don_gia']),
                 'THANH_TIEN'           => self::soVN((float)$d['thanh_tien']),
-                'DON_GIA_TRUNG_THAU'   => self::soVN((float)$d['don_gia_trung_thau']),
-                'TAI_LIEU_THAM_CHIEU'  => (string)$d['tai_lieu_tham_chieu'],
+                'DON_GIA_TRUNG_THAU'   => '',
+                'TAI_LIEU_THAM_CHIEU'  => '',
             ];
 
         }
@@ -1282,292 +1568,14 @@ class BG_BaoGia_BUS
     //  BUOC 5 — CHI DAN VI TRI TAI LIEU (CATALOG)
     // =====================================================================
 
-    /** Thu muc luu file catalog */
-    public static function thuMucCatalog(): string
-    {
-        $dir = rtrim(AppConfig::UPLOAD_PATH, '/\\') . DIRECTORY_SEPARATOR . 'catalog';
-        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
-            throw new RuntimeException('Không tạo được thư mục catalog');
-        }
-        return $dir;
-    }
-
-    /**
-     * Ten file catalog: catalog-<id-goi-thau>-<slug-nha-thau>.<ext>
-     * Nhin ten la biet catalog cua goi nao, nha thau nao.
-     */
-    public static function tenFileCatalog(
-        int $goiThauId,
-        string $tenNhaThau,
-        string $mst,
-        string $ext,
-        string $dir,
-        string $tenHienTai = ''
-    ): string {
-        $slug = Helper::slug($tenNhaThau, 60);
-        if ($slug === '') $slug = preg_replace('/[^0-9-]/', '', $mst);
-        if ($slug === '') $slug = 'nha-thau';
-
-        $goc = 'catalog-' . $goiThauId . '-' . $slug;
-        $ten = $goc . '.' . $ext;
-
-        if ($tenHienTai !== '' && $ten === $tenHienTai) return $ten;
-
-        $i = 1;
-        while (is_file($dir . DIRECTORY_SEPARATOR . $ten)) {
-            $i++;
-            $ten = $goc . '-' . $i . '.' . $ext;
-            if ($i > 500) {
-                $ten = $goc . '-' . Helper::randomString(8) . '.' . $ext;
-                break;
-            }
-        }
-        return $ten;
-    }
-
-    /**
-     * Bang chi dan vi tri tai lieu (Buoc 5).
-     * Cot: STT | Ma HH | Ten hang thuong mai | Trang catalog chung minh
-     */
-    public static function getBangCatalog(int $baoGiaId): array
-    {
-        $bg = BG_BaoGia_DAL::getById($baoGiaId);
-        if (!$bg) return [];
-
-        $hangHoa = BG_HangHoa_DAL::getByGoiThau((int)$bg->goi_thau_id);
-        $chiTiet = BG_BaoGia_DAL::getChiTietMap($baoGiaId);
-        $catalog = BG_Catalog_DAL::getMap($baoGiaId);
-
-        $out = [];
-        foreach ($hangHoa as $hh) {
-            $id = (int)$hh['id'];
-            $ct = $chiTiet[$id] ?? null;
-            $out[] = [
-                'hang_hoa_id'    => $id,
-                'ma_hh'          => $hh['ma_hh'],
-                'ten_hang_hoa'   => $hh['ten_hang_hoa'],
-                // "Ten hang thuong mai" lay tu Mau 2 da khai o Buoc 3
-                'ten_thuong_mai' => $ct['ten_thuong_mai'] ?? '',
-                'trang_catalog'  => $catalog[$id] ?? '',
-                // Noi goi dung de loc: chi in hang da thuc su chao gia
-                'don_gia'        => (float)($ct['don_gia'] ?? 0),
-            ];
-        }
-        return $out;
-    }
-
-    /** Luu hang loat bang chi dan vi tri tai lieu */
-    public static function luuCatalog(int $baoGiaId, array $dong, int $u): array
-    {
-        $bg = BG_BaoGia_DAL::getById($baoGiaId);
-        if (!$bg || (int)$bg->da_xoa === 1) {
-            return ['success' => false, 'message' => 'Không tìm thấy báo giá'];
-        }
-        if ((int)($bg->da_hoan_thanh ?? 0) === 1) {
-            return ['success' => false, 'message' => 'Báo giá đã hoàn thành — không chỉnh sửa được nữa'];
-        }
-
-        $hopLe = [];
-        foreach (BG_HangHoa_DAL::getByGoiThau((int)$bg->goi_thau_id) as $hh) {
-            $hopLe[(int)$hh['id']] = true;
-        }
-
-        $soLuu = 0;
-        try {
-            Database::beginTransaction();
-            foreach ($dong as $d) {
-                $hhId = (int)($d['hang_hoa_id'] ?? 0);
-                if ($hhId <= 0 || !isset($hopLe[$hhId])) continue;
-                BG_Catalog_DAL::upsert($baoGiaId, $hhId,
-                    self::nullIfEmpty($d['trang_catalog'] ?? '', 255), $u);
-                $soLuu++;
-            }
-            Database::commit();
-        } catch (Throwable $ex) {
-            Database::rollBack();
-            return ['success' => false, 'message' => 'Lỗi: ' . $ex->getMessage()];
-        }
-
-        return ['success' => true, 'message' => 'Đã lưu ' . $soLuu . ' dòng',
-                'data' => ['so_dong' => $soLuu]];
-    }
-
-    /** Upload file catalog da ky (PDF/anh) */
-    public static function uploadCatalog(int $baoGiaId, array $file, int $u): array
-    {
-        $bg = BG_BaoGia_DAL::getById($baoGiaId);
-        if (!$bg || (int)$bg->da_xoa === 1) {
-            return ['success' => false, 'message' => 'Không tìm thấy báo giá'];
-        }
-        if ((int)($bg->da_hoan_thanh ?? 0) === 1) {
-            return ['success' => false, 'message' => 'Báo giá đã hoàn thành — không chỉnh sửa được nữa'];
-        }
-
-        // --- Kiem tra file (3B.9) ---
-        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-            $map = [
-                UPLOAD_ERR_INI_SIZE  => 'File vượt quá giới hạn của server',
-                UPLOAD_ERR_FORM_SIZE => 'File vượt quá giới hạn cho phép',
-                UPLOAD_ERR_PARTIAL   => 'File tải lên chưa hoàn tất, hãy thử lại',
-                UPLOAD_ERR_NO_FILE   => 'Chưa chọn file',
-            ];
-            return ['success' => false, 'message' => $map[$file['error']] ?? 'Lỗi tải file'];
-        }
-        if (!is_uploaded_file($file['tmp_name']) || (int)$file['size'] <= 0) {
-            return ['success' => false, 'message' => 'File không hợp lệ hoặc rỗng'];
-        }
-        if ((int)$file['size'] > self::CATALOG_MAX_SIZE) {
-            return ['success' => false,
-                    'message' => 'File tối đa ' . round(self::CATALOG_MAX_SIZE / 1048576) . 'MB'];
-        }
-
-        $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
-        if (!in_array($ext, BG_File_PUBLIC::EXT_CHO_PHEP, true)) {
-            return ['success' => false, 'message' => 'Chỉ nhận file PDF hoặc ảnh (JPG, PNG)'];
-        }
-
-        $mime = null;
-        if (function_exists('finfo_open')) {
-            $fi = finfo_open(FILEINFO_MIME_TYPE);
-            $mime = finfo_file($fi, $file['tmp_name']);
-            finfo_close($fi);
-            if (!in_array($mime, BG_File_PUBLIC::MIME_CHO_PHEP, true)) {
-                return ['success' => false, 'message' => 'Nội dung file không phải PDF/ảnh hợp lệ'];
-            }
-            if (!in_array($mime, BG_File_PUBLIC::EXT_MIME[$ext] ?? [], true)) {
-                return ['success' => false, 'message' => 'Đuôi file không khớp nội dung thật của file'];
-            }
-        }
-
-        try {
-            $dir = self::thuMucCatalog();
-            $tenLuu = self::tenFileCatalog(
-                (int)$bg->goi_thau_id,
-                (string)$bg->ten_cong_ty,
-                (string)$bg->ma_so_thue,
-                $ext,
-                $dir
-            );
-            $dich = $dir . DIRECTORY_SEPARATOR . $tenLuu;
-
-            if (!move_uploaded_file($file['tmp_name'], $dich)) {
-                return ['success' => false, 'message' => 'Không lưu được file tải lên'];
-            }
-
-            $fileCuId = (int)($bg->file_catalog_id ?? 0);
-            $fileCu   = $fileCuId > 0 ? BG_File_DAL::getById($fileCuId) : null;
-
-            try {
-                Database::beginTransaction();
-
-                $ef = new BG_File_PUBLIC();
-                $ef->ten_file     = $tenLuu;
-                $ef->ten_file_goc = ExcelHelper::toText($file['name'], 255);
-                $ef->duong_dan    = 'catalog';
-                $ef->loai_file    = $ext;
-                $ef->mime_type    = $mime;
-                $ef->kich_thuoc   = (int)$file['size'];
-                $ef->nhom_file    = BG_File_PUBLIC::NHOM_CATALOG;
-                $ef->nguoi_tao    = $u;
-                $fileId = BG_File_DAL::insert($ef);
-
-                BG_BaoGia_DAL::updateCatalog($baoGiaId, $fileId);
-                if ($fileCuId > 0) BG_File_DAL::softDelete($fileCuId, $u);
-
-                Database::commit();
-            } catch (Throwable $exDb) {
-                Database::rollBack();
-                @unlink($dich);
-                return ['success' => false, 'message' => 'Lỗi: ' . $exDb->getMessage()];
-            }
-
-            if ($fileCu && $fileCu->ten_file !== '' && $fileCu->ten_file !== $tenLuu) {
-                $cu = $dir . DIRECTORY_SEPARATOR . basename($fileCu->ten_file);
-                if (is_file($cu)) @unlink($cu);
-            }
-
-            DM_NhatKyHeThong_DAL::log(
-                $u, self::MODULE_LOG,
-                "Nhà thầu tải catalog: {$bg->ten_cong_ty} (MST {$bg->ma_so_thue})",
-                'bg_bao_gia', $baoGiaId
-            );
-
-            return [
-                'success' => true,
-                'message' => 'Đã tải lên file chỉ dẫn vị trí tài liệu.',
-                'data'    => ['ten_file_goc' => ExcelHelper::toText($file['name'], 255)],
-            ];
-        } catch (Throwable $ex) {
-            return ['success' => false, 'message' => 'Lỗi: ' . $ex->getMessage()];
-        }
-    }
-
-    /** Duong dan file catalog tren dia (rong neu chua co) */
-    public static function duongDanCatalog(int $baoGiaId): string
-    {
-        $bg = BG_BaoGia_DAL::getById($baoGiaId);
-        if (!$bg || empty($bg->file_catalog_id)) return '';
-        $f = BG_File_DAL::getById((int)$bg->file_catalog_id);
-        if (!$f || $f->ten_file === '') return '';
-        $p = self::thuMucCatalog() . DIRECTORY_SEPARATOR . basename($f->ten_file);
-        return is_file($p) ? $p : '';
-    }
-
-    /** Ban ghi file catalog */
-    public static function fileCatalog(int $baoGiaId): ?BG_File_PUBLIC
-    {
-        $bg = BG_BaoGia_DAL::getById($baoGiaId);
-        if (!$bg || empty($bg->file_catalog_id)) return null;
-        return BG_File_DAL::getById((int)$bg->file_catalog_id);
-    }
 
 
-    /**
-     * Xuat Word "Chi dan vi tri tai lieu" (Buoc 5) tu mau MPS/chi_dan_tai_lieu.docx.
-     * Bang: STT | Ma HH | Ten hang thuong mai | Trang catalog chung minh
-     */
-    public static function xuatWordCatalog(int $baoGiaId): string
-    {
-        $bg = BG_BaoGia_DAL::getById($baoGiaId);
-        if (!$bg) throw new RuntimeException('Không tìm thấy báo giá');
 
-        $gt = BG_GoiThau_DAL::getById((int)$bg->goi_thau_id);
-        if (!$gt) throw new RuntimeException('Không tìm thấy gói thầu');
 
-        $dong = self::getBangCatalog($baoGiaId);
 
-        $rows = [];
-        $stt  = 0;
-        foreach ($dong as $d) {
-            // CHI in hang hoa nha thau thuc su co chao gia — giong ban ky o Buoc 4.
-            // Hang khong chao thi khong can chi dan trang catalog lam gi.
-            if ((float)($d['don_gia'] ?? 0) <= 0) continue;
 
-            $stt++;
-            $rows[] = [
-                'STT'            => (string)$stt,
-                'MA_HH'          => (string)$d['ma_hh'],
-                'TEN_THUONG_MAI' => (string)($d['ten_thuong_mai'] ?: $d['ten_hang_hoa']),
-                'TRANG_CATALOG'  => (string)$d['trang_catalog'],
-            ];
-        }
 
-        $mst = trim((string)($bg->ma_so_thue ?? ''));
-        $data = [
-            'TEN_CONG_TY'  => (string)$bg->ten_cong_ty,
-            'MST'          => $mst,
-            'SO_THONG_BAO' => (string)$gt->so_thong_bao,
-            'TEN_GOI_THAU' => (string)$gt->ten_goi_thau,
-            'NGAY_IN'      => date('d/m/Y'),
-        ];
 
-        $path = BG_HangHoa_BUS::tempDir() . '/ChiDanTaiLieu_'
-              . preg_replace('/[^0-9A-Za-z]/', '', $mst !== '' ? $mst : (string)$baoGiaId)
-              . '_' . preg_replace('/[^0-9A-Za-z]/', '_', $gt->so_thong_bao)
-              . '_' . date('Ymd_His') . '.docx';
-
-        return WordTemplate::render('chi_dan_tai_lieu.docx', $path, $data, ['CATALOG' => $rows]);
-    }
 
 
     /**
@@ -1613,153 +1621,15 @@ class BG_BaoGia_BUS
     }
 
 
+
+
+
+
     /**
-     * Upload file EXCEL chi dan vi tri tai lieu (Buoc 5).
+     * Dong goi file nha thau da nop thanh 1 file .zip.
      *
-     * Tach rieng khoi uploadCatalog vi 2 loai file khac nhau:
-     *   - catalog: ban scan PDF/anh co dau + chu ky
-     *   - excel:   bang chi dan dang .xlsx/.xls de ben moi doc du lieu
-     */
-    public static function uploadCatalogExcel(int $baoGiaId, array $file, int $u): array
-    {
-        $bg = BG_BaoGia_DAL::getById($baoGiaId);
-        if (!$bg || (int)$bg->da_xoa === 1) {
-            return ['success' => false, 'message' => 'Không tìm thấy báo giá'];
-        }
-        if ((int)($bg->da_hoan_thanh ?? 0) === 1) {
-            return ['success' => false, 'message' => 'Báo giá đã hoàn thành — không chỉnh sửa được nữa'];
-        }
-
-        // --- Kiem tra file (3B.9) ---
-        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-            $map = [
-                UPLOAD_ERR_INI_SIZE  => 'File vượt quá giới hạn của server',
-                UPLOAD_ERR_FORM_SIZE => 'File vượt quá giới hạn cho phép',
-                UPLOAD_ERR_PARTIAL   => 'File tải lên chưa hoàn tất, hãy thử lại',
-                UPLOAD_ERR_NO_FILE   => 'Chưa chọn file',
-            ];
-            return ['success' => false, 'message' => $map[$file['error']] ?? 'Lỗi tải file'];
-        }
-        if (!is_uploaded_file($file['tmp_name']) || (int)$file['size'] <= 0) {
-            return ['success' => false, 'message' => 'File không hợp lệ hoặc rỗng'];
-        }
-        if ((int)$file['size'] > self::BAN_KY_MAX_SIZE) {
-            return ['success' => false,
-                    'message' => 'File tối đa ' . round(self::BAN_KY_MAX_SIZE / 1048576) . 'MB'];
-        }
-
-        $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
-        if (!in_array($ext, BG_File_PUBLIC::EXT_CHI_DAN, true)) {
-            return ['success' => false, 'message' => 'Chỉ nhận file Word (.docx, .doc) hoặc PDF'];
-        }
-
-        $mime = null;
-        if (function_exists('finfo_open')) {
-            $fi = finfo_open(FILEINFO_MIME_TYPE);
-            $mime = finfo_file($fi, $file['tmp_name']);
-            finfo_close($fi);
-            if (!in_array($mime, BG_File_PUBLIC::EXT_MIME_CHI_DAN[$ext] ?? [], true)) {
-                return ['success' => false, 'message' => 'Nội dung file không khớp với đuôi file'];
-            }
-        }
-
-        // .docx la file zip — mo thu de chac chan dung dinh dang, chan file gia
-        if ($ext === 'docx') {
-            $zip = new ZipArchive();
-            if ($zip->open($file['tmp_name']) !== true
-                || $zip->locateName('word/document.xml') === false) {
-                if ($zip instanceof ZipArchive) @$zip->close();
-                return ['success' => false, 'message' => 'File .docx hỏng hoặc không đúng định dạng'];
-            }
-            $zip->close();
-        }
-
-        try {
-            $dir = self::thuMucCatalog();
-            $tenLuu = self::tenFileCatalog(
-                (int)$bg->goi_thau_id,
-                (string)$bg->ten_cong_ty . '-chi-dan',
-                (string)$bg->ma_so_thue,
-                $ext,
-                $dir
-            );
-            $dich = $dir . DIRECTORY_SEPARATOR . $tenLuu;
-
-            if (!move_uploaded_file($file['tmp_name'], $dich)) {
-                return ['success' => false, 'message' => 'Không lưu được file tải lên'];
-            }
-
-            $fileCuId = (int)($bg->file_catalog_excel_id ?? 0);
-            $fileCu   = $fileCuId > 0 ? BG_File_DAL::getById($fileCuId) : null;
-
-            try {
-                Database::beginTransaction();
-
-                $ef = new BG_File_PUBLIC();
-                $ef->ten_file     = $tenLuu;
-                $ef->ten_file_goc = ExcelHelper::toText($file['name'], 255);
-                $ef->duong_dan    = 'catalog';
-                $ef->loai_file    = $ext;
-                $ef->mime_type    = $mime;
-                $ef->kich_thuoc   = (int)$file['size'];
-                $ef->nhom_file    = BG_File_PUBLIC::NHOM_CATALOG_EXCEL;
-                $ef->nguoi_tao    = $u;
-                $fileId = BG_File_DAL::insert($ef);
-
-                BG_BaoGia_DAL::updateCatalogExcel($baoGiaId, $fileId);
-                if ($fileCuId > 0) BG_File_DAL::softDelete($fileCuId, $u);
-
-                Database::commit();
-            } catch (Throwable $exDb) {
-                Database::rollBack();
-                @unlink($dich);
-                return ['success' => false, 'message' => 'Lỗi: ' . $exDb->getMessage()];
-            }
-
-            if ($fileCu && $fileCu->ten_file !== '' && $fileCu->ten_file !== $tenLuu) {
-                $cu = $dir . DIRECTORY_SEPARATOR . basename($fileCu->ten_file);
-                if (is_file($cu)) @unlink($cu);
-            }
-
-            DM_NhatKyHeThong_DAL::log(
-                $u, self::MODULE_LOG,
-                "Nhà thầu tải bảng chỉ dẫn: {$bg->ten_cong_ty} (MST {$bg->ma_so_thue})",
-                'bg_bao_gia', $baoGiaId
-            );
-
-            return [
-                'success' => true,
-                'message' => 'Đã tải lên bảng chỉ dẫn vị trí tài liệu.',
-                'data'    => ['ten_file_goc' => ExcelHelper::toText($file['name'], 255)],
-            ];
-        } catch (Throwable $ex) {
-            return ['success' => false, 'message' => 'Lỗi: ' . $ex->getMessage()];
-        }
-    }
-
-    /** Duong dan file Excel chi dan tren dia (rong neu chua co) */
-    public static function duongDanCatalogExcel(int $baoGiaId): string
-    {
-        $bg = BG_BaoGia_DAL::getById($baoGiaId);
-        if (!$bg || empty($bg->file_catalog_excel_id)) return '';
-        $f = BG_File_DAL::getById((int)$bg->file_catalog_excel_id);
-        if (!$f || $f->ten_file === '') return '';
-        $p = self::thuMucCatalog() . DIRECTORY_SEPARATOR . basename($f->ten_file);
-        return is_file($p) ? $p : '';
-    }
-
-    /** Ban ghi file Excel chi dan */
-    public static function fileCatalogExcel(int $baoGiaId): ?BG_File_PUBLIC
-    {
-        $bg = BG_BaoGia_DAL::getById($baoGiaId);
-        if (!$bg || empty($bg->file_catalog_excel_id)) return null;
-        return BG_File_DAL::getById((int)$bg->file_catalog_excel_id);
-    }
-
-
-    /**
-     * Dong goi TAT CA file nha thau da nop thanh 1 file .zip:
-     * ban ky + catalog + bang chi dan.
+     * Tu khi bo Buoc 5 thi chi con ban ky, nhung giu ham zip de sau them
+     * loai file moi khong phai sua lai cho goi.
      *
      * Dung cho nut "Tai tat ca" o module Bao gia — ben moi khong phai bam
      * tung file mot.
@@ -1777,16 +1647,6 @@ class BG_BaoGia_BUS
         $p1 = self::duongDanBanKy($baoGiaId);
         if ($p1 !== '') {
             $ds[$p1] = 'BanKyBaoGia.' . strtolower(pathinfo($p1, PATHINFO_EXTENSION));
-        }
-
-        $p2 = self::duongDanCatalog($baoGiaId);
-        if ($p2 !== '') {
-            $ds[$p2] = 'Catalog.' . strtolower(pathinfo($p2, PATHINFO_EXTENSION));
-        }
-
-        $p3 = self::duongDanCatalogExcel($baoGiaId);
-        if ($p3 !== '') {
-            $ds[$p3] = 'BangChiDanViTriTaiLieu.' . strtolower(pathinfo($p3, PATHINFO_EXTENSION));
         }
 
         if (empty($ds)) {

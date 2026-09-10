@@ -8,6 +8,9 @@
  *
  * Nội dung bám theo docs/HƯỚNG DẪN THỰC HIỆN CHÀO GIÁ.docx do bên mời cung cấp.
  * Sửa nội dung thì sửa ở ĐÂY, không sửa rải rác 2 nơi.
+ *
+ * Bản mới đã BỎ mục "lập file Excel chỉ dẫn vị trí catalog" — Bước 5 cũ của
+ * cổng chào giá cũng gỡ theo (xem database/migrate_nhom_bo.php).
  */
 ?>
 <div class="hd-noi-dung">
@@ -16,57 +19,30 @@
     <ol class="hd-danh-sach">
         <li>
             <strong>Kê khai thông tin chào giá</strong> theo Thư mời và các biểu mẫu trên hệ thống.
-            <span class="hd-phu">Gồm: thông tin công ty → bảng đáp ứng kỹ thuật → bảng chào giá.</span>
+            <span class="hd-phu">Gồm: thông tin công ty → bảng đáp ứng (Mẫu 1) → bảng chào giá (Mẫu 2).</span>
         </li>
         <li>
             <strong>In, ký, đóng dấu và scan</strong> báo giá đã kê khai, sau đó tải lên hệ thống.
         </li>
         <li>
-            <strong>Scan toàn bộ tài liệu chứng minh</strong> yêu cầu kỹ thuật của hàng hóa chào giá
-            thành <strong>01 bản PDF</strong>.
-        </li>
-        <li>
-            Lập <strong>01 file Excel chỉ dẫn vị trí tài liệu chứng minh</strong>:
-            Yêu cầu kỹ thuật của hàng hóa chào theo mẫu:
-
-            <table class="hd-bang">
-                <thead>
-                    <tr>
-                        <th style="width:60px">STT</th>
-                        <th style="width:150px">Mã hàng hóa mời chào giá</th>
-                        <th>Tên thương mại</th>
-                        <th style="width:200px">
-                            Vị trí trang trong tài liệu chứng minh:
-                            Yêu cầu kỹ thuật của hàng hóa chào
-                        </th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr><td>1</td><td><em>ĐP1</em></td><td>…</td><td>1-15</td></tr>
-                    <tr><td>2</td><td><em>ĐP2</em></td><td>….</td><td>16-17</td></tr>
-                    <tr><td>…..</td><td>….</td><td>….</td><td>….</td></tr>
-                </tbody>
-            </table>
+            <strong>Scan toàn bộ tài liệu chứng minh</strong>: Yêu cầu kỹ thuật của hàng hóa
+            chào giá thành <strong>01 bản PDF</strong>.
         </li>
         <li>
             <strong>Tải các file đầy đủ lên hệ thống</strong> và <strong>hoàn tất nộp báo giá</strong>.
         </li>
         <li>
-            <strong>Tài liệu cứng</strong> (báo giá hoàn chỉnh, tài liệu chứng minh yêu cầu kỹ thuật)
-            gửi về theo địa chỉ thông tin người nhận trong <strong>Thư mời báo giá</strong>.
+            <strong>Tài liệu cứng</strong> (báo giá hoàn chỉnh, tài liệu chứng minh: cam kết,
+            catalog, hướng dẫn sử dụng…) gửi về theo địa chỉ thông tin người nhận trong
+            <strong>Thư mời báo giá</strong>.
+        </li>
+        <li>
+            Thông tin chào giá của các nhà thầu <strong>sẽ được bảo mật</strong>.
         </li>
     </ol>
 
-    <div class="hd-luu-y">
-        <?= IconHelper::svg('alert-triangle', 17) ?>
-        <span>
-            <strong>Lưu ý:</strong> Số trang trong file Excel phải chính xác theo file PDF
-            tài liệu kỹ thuật được tải lên hệ thống.
-        </span>
-    </div>
-
     <!-- Quy tắc bảo mật: đây là CĂN CỨ NGHIỆP VỤ của việc bắt làm liên tục
-         hết 5 bước và không lưu dữ liệu khi chưa hoàn thành (§10.2).
+         hết các bước và không lưu dữ liệu khi chưa hoàn thành (§10.2).
          Dùng tông đỏ vì đây là điều nhà thầu hay vi phạm nhất — làm nửa chừng
          rồi tắt trình duyệt, tưởng hệ thống có lưu lại. -->
     <div class="hd-luu-y hd-bao-mat">

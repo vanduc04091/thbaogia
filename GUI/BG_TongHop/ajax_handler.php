@@ -42,6 +42,11 @@ try {
                 'nha_thau' => $d['nha_thau'],
                 'hang_hoa' => $d['hang_hoa'],
                 'tong_ket' => $d['tong_ket'],
+                // Nhóm + cờ ẩn/hiện yêu cầu ở dòng BỘ
+                'nhom'           => $d['nhom'] ?? '',
+                'ten_nhom'       => $d['ten_nhom'] ?? '',
+                'co_yc_chung'    => (bool)($d['co_yc_chung'] ?? false),
+                'co_yc_cau_hinh' => (bool)($d['co_yc_cau_hinh'] ?? false),
             ]);
             break;
 

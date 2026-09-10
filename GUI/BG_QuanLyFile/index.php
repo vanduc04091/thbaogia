@@ -207,9 +207,7 @@ function renderTable(rows) {
 
         // Nhóm file: nhà thầu tải lên ở bước nào
         var NHOM = {
-            ban_ky:        ['Bản ký', 'badge-success'],
-            catalog:       ['Catalog', 'badge-info'],
-            catalog_excel: ['Excel chỉ dẫn', 'badge-warning']
+            ban_ky:        ['Bản ký', 'badge-success']
         };
         var nh = NHOM[r.nhom_file] || ['—', 'badge-neutral'];
         var nhom = '<span class="badge ' + nh[1] + '">' + nh[0] + '</span>';
@@ -219,8 +217,7 @@ function renderTable(rows) {
             '<span class="badge badge-danger badge-quote" title="Bản ghi còn nhưng file đã mất khỏi thư mục">' +
             APP.icon('alert-triangle', 12) + 'Mất file</span>';
 
-        // Dùng ID FILE (r.id) — 1 báo giá giờ có nhiều file (bản ký, catalog,
-        // Excel chỉ dẫn) nên không định danh theo id báo giá được nữa.
+        // Dùng ID FILE (r.id), không dùng id báo giá — bảng liệt kê theo file.
         var bgId = r.bao_gia_id;
 
         var actions = '';

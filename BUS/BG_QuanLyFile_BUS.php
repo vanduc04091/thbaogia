@@ -30,8 +30,7 @@ class BG_QuanLyFile_BUS
         // Bổ sung thông tin suy ra để GUI khỏi tự tính
         foreach ($res['data'] as &$r) {
             $ten = basename((string)$r['ten_file']);
-            // Thư mục tùy NHÓM file: ban_ky/ hay catalog/ — không dùng chung
-            // một thư mục, nếu không catalog sẽ bị báo nhầm là "Mất file".
+            // Thư mục theo NHÓM file (hiện chỉ còn ban_ky/)
             $dir = self::thuMucTheoNhom($r['nhom_file'] ?? null, $r['duong_dan'] ?? null);
             $r['la_anh']         = in_array(strtolower((string)$r['loai_file']), ['jpg', 'jpeg', 'png'], true);
             $r['la_excel']       = in_array(strtolower((string)$r['loai_file']), ['xlsx', 'xls'], true);
@@ -65,7 +64,7 @@ class BG_QuanLyFile_BUS
      * Nếu nhân viên đã tích tay xác nhận thì giữ nguyên trạng thái.
      */
     /**
-     * Xoa 1 file theo ID FILE — dung cho ca 3 nhom (ban_ky, catalog, catalog_excel).
+     * Xoa 1 file theo ID FILE (hien chi con nhom ban_ky).
      *
      * Rieng ban ky: neu nha thau tu xac nhan bang chinh file do (nguoi_xac_nhan
      * = NULL) thi xoa file phai keo bao gia ve "Cho xac nhan", neu khong bao gia
@@ -92,18 +91,14 @@ class BG_QuanLyFile_BUS
         try {
             Database::beginTransaction();
 
-            if ($nhom === BG_File_PUBLIC::NHOM_CATALOG) {
-                BG_BaoGia_DAL::updateCatalog($baoGiaId, null);
-            } elseif ($nhom === BG_File_PUBLIC::NHOM_CATALOG_EXCEL) {
-                BG_BaoGia_DAL::updateCatalogExcel($baoGiaId, null);
-            } else {
-                // Bản ký — giữ nguyên nghiệp vụ cũ
-                $tuKy = ($bg['nguoi_xac_nhan'] === null)
-                     && (int)$bg['trang_thai'] === BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN;
-                BG_BaoGia_DAL::xoaBanKy($baoGiaId, $u);
-                if ($tuKy) {
-                    BG_BaoGia_DAL::updateXacNhan($baoGiaId, BG_BaoGia_PUBLIC::TT_CHO_XAC_NHAN, null, $u);
-                }
+            // Chi con nhom ban_ky — catalog da bo cung Buoc 5 (§10.2).
+            // Bao gia da duyet nho chinh ban ky nay thi phai tra ve CHO DUYET,
+            // khong the giu trang thai "da duyet" khi ban ky khong con.
+            $tuKy = ($bg['nguoi_xac_nhan'] === null)
+                 && (int)$bg['trang_thai'] === BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN;
+            BG_BaoGia_DAL::xoaBanKy($baoGiaId, $u);
+            if ($tuKy) {
+                BG_BaoGia_DAL::updateXacNhan($baoGiaId, BG_BaoGia_PUBLIC::TT_CHO_XAC_NHAN, null, $u);
             }
 
             BG_File_DAL::softDelete($fileId, $u);
@@ -200,19 +195,17 @@ class BG_QuanLyFile_BUS
     /** Thông tin 1 file để hiển thị chi tiết (theo id BÁO GIÁ) */
     /**
      * Thu muc luu file theo nhom.
-     * ban_ky -> assets/uploads/ban_ky ; catalog & catalog_excel -> .../catalog
+     * Gio chi con 1 nhom 'ban_ky' — catalog da bo cung Buoc 5. Giu ham nay
+     * (thay vi goi thang thuMucBanKy) de sau them nhom file moi chi sua 1 cho.
      */
     public static function thuMucTheoNhom(?string $nhom, ?string $duongDan = null): string
     {
-        $key = (string)($duongDan ?: $nhom);
-        return $key === 'catalog'
-            ? BG_BaoGia_BUS::thuMucCatalog()
-            : BG_BaoGia_BUS::thuMucBanKy();
+        return BG_BaoGia_BUS::thuMucBanKy();
     }
 
     /**
      * Lay 1 file theo ID FILE (khong phai id bao gia).
-     * Can thiet vi 1 bao gia gio co nhieu file: ban ky, catalog, Excel chi dan.
+     * Dinh danh theo file, khong theo bao gia.
      */
     public static function getFileById(int $fileId): ?array
     {

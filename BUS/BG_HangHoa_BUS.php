@@ -1,5 +1,7 @@
 <?php
 require_once __DIR__ . '/../DAL/BG_HangHoa_DAL.php';
+require_once __DIR__ . '/../DAL/BG_Bo_DAL.php';
+require_once __DIR__ . '/../PUBLIC/Entities/BG_Nhom_PUBLIC.php';
 require_once __DIR__ . '/../DAL/BG_GoiThau_DAL.php';
 require_once __DIR__ . '/../DAL/DM_NhatKyHeThong_DAL.php';
 require_once __DIR__ . '/../PUBLIC/Common/ExcelHelper.php';
@@ -16,16 +18,36 @@ class BG_HangHoa_BUS
     /** Số dòng insert mỗi lô — tránh vượt giới hạn placeholder của MySQL */
     const BATCH_SIZE = 100;
 
-    /** Chỉ số cột (0-based) trong file mẫu — phần bên mời điền: A..K */
-    // Cột file mẫu theo **Phụ lục III — Bảng mô tả yêu cầu kỹ thuật cơ bản**:
-    //   A: STT | B: Mã HH | C: Tên hàng hóa chào giá
-    //   D: Yêu cầu kỹ thuật mời chào giá | E: ĐVT | F: Số lượng
-    const COL_STT           = 0;  // A
-    const COL_MA_HH         = 1;  // B
-    const COL_TEN_HANG_HOA  = 2;  // C
-    const COL_THONG_SO      = 3;  // D
-    const COL_DVT           = 4;  // E
-    const COL_SO_LUONG      = 5;  // F
+    /**
+     * Chỉ số cột (0-based) file mẫu danh mục — theo **Phụ lục III Thư mời
+     * báo giá chung 3 nhóm**, đúng 12 cột:
+     *
+     *   A: Mã bộ/phần/hệ thống/hàng hóa/dụng cụ chi tiết
+     *   B: STT bộ/phần/hệ thống      C: Tên bộ/phần/hệ thống
+     *   D: STT chi tiết              E: Tên danh mục hàng hóa/dụng cụ chi tiết
+     *   F: Yêu cầu chung             G: Yêu cầu khác
+     *   H: Yêu cầu cấu hình          I: Yêu cầu kỹ thuật
+     *   J: Yêu cầu nhóm nước, vùng lãnh thổ
+     *   K: ĐVT                       L: Số lượng
+     *
+     * Phân biệt 2 loại dòng:
+     *   - Dòng BỘ     : có STT bộ (cột B) → mở một bộ mới
+     *   - Dòng CHI TIẾT: có STT chi tiết (cột D) → hàng hóa thuộc bộ đang mở
+     * Dòng vừa có B vừa có D = hàng lẻ (vd vật tư "Bơm tiêm"): tự thành
+     * 1 bộ chứa đúng 1 chi tiết.
+     */
+    const COL_MA            = 0;   // A
+    const COL_STT_BO        = 1;   // B
+    const COL_TEN_BO        = 2;   // C
+    const COL_STT_CT        = 3;   // D
+    const COL_TEN_HANG_HOA  = 4;   // E
+    const COL_YC_CHUNG      = 5;   // F
+    const COL_YC_KHAC       = 6;   // G
+    const COL_YC_CAU_HINH   = 7;   // H
+    const COL_THONG_SO      = 8;   // I  (yêu cầu kỹ thuật)
+    const COL_NHOM_NUOC     = 9;   // J
+    const COL_DVT           = 10;  // K
+    const COL_SO_LUONG      = 11;  // L
 
     private static function validate(BG_HangHoa_PUBLIC $e, bool $isUpdate = false): string
     {
@@ -37,6 +59,23 @@ class BG_HangHoa_BUS
         if (mb_strlen($e->ten_hang_hoa) > 1000) return 'Tên hàng hóa tối đa 1000 ký tự';
         if ($e->so_luong < 0) return 'Số lượng không được âm';
         if ($e->so_luong > 99999999) return 'Số lượng quá lớn';
+
+        // Nhóm mua theo BỘ: thiếu SL của 1 chi tiết là không dựng được giá cả
+        // bộ. Chặn ở đây để nhập tay và import cùng một luật (§3B.1).
+        $gtNhom = BG_GoiThau_DAL::getById($e->goi_thau_id);
+        $nhom = BG_Nhom_PUBLIC::chuanHoa($gtNhom->nhom ?? null);
+        if ($nhom !== BG_Nhom_PUBLIC::VAT_TU_DUOC && $e->so_luong <= 0) {
+            return 'Nhóm ' . BG_Nhom_PUBLIC::tenNhom($nhom)
+                 . ' mua theo bộ — Số lượng phải lớn hơn 0';
+        }
+
+        // bo_id phải là bộ CÓ THẬT trong ĐÚNG gói thầu này — không tin input
+        if ($e->bo_id !== null && (int)$e->bo_id > 0) {
+            $bo = BG_Bo_DAL::getById((int)$e->bo_id);
+            if (!$bo || (int)$bo->da_xoa === 1 || (int)$bo->goi_thau_id !== $e->goi_thau_id) {
+                return 'Bộ không hợp lệ hoặc không thuộc gói thầu này';
+            }
+        }
 
         // Mã HH bỏ trống → tự sinh HH001, HH002... theo gói thầu
         if ($e->ma_hh === '') {
@@ -162,12 +201,20 @@ class BG_HangHoa_BUS
     // =====================================================================
 
     /**
-     * Đọc file Excel mẫu → mảng hàng hóa (chỉ parse, chưa ghi DB).
-     * Cho phép xem trước trước khi import thật.
+     * Đọc file Excel Phụ lục III → cây BỘ + hàng hóa chi tiết (chỉ parse,
+     * chưa ghi DB) để xem trước rồi mới import thật.
      *
-     * @return array ['success'=>bool, 'message'=>string, 'data'=>[...], 'loi'=>[...]]
+     * Quy tắc nhận dạng dòng (xem hằng COL_* ở đầu class):
+     *   - Có STT bộ (cột B) hoặc Tên bộ (cột C) → MỞ MỘT BỘ MỚI
+     *   - Có STT chi tiết (cột D) hoặc Tên hàng hóa (cột E) → CHI TIẾT của bộ đang mở
+     *   - Có cả hai → hàng lẻ: bộ chỉ chứa đúng 1 chi tiết
+     *
+     * Chi tiết xuất hiện trước khi có bộ nào (file thiếu dòng bộ đầu) sẽ được
+     * gom vào một bộ ngầm, KHÔNG vứt bỏ dữ liệu của người dùng.
+     *
+     * @return array ['success'=>bool, 'message'=>string, 'data'=>[bộ...], 'loi'=>[...]]
      */
-    public static function docFileExcel(string $filePath): array
+    public static function docFileExcel(string $filePath, string $nhom = ''): array
     {
         try {
             $rows = ExcelHelper::readSheet($filePath);
@@ -179,15 +226,15 @@ class BG_HangHoa_BUS
             return ['success' => false, 'message' => 'File không có dữ liệu'];
         }
 
-        // Kiểm tra đúng định dạng Phụ lục III: dò header ở 5 dòng đầu
-        // (file thật có thể có 1-2 dòng tiêu đề phía trên).
+        // Dò dòng header trong 8 dòng đầu (file thật có tiêu đề + dòng đánh số cột).
+        // So khớp sau khi BỎ DẤU để không phụ thuộc dấu tiếng Việt.
         $dongHeader = 0;
-        for ($d = 1; $d <= 5; $d++) {
-            $ten = ExcelHelper::toText($rows[$d][self::COL_TEN_HANG_HOA] ?? '');
-            // So khớp sau khi BỎ DẤU. Trước đây dò chuỗi có dấu cứng
-            // ('hàng ho') nên tiêu đề thật "Tên hàng hóa..." KHÔNG khớp
-            // (chữ 'ó' có dấu), làm mọi file mẫu đều bị báo sai định dạng.
-            if (mb_stripos(self::boDau($ten), 'hang hoa') !== false) {
+        for ($d = 1; $d <= 8; $d++) {
+            $tenCt = self::boDau(ExcelHelper::toText($rows[$d][self::COL_TEN_HANG_HOA] ?? ''));
+            $tenBo = self::boDau(ExcelHelper::toText($rows[$d][self::COL_TEN_BO] ?? ''));
+            if (mb_stripos($tenCt, 'ten danh muc') !== false
+                || mb_stripos($tenCt, 'hang hoa') !== false
+                || mb_stripos($tenBo, 'ten bo') !== false) {
                 $dongHeader = $d;
                 break;
             }
@@ -195,73 +242,178 @@ class BG_HangHoa_BUS
         if ($dongHeader === 0) {
             return [
                 'success' => false,
-                'message' => 'File không đúng định dạng Phụ lục III. Cần các cột: '
-                           . 'STT | Mã HH | Tên hàng hóa chào giá | Yêu cầu kỹ thuật | ĐVT | Số lượng. '
-                           . 'Hãy tải file mẫu và điền theo đúng cấu trúc.',
+                'message' => 'File không đúng định dạng Phụ lục III (12 cột). Cần: '
+                           . 'Mã | STT bộ | Tên bộ | STT chi tiết | Tên hàng hóa chi tiết | '
+                           . 'Yêu cầu chung | Yêu cầu khác | Yêu cầu cấu hình | Yêu cầu kỹ thuật | '
+                           . 'Nhóm nước | ĐVT | Số lượng. Hãy tải file mẫu và điền theo đúng cấu trúc.',
             ];
         }
-        // Dữ liệu bắt đầu ngay sau dòng header
-        $dongBatDau = $dongHeader + 1;
 
-        $data = [];
-        $loi = [];
+        $bo     = [];   // danh sách bộ đã dựng
+        $hangLe = [];   // hàng KHÔNG thuộc bộ nào (bo_id = NULL)
+        $loi    = [];
+        $iBo    = -1;   // chỉ số bộ đang mở
+
         foreach ($rows as $rowNo => $cells) {
-            if ($rowNo < $dongBatDau) continue;   // bỏ tiêu đề + header
+            if ($rowNo <= $dongHeader) continue;
 
-            $tenHangHoa = ExcelHelper::toText($cells[self::COL_TEN_HANG_HOA] ?? '', 1000);
-            // Dòng trắng → bỏ qua im lặng
-            if ($tenHangHoa === '') {
-                $coDuLieu = false;
-                foreach ([self::COL_MA_HH, self::COL_THONG_SO, self::COL_DVT, self::COL_SO_LUONG] as $c) {
-                    if (ExcelHelper::toText($cells[$c] ?? '') !== '') { $coDuLieu = true; break; }
-                }
-                if ($coDuLieu) {
-                    $loi[] = "Dòng {$rowNo}: có dữ liệu nhưng thiếu Tên hàng hoá (cột D) → đã bỏ qua";
-                }
+            $lay = function (int $c, int $max = 0) use ($cells): string {
+                return ExcelHelper::toText($cells[$c] ?? '', $max ?: 0);
+            };
+
+            $ma      = $lay(self::COL_MA, 50);
+            $sttBo   = $lay(self::COL_STT_BO);
+            $tenBo   = $lay(self::COL_TEN_BO, 1000);
+            $sttCt   = $lay(self::COL_STT_CT);
+            $tenCt   = $lay(self::COL_TEN_HANG_HOA, 1000);
+
+            // Dòng trắng hoàn toàn → bỏ qua im lặng
+            if ($ma === '' && $sttBo === '' && $tenBo === '' && $sttCt === '' && $tenCt === '') {
                 continue;
             }
-
-            // Bỏ dòng còn sót text hướng dẫn
-            if (mb_stripos($tenHangHoa, 'HDSD') !== false) continue;
+            // Dòng chú thích còn sót trong file mẫu ("( lấy ví dụ ...")
+            if ($tenBo === '' && $tenCt === '' && mb_strpos($ma, '(') !== false) {
+                continue;
+            }
 
             $soLuong = ExcelHelper::toNumber($cells[self::COL_SO_LUONG] ?? 0);
             if ($soLuong < 0) {
                 $loi[] = "Dòng {$rowNo}: số lượng âm → đặt về 0";
                 $soLuong = 0;
             }
+            $dvt = $lay(self::COL_DVT, 50);
 
-            $data[] = [
-                'row'               => $rowNo,
-                'ma_hh'             => ExcelHelper::toText($cells[self::COL_MA_HH] ?? '', 50),
-                'ten_hang_hoa'      => $tenHangHoa,
-                'thong_so_ky_thuat' => ExcelHelper::toText($cells[self::COL_THONG_SO] ?? ''),
-                'dvt'               => ExcelHelper::toText($cells[self::COL_DVT] ?? '', 50),
-                'so_luong'          => $soLuong,
-            ];
+            // CHỈ là dòng BỘ khi có TÊN BỘ (cột C). Chỉ điền STT bộ mà không
+            // có tên thì không đủ để dựng một bộ — thường là hàng lẻ đánh số.
+            $laDongBo = ($tenBo !== '');
+            $laDongCt = ($sttCt !== '' || $tenCt !== '');
+
+            // ---- Mở bộ mới ----
+            if ($laDongBo) {
+                $bo[] = [
+                    'row'              => $rowNo,
+                    'ma_bo'            => $ma,
+                    'stt_bo'           => $sttBo !== '' ? (int)ExcelHelper::toNumber($sttBo) : null,
+                    'ten_bo'           => $tenBo,
+                    'yeu_cau_chung'    => $lay(self::COL_YC_CHUNG),
+                    'yeu_cau_khac'     => $lay(self::COL_YC_KHAC),
+                    'yeu_cau_cau_hinh' => $lay(self::COL_YC_CAU_HINH),
+                    'nhom_nuoc'        => $lay(self::COL_NHOM_NUOC, 500),
+                    'dvt'              => $dvt,
+                    'so_luong'         => $soLuong,
+                    'chi_tiet'         => [],
+                ];
+                $iBo = count($bo) - 1;
+
+                // Dòng bộ KHÔNG kèm chi tiết → xong, chờ các dòng chi tiết bên dưới
+                if (!$laDongCt) continue;
+            }
+
+            // ---- Chi tiết ----
+            if ($laDongCt) {
+                if ($tenCt === '') {
+                    $loi[] = "Dòng {$rowNo}: có STT chi tiết nhưng thiếu Tên hàng hóa (cột E) → đã bỏ qua";
+                    continue;
+                }
+                // KHÔNG tự tạo bộ ngầm nữa: hàng không có bộ là HÀNG LẺ hợp lệ
+                // (vật tư, dược phần lớn như vậy) — gom vào rổ riêng, bo_id = NULL.
+                $dich = &$hangLe;
+                if ($iBo >= 0) $dich = &$bo[$iBo]['chi_tiet'];
+
+                $dich[] = [
+                    'row'               => $rowNo,
+                    // Dòng bộ-kiêm-chi-tiết: mã nằm ở cột A của chính dòng đó
+                    'ma_hh'             => $ma,
+                    'stt_chi_tiet'      => $sttCt !== '' ? (int)ExcelHelper::toNumber($sttCt) : null,
+                    'ten_hang_hoa'      => $tenCt,
+                    'thong_so_ky_thuat' => $lay(self::COL_THONG_SO),
+                    'nhom_nuoc'         => $lay(self::COL_NHOM_NUOC, 500),
+                    'dvt'               => $dvt,
+                    'so_luong'          => $soLuong,
+                ];
+            }
         }
 
-        if (empty($data)) {
+        // Bộ không có chi tiết nào = dữ liệu thiếu → báo rõ, không nạp âm thầm
+        $tongCt = count($hangLe);
+        foreach ($bo as $b) $tongCt += count($b['chi_tiet']);
+
+        if ($tongCt === 0) {
             return [
                 'success' => false,
-                'message' => 'Không tìm thấy dòng hàng hóa nào. Dữ liệu phải bắt đầu từ dòng '
-                           . self::EXCEL_DATA_ROW . ' và cột D (Tên hàng hoá) phải có giá trị.',
+                'message' => 'Không tìm thấy hàng hóa chi tiết nào. Mỗi bộ phải có ít nhất 1 dòng '
+                           . 'chi tiết (cột D "STT chi tiết" + cột E "Tên hàng hóa").',
                 'loi' => $loi,
             ];
         }
+        foreach ($bo as $b) {
+            if (empty($b['chi_tiet'])) {
+                $loi[] = "Dòng {$b['row']}: bộ \"{$b['ten_bo']}\" không có hàng hóa chi tiết nào";
+            }
+        }
+
+        // ---- Số lượng bắt buộc khi đã khai BỘ ----
+        // Bộ dụng cụ / hệ thống TBYT: mua theo bộ nên THIẾU SL của 1 chi tiết là
+        // không dựng được giá cả bộ. Vật tư dược phần lớn là hàng lẻ, không ép.
+        $epSoLuong = $nhom !== '' && $nhom !== BG_Nhom_PUBLIC::VAT_TU_DUOC;
+        if ($epSoLuong) {
+            $thieu = [];
+            $moiDong = $hangLe;
+            foreach ($bo as $b) {
+                foreach ($b['chi_tiet'] as $c1) $moiDong[] = $c1;
+            }
+            foreach ([['', $moiDong]] as [$tenBo, $dsCt]) {
+                foreach ($dsCt as $ct) {
+                    if ((float)$ct['so_luong'] <= 0) {
+                        $thieu[] = "dòng {$ct['row']} — " . mb_substr($ct['ten_hang_hoa'], 0, 40);
+                    }
+                }
+            }
+            if ($thieu) {
+                return [
+                    'success' => false,
+                    'message' => 'Nhóm ' . BG_Nhom_PUBLIC::tenNhom($nhom) . ' mua theo BỘ nên '
+                               . 'MỌI hàng hóa chi tiết đều phải có Số lượng (cột L) lớn hơn 0. '
+                               . 'Còn ' . count($thieu) . ' dòng chưa nhập: '
+                               . implode('; ', array_slice($thieu, 0, 5))
+                               . (count($thieu) > 5 ? '; ...' : ''),
+                    'loi' => $loi,
+                ];
+            }
+        }
+
+        // Hàng lẻ (vật tư dược) thiếu SL thì chỉ cảnh báo, vẫn cho nạp
+        $moiDong2 = $hangLe;
+        foreach ($bo as $b) foreach ($b['chi_tiet'] as $c2) $moiDong2[] = $c2;
+        foreach ([$moiDong2] as $dsCt) {
+            foreach ($dsCt as $ct) {
+                if ((float)$ct['so_luong'] <= 0) {
+                    $loi[] = "Dòng {$ct['row']}: \"" . mb_substr($ct['ten_hang_hoa'], 0, 40)
+                           . "\" chưa có Số lượng — nhà thầu sẽ không tính được thành tiền";
+                }
+            }
+        }
+
+        $moTa = count($bo) . ' bộ';
+        if ($hangLe) $moTa .= ', ' . count($hangLe) . ' hàng lẻ';
 
         return [
-            'success' => true,
-            'message' => 'Đọc được ' . count($data) . ' dòng hàng hóa',
-            'data' => $data,
-            'loi' => $loi,
+            'success'  => true,
+            'message'  => 'Đọc được ' . $moTa . ', ' . $tongCt . ' hàng hóa',
+            'data'     => $bo,
+            'hang_le'  => $hangLe,
+            'loi'      => $loi,
         ];
     }
 
 
     /**
-     * Import hàng hóa từ file Excel vào gói thầu.
+     * Import danh mục (BỘ + hàng hóa chi tiết) từ file Excel Phụ lục III.
      *
-     * @param bool $ghiDe true = xóa mềm hàng hóa cũ trước khi nạp mới
+     * Ghi 2 bảng (bg_bo + bg_hang_hoa) nên BẮT BUỘC bọc transaction: hỏng
+     * giữa chừng mà không rollback sẽ để lại bộ rỗng không có hàng hóa.
+     *
+     * @param bool $ghiDe true = xóa danh mục cũ trước khi nạp mới
      */
     public static function importExcel(int $goiThauId, string $filePath, bool $ghiDe, int $u): array
     {
@@ -270,7 +422,7 @@ class BG_HangHoa_BUS
         $gt = BG_GoiThau_DAL::getById($goiThauId);
         if (!$gt || $gt->da_xoa === 1) return ['success' => false, 'message' => 'Gói thầu không tồn tại'];
 
-        // Đã có báo giá → đổi danh mục hàng hóa sẽ làm lệch dữ liệu đã chào
+        // Đã có báo giá → đổi danh mục sẽ làm lệch dữ liệu nhà thầu đã chào
         if ((int)$gt->so_bao_gia > 0 && $ghiDe) {
             return [
                 'success' => false,
@@ -279,75 +431,126 @@ class BG_HangHoa_BUS
             ];
         }
 
-        $doc = self::docFileExcel($filePath);
+        $nhomGt = BG_Nhom_PUBLIC::chuanHoa($gt->nhom ?? null);
+        $doc = self::docFileExcel($filePath, $nhomGt);
         if (!$doc['success']) return $doc;
 
-        $rows = $doc['data'];
+        $dsBo = $doc['data'];
 
-        // Ghi nhiều bảng / nhiều lô → bọc transaction
         try {
             Database::beginTransaction();
 
             if ($ghiDe) {
+                // Xóa hàng hóa TRƯỚC rồi mới xóa bộ — ngược lại sẽ còn hàng
+                // trỏ tới bo_id không tồn tại.
                 BG_HangHoa_DAL::softDeleteByGoiThau($goiThauId, $u);
-                $thuTu = 0;
+                BG_Bo_DAL::deleteByGoiThau($goiThauId);
+                $thuTuBo = 0;
+                $thuTuHh = 0;
             } else {
-                $thuTu = BG_HangHoa_DAL::maxThuTu($goiThauId);
+                $thuTuBo = count(BG_Bo_DAL::getByGoiThau($goiThauId));
+                $thuTuHh = BG_HangHoa_DAL::maxThuTu($goiThauId);
             }
 
-            $tong = 0;
-            $lo = [];
-            // Bộ đếm sinh Mã HH cho dòng bỏ trống mã
+            // Bộ đếm sinh Mã HH cho dòng bỏ trống mã. Tính cả mã HHxxx do
+            // CHÍNH file này khai sẵn, nếu không dòng trống mã sẽ sinh trùng.
             $soTiepTheo = BG_HangHoa_DAL::soThuTuMaLonNhat($goiThauId);
-
-            // Tính cả mã HHxxx do CHÍNH file này khai sẵn, nếu không dòng bỏ
-            // trống mã sẽ sinh trùng với dòng đã ghi rõ mã trong cùng file.
-            foreach ($rows as $r) {
-                if (preg_match('/^HH(\d+)$/', (string)$r['ma_hh'], $m)) {
-                    $soTiepTheo = max($soTiepTheo, (int)$m[1]);
+            foreach ($dsBo as $b) {
+                foreach ($b['chi_tiet'] as $ct) {
+                    if (preg_match('/^HH(\d+)$/', (string)$ct['ma_hh'], $m)) {
+                        $soTiepTheo = max($soTiepTheo, (int)$m[1]);
+                    }
                 }
             }
 
-            foreach ($rows as $r) {
-                $e = new BG_HangHoa_PUBLIC();
-                $e->goi_thau_id       = $goiThauId;
-                // Mã HH bỏ trống → sinh tiếp theo mã lớn nhất đang có trong gói
-                $maHh = $r['ma_hh'];
+            $soBo = 0;
+            $soHh = 0;
+            $lo = [];
+
+            // Dung 1 dong hang hoa — dung chung cho HANG LE (boId = null) va
+            // hang trong bo, de 2 nhanh khong lech nhau.
+            $dungHang = function (array $ct, ?int $boId, int $stt)
+                use ($goiThauId, $u, &$soTiepTheo, &$thuTuHh): BG_HangHoa_PUBLIC {
+                $maHh = $ct['ma_hh'];
                 if ($maHh === '') {
                     $soTiepTheo++;
                     $maHh = 'HH' . str_pad((string)$soTiepTheo, 3, '0', STR_PAD_LEFT);
                 }
+                $e = new BG_HangHoa_PUBLIC();
+                $e->goi_thau_id       = $goiThauId;
+                $e->bo_id             = $boId;
+                $e->stt_chi_tiet      = $boId === null ? null : ($ct['stt_chi_tiet'] ?? $stt);
                 $e->ma_hh             = $maHh;
-                // THIẾU 2 dòng này -> mọi lần import đều ra tên rỗng và số lượng 0
-                $e->ten_hang_hoa      = $r['ten_hang_hoa'];
-                $e->so_luong          = (float)$r['so_luong'];
-                $e->thong_so_ky_thuat = $r['thong_so_ky_thuat'] !== '' ? $r['thong_so_ky_thuat'] : null;
-                $e->dvt               = $r['dvt'] !== '' ? $r['dvt'] : null;
-                $e->thu_tu            = ++$thuTu;
+                $e->ten_hang_hoa      = $ct['ten_hang_hoa'];
+                $e->thong_so_ky_thuat = $ct['thong_so_ky_thuat'] !== '' ? $ct['thong_so_ky_thuat'] : null;
+                $e->nhom_nuoc         = $ct['nhom_nuoc'] !== '' ? $ct['nhom_nuoc'] : null;
+                $e->dvt               = $ct['dvt'] !== '' ? $ct['dvt'] : null;
+                $e->so_luong          = (float)$ct['so_luong'];
+                $e->thu_tu            = ++$thuTuHh;
                 $e->nguoi_tao         = $u;
+                return $e;
+            };
 
-                $lo[] = $e;
+            // ---- HANG LE: khong thuoc bo nao, bo_id = NULL ----
+            foreach ($doc['hang_le'] ?? [] as $j => $ct) {
+                $lo[] = $dungHang($ct, null, $j + 1);
                 if (count($lo) >= self::BATCH_SIZE) {
-                    $tong += BG_HangHoa_DAL::insertBatch($lo);
+                    $soHh += BG_HangHoa_DAL::insertBatch($lo);
                     $lo = [];
                 }
             }
-            if ($lo) $tong += BG_HangHoa_DAL::insertBatch($lo);
+
+            foreach ($dsBo as $b) {
+                if (empty($b['chi_tiet'])) continue;   // bộ rỗng → đã cảnh báo ở parser
+
+                $eb = new BG_Bo_PUBLIC();
+                $eb->goi_thau_id      = $goiThauId;
+                $eb->ma_bo            = $b['ma_bo'] !== '' ? $b['ma_bo'] : null;
+                $eb->stt_bo           = $b['stt_bo'] ?? (++$soBo);
+                $eb->ten_bo           = $b['ten_bo'] !== '' ? $b['ten_bo'] : null;
+                $eb->yeu_cau_chung    = $b['yeu_cau_chung'] !== '' ? $b['yeu_cau_chung'] : null;
+                $eb->yeu_cau_khac     = $b['yeu_cau_khac'] !== '' ? $b['yeu_cau_khac'] : null;
+                $eb->yeu_cau_cau_hinh = $b['yeu_cau_cau_hinh'] !== '' ? $b['yeu_cau_cau_hinh'] : null;
+                $eb->nhom_nuoc        = $b['nhom_nuoc'] !== '' ? $b['nhom_nuoc'] : null;
+                $eb->dvt              = $b['dvt'] !== '' ? $b['dvt'] : null;
+                $eb->so_luong         = (float)$b['so_luong'];
+                $eb->thu_tu           = ++$thuTuBo;
+                $eb->nguoi_tao        = $u;
+
+                $boId = BG_Bo_DAL::insert($eb);
+                if ($b['stt_bo'] === null) $soBo = max($soBo, $eb->stt_bo);
+
+                foreach ($b['chi_tiet'] as $j => $ct) {
+                    $lo[] = $dungHang($ct, $boId, $j + 1);
+                    if (count($lo) >= self::BATCH_SIZE) {
+                        $soHh += BG_HangHoa_DAL::insertBatch($lo);
+                        $lo = [];
+                    }
+                }
+            }
+            if ($lo) $soHh += BG_HangHoa_DAL::insertBatch($lo);
+
+            $soBoThat = 0;
+            foreach ($dsBo as $b) if (!empty($b['chi_tiet'])) $soBoThat++;
 
             Database::commit();
 
             DM_NhatKyHeThong_DAL::log(
                 $u, self::MODULE_LOG,
-                "Import {$tong} hàng hóa vào gói thầu {$gt->so_thong_bao}"
+                "Import {$soBoThat} bộ / {$soHh} hàng hóa vào gói thầu {$gt->so_thong_bao}"
                 . ($ghiDe ? ' (ghi đè)' : ' (thêm tiếp)'),
                 'bg_hang_hoa', $goiThauId
             );
 
-            $msg = "Đã import {$tong} hàng hóa" . ($ghiDe ? ' (đã thay danh mục cũ)' : '');
             return [
                 'success' => true,
-                'message' => $msg,
-                'data' => ['so_dong' => $tong, 'canh_bao' => $doc['loi'] ?? []],
+                'message' => 'Đã import ' . ($soBoThat > 0 ? "{$soBoThat} bộ, " : '') . "{$soHh} hàng hóa"
+                           . ($ghiDe ? ' (đã thay danh mục cũ)' : ''),
+                'data' => [
+                    'so_bo'    => $soBoThat,
+                    'so_dong'  => $soHh,
+                    'canh_bao' => $doc['loi'] ?? [],
+                ],
             ];
         } catch (Throwable $ex) {
             Database::rollBack();
@@ -394,151 +597,348 @@ class BG_HangHoa_BUS
         return $s;
     }
 
+    /**
+     * File Excel mẫu DANH MỤC (Phụ lục III) cho BÊN MỜI import lên.
+     *
+     * Luôn xuất đủ 12 cột đúng thứ tự hằng COL_* — parser đọc theo VỊ TRÍ cột,
+     * nên KHÔNG được bỏ bớt cột của nhóm không dùng, chỉ đánh dấu "không áp
+     * dụng" ở tiêu đề để người điền biết mà bỏ qua.
+     *
+     * Dòng ví dụ sinh theo đúng nhóm của gói thầu (bộ dụng cụ / hệ thống TBYT /
+     * vật tư dược), lấy nguyên mẫu từ Phụ lục III Thư mời.
+     */
     public static function xuatFileMauDanhMuc(int $goiThauId): string
     {
         $gt = BG_GoiThau_DAL::getById($goiThauId);
         if (!$gt) throw new RuntimeException('Không tìm thấy gói thầu');
+
+        $nhom = BG_Nhom_PUBLIC::chuanHoa($gt->nhom ?? null);
 
         $H = ExcelHelper::S_HEADER;
         $S = ExcelHelper::S_TEXT_WRAP;
         $C = ExcelHelper::S_CENTER;
         $N = ExcelHelper::S_NUMBER;
 
+        // Cột không dùng ở nhóm này vẫn PHẢI giữ chỗ — ghi rõ để khỏi điền nhầm
+        $naChung   = BG_Nhom_PUBLIC::coYeuCauChung($nhom)   ? '' : ' (không áp dụng)';
+        $naKhac    = BG_Nhom_PUBLIC::coYeuCauKhac($nhom)    ? '' : ' (không áp dụng)';
+        $naCauHinh = BG_Nhom_PUBLIC::coYeuCauCauHinh($nhom) ? '' : ' (không áp dụng)';
+
         $rows = [
-            [['v' => 'DANH MỤC HÀNG HÓA MỜI CHÀO GIÁ', 's' => ExcelHelper::S_TITLE]],
+            [['v' => 'PHỤ LỤC III — BẢNG MÔ TẢ YÊU CẦU', 's' => ExcelHelper::S_TITLE]],
             [['v' => 'Thư mời số ' . $gt->so_thong_bao . ' — ' . $gt->ten_goi_thau,
               's' => ExcelHelper::S_SUBTITLE]],
-            [['v' => 'Bỏ trống cột Mã HH thì hệ thống tự sinh (HH001, HH002...). '
-                   . 'Xóa các dòng ví dụ trước khi import.',
+            [['v' => 'Nhóm: ' . BG_Nhom_PUBLIC::tenNhom($nhom) . '. '
+                   . BG_Nhom_PUBLIC::moTa($nhom),
+              's' => ExcelHelper::S_SUBTITLE]],
+            [['v' => 'Cách điền: dòng BỘ điền cột B,C (STT bộ, Tên bộ) — dòng HÀNG HÓA CHI TIẾT '
+                   . 'điền cột D,E. Hàng lẻ điền cả B,C,D,E trên cùng 1 dòng. '
+                   . 'Bỏ trống cột A (Mã) thì hệ thống tự sinh. Xóa các dòng ví dụ trước khi import.',
               's' => ExcelHelper::S_SUBTITLE]],
             [
-                ['v' => 'STT', 's' => $H],
-                ['v' => 'Mã HH', 's' => $H],
-                ['v' => 'Tên hàng hóa mời chào giá', 's' => $H],
-                ['v' => 'Yêu cầu kỹ thuật mời chào giá', 's' => $H],
+                ['v' => 'Mã bộ/hàng hóa chi tiết', 's' => $H],
+                ['v' => 'STT bộ/phần/hệ thống', 's' => $H],
+                ['v' => 'Tên bộ/phần/hệ thống', 's' => $H],
+                ['v' => 'STT chi tiết', 's' => $H],
+                ['v' => 'Tên danh mục hàng hóa/dụng cụ chi tiết', 's' => $H],
+                ['v' => 'Yêu cầu chung' . $naChung, 's' => $H],
+                ['v' => 'Yêu cầu khác' . $naKhac, 's' => $H],
+                ['v' => 'Yêu cầu cấu hình' . $naCauHinh, 's' => $H],
+                ['v' => 'Yêu cầu kỹ thuật', 's' => $H],
+                ['v' => 'Yêu cầu nhóm nước, vùng lãnh thổ (nếu có)', 's' => $H],
                 ['v' => 'ĐVT', 's' => $H],
                 ['v' => 'Số lượng', 's' => $H],
             ],
         ];
 
-        // Neu goi thau DA co hang hoa -> do san ra de sua; chua co thi cho 3 dong vi du
-        $hangHoa = BG_HangHoa_DAL::getByGoiThau($goiThauId);
-        if (!empty($hangHoa)) {
-            $stt = 0;
+        /** Dựng 1 dòng 12 cột — tham số rỗng thì để trống */
+        $dong = function (array $c) use ($S, $C, $N): array {
+            $sl = $c[11] ?? '';
+            return [
+                ['v' => (string)($c[0] ?? ''),  's' => $C],
+                ['v' => $c[1] === '' || !isset($c[1]) ? '' : (float)$c[1], 's' => $C,
+                 't' => isset($c[1]) && $c[1] !== '' ? 'n' : 's'],
+                ['v' => (string)($c[2] ?? ''),  's' => $S],
+                ['v' => $c[3] === '' || !isset($c[3]) ? '' : (float)$c[3], 's' => $C,
+                 't' => isset($c[3]) && $c[3] !== '' ? 'n' : 's'],
+                ['v' => (string)($c[4] ?? ''),  's' => $S],
+                ['v' => (string)($c[5] ?? ''),  's' => $S],
+                ['v' => (string)($c[6] ?? ''),  's' => $S],
+                ['v' => (string)($c[7] ?? ''),  's' => $S],
+                ['v' => (string)($c[8] ?? ''),  's' => $S],
+                ['v' => (string)($c[9] ?? ''),  's' => $C],
+                ['v' => (string)($c[10] ?? ''), 's' => $C],
+                ['v' => $sl === '' ? '' : (float)$sl, 's' => $N, 't' => $sl === '' ? 's' : 'n'],
+            ];
+        };
+
+        // Gói đã có danh mục -> đổ ra để sửa; chưa có -> ví dụ theo nhóm
+        $dsBo = BG_Bo_DAL::getByGoiThau($goiThauId);
+        if (!empty($dsBo)) {
+            $hangHoa = BG_HangHoa_DAL::getByGoiThau($goiThauId);
+            $theoBo = [];
             foreach ($hangHoa as $hh) {
-                $stt++;
-                $rows[] = [
-                    ['v' => $stt, 's' => $C, 't' => 'n'],
-                    ['v' => (string)($hh['ma_hh'] ?? ''), 's' => $C],
-                    ['v' => (string)$hh['ten_hang_hoa'], 's' => $S],
-                    ['v' => (string)($hh['thong_so_ky_thuat'] ?? ''), 's' => $S],
-                    ['v' => (string)($hh['dvt'] ?? ''), 's' => $C],
-                    ['v' => (float)$hh['so_luong'], 's' => $N, 't' => 'n'],
-                ];
+                $theoBo[(int)($hh['bo_id'] ?? 0)][] = $hh;
+            }
+
+            foreach ($dsBo as $b) {
+                $bid = (int)$b['id'];
+                $ct  = $theoBo[$bid] ?? [];
+
+                // Hàng lẻ (bộ đúng 1 chi tiết cùng tên) -> gộp về 1 dòng cho gọn
+                $goName = count($ct) === 1
+                       && trim((string)$b['ten_bo']) === trim((string)$ct[0]['ten_hang_hoa']);
+
+                if ($goName) {
+                    $h = $ct[0];
+                    $rows[] = $dong([
+                        (string)($h['ma_hh'] ?? ''), $b['stt_bo'], (string)$b['ten_bo'],
+                        $h['stt_chi_tiet'] ?? 1, (string)$h['ten_hang_hoa'],
+                        (string)($b['yeu_cau_chung'] ?? ''), (string)($b['yeu_cau_khac'] ?? ''),
+                        (string)($b['yeu_cau_cau_hinh'] ?? ''),
+                        (string)($h['thong_so_ky_thuat'] ?? ''),
+                        (string)($b['nhom_nuoc'] ?? ''),
+                        (string)($h['dvt'] ?? ''), (float)$h['so_luong'],
+                    ]);
+                    continue;
+                }
+
+                $rows[] = $dong([
+                    (string)($b['ma_bo'] ?? ''), $b['stt_bo'], (string)$b['ten_bo'],
+                    '', '',
+                    (string)($b['yeu_cau_chung'] ?? ''), (string)($b['yeu_cau_khac'] ?? ''),
+                    (string)($b['yeu_cau_cau_hinh'] ?? ''), '',
+                    (string)($b['nhom_nuoc'] ?? ''),
+                    (string)($b['dvt'] ?? ''), (float)$b['so_luong'],
+                ]);
+                foreach ($ct as $k => $h) {
+                    $rows[] = $dong([
+                        (string)($h['ma_hh'] ?? ''), '', '',
+                        $h['stt_chi_tiet'] ?? ($k + 1), (string)$h['ten_hang_hoa'],
+                        '', '', '',
+                        (string)($h['thong_so_ky_thuat'] ?? ''),
+                        (string)($h['nhom_nuoc'] ?? ''),
+                        (string)($h['dvt'] ?? ''), (float)$h['so_luong'],
+                    ]);
+                }
             }
         } else {
-            $viDu = [
-                [1, 'HH001', 'Ví dụ: Nẹp tạo hình bản sống cổ',
-                    'Vật liệu: Hợp kim Titan; chiều dài ≥ 8mm', 'Cái', 100],
-                [2, '', 'Ví dụ: Vít tạo hình (bỏ trống Mã HH → tự sinh)',
-                    'Tự taro; đường kính ≥ 2,5mm', 'Cái', 300],
-                [3, '', '', '', '', ''],
-            ];
-            foreach ($viDu as $v) {
-                $rows[] = [
-                    ['v' => $v[0], 's' => $C, 't' => 'n'],
-                    ['v' => $v[1], 's' => $C],
-                    ['v' => $v[2], 's' => $S],
-                    ['v' => $v[3], 's' => $S],
-                    ['v' => $v[4], 's' => $C],
-                    ['v' => $v[5] === '' ? '' : (float)$v[5], 's' => $N, 't' => $v[5] === '' ? 's' : 'n'],
-                ];
+            foreach (self::viDuTheoNhom($nhom) as $v) {
+                $rows[] = $dong($v);
             }
         }
 
-        $path = self::tempDir() . '/DanhMucHangHoa_'
+        $path = self::tempDir() . '/DanhMuc_'
               . preg_replace('/[^0-9A-Za-z]/', '_', (string)$gt->so_thong_bao)
               . '_' . date('Ymd_His') . '.xlsx';
 
         ExcelHelper::write($path, [
             'DanhMucHangHoa' => [
-                'cols'    => [6, 14, 46, 60, 10, 12],
-                'freeze'  => 'A5',
-                'heights' => [4 => 34],
+                'cols'    => [16, 8, 34, 8, 40, 30, 30, 30, 40, 20, 10, 10],
+                'freeze'  => 'A6',
+                'heights' => [5 => 46],
                 'rows'    => $rows,
             ],
         ]);
         return $path;
     }
 
+    /**
+     * Dòng ví dụ theo nhóm — lấy nguyên mẫu từ Phụ lục III Thư mời để bên mời
+     * nhìn là biết phải điền thế nào. Mảng 12 phần tử khớp thứ tự COL_*.
+     *
+     * SỐ LƯỢNG để 0, KHÔNG để 1: người dùng thường sửa tên hàng rồi quên sửa
+     * SL, để 1 thì cả danh mục lặng lẽ thành "1 cái" mà không ai phát hiện;
+     * để 0 thì import sẽ cảnh báo và bảng hiện rõ là chưa nhập.
+     */
+    private static function viDuTheoNhom(string $nhom): array
+    {
+        if ($nhom === BG_Nhom_PUBLIC::BO_DUNG_CU) {
+            return [
+                ['', 1, 'BỘ DỤNG CỤ PHẪU THUẬT SỌ NÃO', '', '',
+                 'Yêu cầu chung của cả bộ', 'Yêu cầu khác của cả bộ', '', '',
+                 'Châu Âu', 'Bộ', 0],
+                ['', '', '', 1, 'Khớp nối cố định thanh đỡ hệ thống vén não',
+                 '', '', '', 'Yêu cầu kỹ thuật của dụng cụ này', '', 'Cái', 0],
+                ['', '', '', 2, 'Thanh đỡ hệ thống vén não',
+                 '', '', '', 'Yêu cầu kỹ thuật của dụng cụ này', '', 'Cái', 0],
+                ['', 2, 'BỘ DỤNG CỤ PHẪU THUẬT CHI DƯỚI', '', '',
+                 'Yêu cầu chung của cả bộ', 'Yêu cầu khác của cả bộ', '', '', '', 'Bộ', 0],
+                ['', '', '', 1, 'Cán dao số 3', '', '', '', 'Yêu cầu kỹ thuật', '', 'Cái', 0],
+            ];
+        }
+
+        if ($nhom === BG_Nhom_PUBLIC::HE_THONG_TBYT) {
+            return [
+                ['', 1, 'Hệ thống máy siêu âm', '', '',
+                 'Yêu cầu chung của cả hệ thống', 'Yêu cầu khác của cả hệ thống',
+                 'Yêu cầu cấu hình của cả hệ thống', '', '', 'Hệ thống', 0],
+                ['', '', '', 1, 'Máy chính', '', '', '', 'Yêu cầu kỹ thuật', '', 'Cái', 0],
+                ['', '', '', 2, 'Màn hình',  '', '', '', 'Yêu cầu kỹ thuật', '', 'Cái', 0],
+                ['', '', '', 3, 'Phần mềm',  '', '', '', 'Yêu cầu kỹ thuật', '', 'Cái', 0],
+                ['', '', '', 4, 'Xe đẩy',    '', '', '', 'Yêu cầu kỹ thuật', '', 'Cái', 0],
+            ];
+        }
+
+        // vat_tu_duoc — phần lớn là HÀNG LẺ: để trống cột B, C (STT bộ, Tên bộ).
+        // Vẫn có thể khai bộ khi cần (VT002 dưới đây) — lúc đó yêu cầu kỹ thuật
+        // nằm ở hàng hóa chi tiết, không nằm ở bộ.
+        return [
+            ['VT001', '', '', 1, 'Bơm tiêm 10ml',
+             '', '', '', 'Yêu cầu kỹ thuật', 'Việt Nam', 'Cái', 0],
+            ['VT002', 1, 'Bộ máy tạo nhịp', '', '', '', '', '', '', 'G7', 'Bộ', 0],
+            ['VT002.1', '', '', 1, 'Dây dẫn',           '', '', '', 'Yêu cầu kỹ thuật', '', 'Cái', 0],
+            ['VT002.2', '', '', 2, 'Máy tạo nhịp tim',  '', '', '', 'Yêu cầu kỹ thuật', '', 'Cái', 0],
+            ['VT002.3', '', '', 3, 'Điện cực tạo nhịp', '', '', '', 'Yêu cầu kỹ thuật', '', 'Cái', 0],
+        ];
+    }
+
+    /**
+     * File mẫu cho NHÀ THẦU điền rồi import lên.
+     *
+     * @param string $mau 'mau1' = Bảng đáp ứng (Phụ lục II Mẫu 1)
+     *                    'mau2' = Bảng chào giá (Phụ lục II Mẫu 2)
+     */
     public static function xuatFileMau(int $goiThauId, string $mau = 'mau2'): string
     {
         $gt = BG_GoiThau_DAL::getById($goiThauId);
         if (!$gt) throw new RuntimeException('Không tìm thấy gói thầu');
 
+        $dsBo = BG_Bo_DAL::getByGoiThau($goiThauId);
+        if (empty($dsBo)) throw new RuntimeException('Gói thầu chưa có danh mục hàng hóa');
+
+        // Gom hàng hóa theo bộ, giữ đúng thứ tự in ở Phụ lục III
         $hangHoa = BG_HangHoa_DAL::getByGoiThau($goiThauId);
-        if (empty($hangHoa)) throw new RuntimeException('Gói thầu chưa có danh mục hàng hóa');
+        $theoBo = [];
+        foreach ($hangHoa as $hh) $theoBo[(int)($hh['bo_id'] ?? 0)][] = $hh;
 
         return $mau === 'mau1'
-            ? self::xuatMau1($gt, $hangHoa)
-            : self::xuatMau2($gt, $hangHoa);
+            ? self::xuatMau1($gt, $dsBo, $theoBo)
+            : self::xuatMau2($gt, $dsBo, $theoBo);
     }
 
-    /** MẪU 1 — Bảng đáp ứng kỹ thuật (Phụ lục II) */
-    private static function xuatMau1(BG_GoiThau_PUBLIC $gt, array $hangHoa): string
+    /**
+     * MẪU 1 — Bảng đáp ứng (Phụ lục II).
+     *
+     * 5 cột đầu = danh mục bên mời (khóa, nhà thầu không sửa), phần còn lại là
+     * các CẶP (đáp ứng / không đáp ứng) — số cặp thay đổi theo nhóm gói thầu,
+     * xem BG_Nhom_PUBLIC::capDapUng(). Cuối cùng là cột tài liệu chứng minh.
+     */
+    private static function xuatMau1(BG_GoiThau_PUBLIC $gt, array $dsBo, array $theoBo): string
     {
+        $nhom = BG_Nhom_PUBLIC::chuanHoa($gt->nhom ?? null);
+        $cap  = BG_Nhom_PUBLIC::capDapUng($nhom);
+
         $H  = ExcelHelper::S_HEADER;
         $HA = ExcelHelper::S_HEADER_ALT;
         $S  = ExcelHelper::S_TEXT_WRAP;
         $C  = ExcelHelper::S_CENTER;
 
+        // --- Header ---
+        $hdr = [
+            ['v' => 'Mã bộ/hàng hóa chi tiết', 's' => $H],
+            ['v' => 'STT bộ', 's' => $H],
+            ['v' => 'Tên bộ/phần/hệ thống', 's' => $H],
+            ['v' => 'STT chi tiết', 's' => $H],
+            ['v' => 'Tên hàng hóa/dụng cụ chi tiết', 's' => $H],
+        ];
+        $cols = [16, 7, 30, 8, 36];
+
+        // Cột yêu cầu của bên mời (chỉ những phần nhóm này dùng)
+        if (BG_Nhom_PUBLIC::coYeuCauChung($nhom))   { $hdr[] = ['v' => 'Yêu cầu chung', 's' => $H];      $cols[] = 30; }
+        if (BG_Nhom_PUBLIC::coYeuCauKhac($nhom))    { $hdr[] = ['v' => 'Yêu cầu khác', 's' => $H];       $cols[] = 30; }
+        if (BG_Nhom_PUBLIC::coYeuCauCauHinh($nhom)) { $hdr[] = ['v' => 'Yêu cầu cấu hình', 's' => $H];   $cols[] = 30; }
+        $hdr[] = ['v' => 'Yêu cầu kỹ thuật', 's' => $H];                 $cols[] = 38;
+        $hdr[] = ['v' => 'Yêu cầu nhóm nước, vùng lãnh thổ', 's' => $H]; $cols[] = 20;
+
+        $soCotMoi = count($hdr);   // cột bên mời điền — nhà thầu KHÔNG sửa
+
+        // Cột nhà thầu điền: mỗi cặp 2 cột
+        foreach ($cap as $c) {
+            $hdr[] = ['v' => 'Đáp ứng về ' . mb_strtolower($c[0]), 's' => $HA];       $cols[] = 32;
+            $hdr[] = ['v' => 'Các điểm KHÔNG đáp ứng về ' . mb_strtolower($c[0]), 's' => $HA]; $cols[] = 32;
+        }
+        $hdr[] = ['v' => 'Tài liệu chứng minh (cam kết, catalog, HDSD...)', 's' => $HA];
+        $cols[] = 34;
+
         $rows = [
-            [['v' => 'MẪU 1: BẢNG ĐÁP ỨNG KỸ THUẬT HÀNG HÓA CHÀO GIÁ', 's' => ExcelHelper::S_TITLE]],
+            [['v' => 'MẪU 1 — BẢNG ĐÁP ỨNG CHÀO GIÁ', 's' => ExcelHelper::S_TITLE]],
             [['v' => 'Thư mời số ' . $gt->so_thong_bao . ' — ' . $gt->ten_goi_thau,
               's' => ExcelHelper::S_SUBTITLE]],
-            [null],
-            [
-                ['v' => 'Mã HH', 's' => $H],
-                ['v' => 'Tên hàng hóa mời chào giá', 's' => $H],
-                ['v' => 'Yêu cầu kỹ thuật mời chào giá', 's' => $H],
-                ['v' => 'Yêu cầu kỹ thuật chào giá', 's' => $HA],
-                ['v' => 'Các điểm không đạt kèm thuyết minh', 's' => $HA],
-            ],
-            [
-                ['v' => '', 's' => $S],
-                ['v' => '', 's' => $S],
-                ['v' => 'KHÔNG SỬA 3 cột đầu', 's' => $S],
-                ['v' => 'Nêu các thông số kỹ thuật của hàng hóa tương ứng với yêu cầu kỹ thuật', 's' => $S],
-                ['v' => 'Nêu rõ thông số không đáp ứng (nếu có) kèm thuyết minh/lý giải', 's' => $S],
-            ],
+            [['v' => 'Nhóm: ' . BG_Nhom_PUBLIC::tenNhom($nhom)
+                   . '. Chỉ điền các cột nền vàng (từ cột ' . self::tenCot($soCotMoi) . ' trở đi). '
+                   . 'KHÔNG sửa, chèn hay xóa dòng — hệ thống đối chiếu theo Mã.',
+              's' => ExcelHelper::S_SUBTITLE]],
+            $hdr,
         ];
 
-        foreach ($hangHoa as $hh) {
-            $rows[] = [
-                ['v' => (string)($hh['ma_hh'] ?? ''), 's' => $C],
-                ['v' => (string)$hh['ten_hang_hoa'], 's' => $S],
-                ['v' => (string)($hh['thong_so_ky_thuat'] ?? ''), 's' => $S],
-                ['v' => '', 's' => $S],
-                ['v' => '', 's' => $S],
-            ];
+        foreach ($dsBo as $b) {
+            $bid = (int)$b['id'];
+            $ct  = $theoBo[$bid] ?? [];
+            $goName = count($ct) === 1
+                   && trim((string)$b['ten_bo']) === trim((string)$ct[0]['ten_hang_hoa']);
+
+            // --- Dòng BỘ (yêu cầu chung/khác/cấu hình nằm ở đây) ---
+            if (!$goName) {
+                $d = [
+                    ['v' => (string)($b['ma_bo'] ?? ''), 's' => $C],
+                    ['v' => (string)($b['stt_bo'] ?? ''), 's' => $C],
+                    ['v' => (string)($b['ten_bo'] ?? ''), 's' => $S],
+                    ['v' => '', 's' => $C],
+                    ['v' => '', 's' => $S],
+                ];
+                if (BG_Nhom_PUBLIC::coYeuCauChung($nhom))   $d[] = ['v' => (string)($b['yeu_cau_chung'] ?? ''), 's' => $S];
+                if (BG_Nhom_PUBLIC::coYeuCauKhac($nhom))    $d[] = ['v' => (string)($b['yeu_cau_khac'] ?? ''), 's' => $S];
+                if (BG_Nhom_PUBLIC::coYeuCauCauHinh($nhom)) $d[] = ['v' => (string)($b['yeu_cau_cau_hinh'] ?? ''), 's' => $S];
+                $d[] = ['v' => '', 's' => $S];
+                $d[] = ['v' => (string)($b['nhom_nuoc'] ?? ''), 's' => $C];
+                foreach ($cap as $_) { $d[] = ['v' => '', 's' => $S]; $d[] = ['v' => '', 's' => $S]; }
+                $d[] = ['v' => '', 's' => $S];
+                $rows[] = $d;
+            }
+
+            // --- Dòng CHI TIẾT (yêu cầu kỹ thuật nằm ở đây) ---
+            foreach ($ct as $k => $h) {
+                $d = [
+                    ['v' => (string)($h['ma_hh'] ?? ''), 's' => $C],
+                    ['v' => $goName ? (string)($b['stt_bo'] ?? '') : '', 's' => $C],
+                    ['v' => $goName ? (string)($b['ten_bo'] ?? '') : '', 's' => $S],
+                    ['v' => (string)($h['stt_chi_tiet'] ?? ($k + 1)), 's' => $C],
+                    ['v' => (string)$h['ten_hang_hoa'], 's' => $S],
+                ];
+                if (BG_Nhom_PUBLIC::coYeuCauChung($nhom))   $d[] = ['v' => $goName ? (string)($b['yeu_cau_chung'] ?? '') : '', 's' => $S];
+                if (BG_Nhom_PUBLIC::coYeuCauKhac($nhom))    $d[] = ['v' => $goName ? (string)($b['yeu_cau_khac'] ?? '') : '', 's' => $S];
+                if (BG_Nhom_PUBLIC::coYeuCauCauHinh($nhom)) $d[] = ['v' => $goName ? (string)($b['yeu_cau_cau_hinh'] ?? '') : '', 's' => $S];
+                $d[] = ['v' => (string)($h['thong_so_ky_thuat'] ?? ''), 's' => $S];
+                $d[] = ['v' => (string)($h['nhom_nuoc'] ?? ($goName ? ($b['nhom_nuoc'] ?? '') : '')), 's' => $C];
+                foreach ($cap as $_) { $d[] = ['v' => '', 's' => $S]; $d[] = ['v' => '', 's' => $S]; }
+                $d[] = ['v' => '', 's' => $S];
+                $rows[] = $d;
+            }
         }
 
-        $path = self::tempDir() . '/Mau1_DapUngKyThuat_'
-              . preg_replace('/[^0-9A-Za-z]/', '_', $gt->so_thong_bao) . '_' . date('Ymd_His') . '.xlsx';
+        $path = self::tempDir() . '/Mau1_BangDapUng_'
+              . preg_replace('/[^0-9A-Za-z]/', '_', (string)$gt->so_thong_bao)
+              . '_' . date('Ymd_His') . '.xlsx';
 
         ExcelHelper::write($path, [
-            'Mau1_DapUngKyThuat' => [
-                'cols'    => [12, 40, 50, 46, 44],
-                'freeze'  => 'A5',
-                'heights' => [4 => 40, 5 => 44],
+            'Mau1_BangDapUng' => [
+                'cols'    => $cols,
+                'freeze'  => 'F5',
+                'heights' => [4 => 52],
                 'rows'    => $rows,
             ],
         ]);
         return $path;
     }
 
-    /** MẪU 2 — Bảng chào giá (Phụ lục II) */
-    private static function xuatMau2(BG_GoiThau_PUBLIC $gt, array $hangHoa): string
+    /**
+     * MẪU 2 — Bảng chào giá (Phụ lục II), 14 cột đúng Thư mời.
+     *
+     * KHÔNG phụ thuộc nhóm: cả 3 nhóm đều chào giá theo cùng bộ cột. Chỉ có
+     * dòng BỘ là để trống phần giá (giá nằm ở hàng hóa chi tiết).
+     */
+    private static function xuatMau2(BG_GoiThau_PUBLIC $gt, array $dsBo, array $theoBo): string
     {
         $H  = ExcelHelper::S_HEADER;
         $HA = ExcelHelper::S_HEADER_ALT;
@@ -547,64 +947,92 @@ class BG_HangHoa_BUS
         $N  = ExcelHelper::S_NUMBER;
 
         $rows = [
-            [['v' => 'MẪU 2: BẢNG CHÀO GIÁ', 's' => ExcelHelper::S_TITLE]],
+            [['v' => 'MẪU 2 — BẢNG CHÀO GIÁ', 's' => ExcelHelper::S_TITLE]],
             [['v' => 'Thư mời số ' . $gt->so_thong_bao . ' — ' . $gt->ten_goi_thau,
               's' => ExcelHelper::S_SUBTITLE]],
-            [['v' => 'Đơn giá ĐÃ bao gồm thuế, phí, lệ phí và các dịch vụ liên quan (nếu có).',
+            [['v' => 'Chỉ điền các cột nền vàng (từ cột F trở đi). Đơn giá đã gồm thuế, '
+                   . 'vận chuyển và mọi chi phí phát sinh. KHÔNG sửa, chèn hay xóa dòng.',
               's' => ExcelHelper::S_SUBTITLE]],
             [
-                ['v' => 'TT', 's' => $H],
-                ['v' => 'Mã HH', 's' => $H],
-                ['v' => 'Tên hàng hóa mời chào giá', 's' => $H],
-                ['v' => 'Tên thương mại', 's' => $HA],
-                ['v' => "Ký, mã, nhãn hiệu,\nmodel", 's' => $HA],
+                ['v' => 'Mã bộ/hàng hóa chi tiết', 's' => $H],
+                ['v' => 'STT bộ', 's' => $H],
+                ['v' => 'Tên bộ/phần/hệ thống', 's' => $H],
+                ['v' => 'STT chi tiết', 's' => $H],
+                ['v' => 'Tên hàng hóa/dụng cụ chi tiết', 's' => $H],
+                ['v' => 'Tên thương mại chào giá', 's' => $HA],
+                ['v' => 'Ký mã, nhãn hiệu, model', 's' => $HA],
                 ['v' => 'Hãng sản xuất', 's' => $HA],
+                ['v' => 'Năm sản xuất', 's' => $HA],
                 ['v' => 'Xuất xứ', 's' => $HA],
-                ['v' => "Số lượng /\nkhối lượng", 's' => $H],
-                ['v' => 'Quy cách', 's' => $HA],
                 ['v' => 'Đơn vị tính', 's' => $H],
-                ['v' => "Đơn giá\n(VND)", 's' => $HA],
-                ['v' => "Thành tiền\n(VND)", 's' => $HA],
-                ['v' => "Đơn giá trúng thầu\ngần nhất (VNĐ)", 's' => $HA],
-                ['v' => "Tài liệu tham chiếu\nđơn giá trúng thầu", 's' => $HA],
-                ['v' => "Số thông báo\nmời thầu", 's' => $HA],
+                ['v' => 'Số lượng', 's' => $H],
+                ['v' => 'Đơn giá', 's' => $HA],
+                ['v' => 'Thành tiền (VND)', 's' => $H],
             ],
         ];
 
-        $stt = 0;
-        foreach ($hangHoa as $hh) {
-            $stt++;
-            $rows[] = [
-                ['v' => $stt, 's' => $C, 't' => 'n'],
-                ['v' => (string)($hh['ma_hh'] ?? ''), 's' => $C],
-                ['v' => (string)$hh['ten_hang_hoa'], 's' => $S],
-                ['v' => '', 's' => $S],
-                ['v' => '', 's' => $S],
-                ['v' => '', 's' => $S],
-                ['v' => '', 's' => $S],
-                ['v' => (float)$hh['so_luong'], 's' => $N, 't' => 'n'],
-                ['v' => '', 's' => $S],
-                ['v' => (string)($hh['dvt'] ?? ''), 's' => $C],
-                ['v' => '', 's' => ExcelHelper::S_MONEY],
-                ['v' => '', 's' => ExcelHelper::S_MONEY],
-                ['v' => '', 's' => ExcelHelper::S_MONEY],
-                ['v' => '', 's' => $S],
-                ['v' => '', 's' => $S],
-            ];
+        foreach ($dsBo as $b) {
+            $bid = (int)$b['id'];
+            $ct  = $theoBo[$bid] ?? [];
+            $goName = count($ct) === 1
+                   && trim((string)$b['ten_bo']) === trim((string)$ct[0]['ten_hang_hoa']);
+
+            if (!$goName) {
+                // Dòng bộ: chỉ để nhận biết, không chào giá ở đây
+                $rows[] = [
+                    ['v' => (string)($b['ma_bo'] ?? ''), 's' => $C],
+                    ['v' => (string)($b['stt_bo'] ?? ''), 's' => $C],
+                    ['v' => (string)($b['ten_bo'] ?? ''), 's' => $S],
+                    ['v' => '', 's' => $C], ['v' => '', 's' => $S],
+                    ['v' => '', 's' => $S], ['v' => '', 's' => $S], ['v' => '', 's' => $S],
+                    ['v' => '', 's' => $C], ['v' => '', 's' => $S],
+                    ['v' => (string)($b['dvt'] ?? ''), 's' => $C],
+                    ['v' => (float)$b['so_luong'], 's' => $N, 't' => 'n'],
+                    ['v' => '', 's' => $N], ['v' => '', 's' => $N],
+                ];
+            }
+
+            foreach ($ct as $k => $h) {
+                $rows[] = [
+                    ['v' => (string)($h['ma_hh'] ?? ''), 's' => $C],
+                    ['v' => $goName ? (string)($b['stt_bo'] ?? '') : '', 's' => $C],
+                    ['v' => $goName ? (string)($b['ten_bo'] ?? '') : '', 's' => $S],
+                    ['v' => (string)($h['stt_chi_tiet'] ?? ($k + 1)), 's' => $C],
+                    ['v' => (string)$h['ten_hang_hoa'], 's' => $S],
+                    ['v' => '', 's' => $S], ['v' => '', 's' => $S], ['v' => '', 's' => $S],
+                    ['v' => '', 's' => $C], ['v' => '', 's' => $S],
+                    ['v' => (string)($h['dvt'] ?? ''), 's' => $C],
+                    ['v' => (float)$h['so_luong'], 's' => $N, 't' => 'n'],
+                    ['v' => '', 's' => $N], ['v' => '', 's' => $N],
+                ];
+            }
         }
 
         $path = self::tempDir() . '/Mau2_BangChaoGia_'
-              . preg_replace('/[^0-9A-Za-z]/', '_', $gt->so_thong_bao) . '_' . date('Ymd_His') . '.xlsx';
+              . preg_replace('/[^0-9A-Za-z]/', '_', (string)$gt->so_thong_bao)
+              . '_' . date('Ymd_His') . '.xlsx';
 
         ExcelHelper::write($path, [
             'Mau2_BangChaoGia' => [
-                'cols'    => [6, 12, 38, 26, 20, 22, 16, 12, 18, 11, 18, 18, 20, 30, 18],
-                'freeze'  => 'D5',
+                'cols'    => [16, 7, 30, 8, 36, 26, 20, 20, 12, 16, 10, 10, 16, 18],
+                'freeze'  => 'F5',
                 'heights' => [4 => 46],
                 'rows'    => $rows,
             ],
         ]);
         return $path;
+    }
+
+    /** Số cột (1-based) → tên cột Excel: 1=A, 6=F, 27=AA */
+    private static function tenCot(int $n): string
+    {
+        $s = '';
+        while ($n > 0) {
+            $n--;
+            $s = chr(65 + ($n % 26)) . $s;
+            $n = intdiv($n, 26);
+        }
+        return $s;
     }
 
     /** Thư mục tạm cho file xuất — tự tạo nếu chưa có */

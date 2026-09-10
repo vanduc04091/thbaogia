@@ -26,6 +26,11 @@ if ($goiThauId === 0 && !empty($goiThauCombo)) {
 }
 $goiThau = $goiThauId > 0 ? BG_GoiThau_BUS::getById($goiThauId) : null;
 
+// Đếm bộ để hiện "cơ cấu" ở thanh thông tin — nhìn là biết gói này
+// gồm mấy bộ, mỗi bộ bao nhiêu hàng hóa chi tiết.
+require_once __DIR__ . '/../../DAL/BG_Bo_DAL.php';
+$soBo = $goiThauId > 0 ? count(BG_Bo_DAL::getByGoiThau($goiThauId)) : 0;
+
 $pageTitle  = 'Hàng hóa gói thầu';
 $activeMenu = 'BG_HangHoa';
 $AJAX = AppConfig::baseUrl('GUI/BG_HangHoa/ajax_handler.php');
@@ -64,9 +69,14 @@ require __DIR__ . '/../layouts/header.php';
                 <span class="ctx-value"><?= Helper::h($goiThau->so_thong_bao) ?></span>
             </span>
             <span class="ctx-item">
+                <?= IconHelper::svg('layout-list', 16) ?>
+                <span class="ctx-label">Nhóm</span>
+                <span class="ctx-value"><?= Helper::h(BG_Nhom_PUBLIC::tenNhom(BG_Nhom_PUBLIC::chuanHoa($goiThau->nhom ?? null))) ?></span>
+            </span>
+            <span class="ctx-item">
                 <?= IconHelper::svg('package', 16) ?>
-                <span class="ctx-label">Hàng hóa</span>
-                <span class="ctx-value"><?= (int)$goiThau->so_hang_hoa ?> mục</span>
+                <span class="ctx-label">Cơ cấu</span>
+                <span class="ctx-value"><?= (int)$soBo ?> bộ / <?= (int)$goiThau->so_hang_hoa ?> hàng hóa</span>
             </span>
             <span class="ctx-item">
                 <?= IconHelper::svg('calendar', 16) ?>
@@ -118,6 +128,9 @@ require __DIR__ . '/../layouts/header.php';
                     <button type="button" class="btn btn-outline-primary" onclick="openImport()">
                         <?= IconHelper::svg('upload', 16) ?><span class="btn-label">Import Excel</span>
                     </button>
+                    <button type="button" class="btn btn-outline-primary" onclick="moThemBo()">
+                        <?= IconHelper::svg('package', 16) ?><span class="btn-label">Thêm bộ</span>
+                    </button>
                     <button type="button" class="btn btn-primary" onclick="openCreate()">
                         <?= IconHelper::svg('plus', 16) ?><span class="btn-label">Thêm hàng hóa</span>
                     </button>
@@ -129,12 +142,13 @@ require __DIR__ . '/../layouts/header.php';
             <table class="table">
                 <thead>
                     <tr>
-                        <th class="col-id">STT</th>
-                        <th>Phần</th>
-                        <th>Tên hàng hóa</th>
-                        <th>Thông số kỹ thuật</th>
-                        <th>ĐVT</th>
-                        <th class="col-qty">Số lượng</th>
+                        <th class="col-id" style="width:64px">STT</th>
+                        <th style="width:110px">Mã</th>
+                        <th>Tên bộ / hàng hóa chi tiết</th>
+                        <th>Yêu cầu kỹ thuật</th>
+                        <th style="width:90px">Nhóm nước</th>
+                        <th style="width:70px">ĐVT</th>
+                        <th class="col-qty" style="width:80px">Số lượng</th>
                         <th class="col-actions">Thao tác</th>
                     </tr>
                 </thead>
@@ -158,12 +172,40 @@ require __DIR__ . '/../layouts/header.php';
                     <input type="hidden" id="goi_thau_id" name="goi_thau_id" value="<?= $goiThauId ?>">
                     <input type="hidden" id="thu_tu" name="thu_tu" value="0">
 
+                    <!-- Thuộc bộ nào — quyết định hàng này là chi tiết trong bộ
+                         hay hàng lẻ. Yêu cầu chung/khác/cấu hình nằm ở BỘ, sửa
+                         bằng nút "Sửa bộ" ở dòng bộ trong bảng. -->
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="ma_hh">Mã HH</label>
+                            <label for="bo_id">Thuộc bộ</label>
+                            <select id="bo_id" name="bo_id" class="form-select">
+                                <option value="">— Hàng lẻ (không thuộc bộ nào) —</option>
+                            </select>
+                            <div class="form-hint" id="boHint">
+                                Vật tư, dược phần lớn là hàng lẻ. Bộ dụng cụ / hệ thống thiết bị
+                                thì chọn bộ tương ứng.
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="stt_chi_tiet">STT trong bộ</label>
+                            <input type="number" id="stt_chi_tiet" name="stt_chi_tiet" class="form-control"
+                                   min="1" step="1" placeholder="Tự đánh nếu bỏ trống">
+                            <div class="form-hint">Thứ tự của hàng hóa này trong bộ (cột D Phụ lục III).</div>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="ma_hh">Mã hàng hóa</label>
                             <input type="text" id="ma_hh" name="ma_hh" class="form-control"
                                    maxlength="50" placeholder="VD: VT001">
                             <div class="form-hint">Bỏ trống để hệ thống tự sinh (HH001, HH002...).</div>
+                        </div>
+                        <div class="form-group">
+                            <label for="nhom_nuoc">Nhóm nước, vùng lãnh thổ</label>
+                            <input type="text" id="nhom_nuoc" name="nhom_nuoc" class="form-control"
+                                   maxlength="500" placeholder="VD: Nhóm G7, EU">
+                            <div class="form-hint">Bỏ trống nếu không yêu cầu xuất xứ cụ thể.</div>
                         </div>
                     </div>
 
@@ -174,8 +216,8 @@ require __DIR__ . '/../layouts/header.php';
                     </div>
 
                     <div class="form-group">
-                        <label for="thong_so_ky_thuat">Tính năng, thông số kỹ thuật</label>
-                        <textarea id="thong_so_ky_thuat" name="thong_so_ky_thuat" class="form-control" rows="4"></textarea>
+                        <label for="thong_so_ky_thuat">Yêu cầu kỹ thuật mời chào giá</label>
+                        <textarea id="thong_so_ky_thuat" name="thong_so_ky_thuat" class="form-control" rows="5"></textarea>
                         <div class="form-hint">Mỗi tiêu chí một dòng — nhà thầu sẽ đối chiếu từng dòng khi chào giá.</div>
                     </div>
 
@@ -188,12 +230,11 @@ require __DIR__ . '/../layouts/header.php';
                             <label for="so_luong">Số lượng <span class="req">*</span></label>
                             <input type="number" id="so_luong" name="so_luong" class="form-control"
                                    min="0" step="0.001" required value="0">
-                            <div class="form-hint">Dùng để tính thành tiền = đơn giá × số lượng.</div>
+                            <div class="form-hint" id="slHint">
+                                Dùng để tính thành tiền = đơn giá × số lượng.
+                            </div>
                         </div>
                     </div>
-
-
-
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeModal()">Hủy</button>
@@ -202,6 +243,87 @@ require __DIR__ . '/../layouts/header.php';
             </form>
         </div>
     </div>
+
+
+<!-- ============ Modal thêm / sửa BỘ ============
+     Yêu cầu chung / khác / cấu hình gắn với BỘ (không gắn từng hàng hóa),
+     và chỉ hiện phần NHÓM gói thầu này dùng — xem BG_Nhom_PUBLIC. -->
+<div class="modal" id="boModal">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="boTitle" style="max-width:820px">
+        <div class="modal-header">
+            <h3 id="boTitle">Thêm bộ</h3>
+            <button type="button" class="close" onclick="dongModalBo()" aria-label="Đóng"><?= IconHelper::svg('x', 20) ?></button>
+        </div>
+        <form id="formBo" onsubmit="return luuBo()">
+            <div class="modal-body">
+                <input type="hidden" id="bo_id_edit" name="id">
+                <input type="hidden" name="goi_thau_id" value="<?= $goiThauId ?>">
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="bo_ma">Mã bộ</label>
+                        <input type="text" id="bo_ma" name="ma_bo" class="form-control"
+                               maxlength="50" placeholder="VD: BDC01">
+                    </div>
+                    <div class="form-group">
+                        <label for="bo_stt">STT bộ</label>
+                        <input type="number" id="bo_stt" name="stt_bo" class="form-control"
+                               min="1" step="1" placeholder="Tự đánh nếu bỏ trống">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="bo_ten">Tên bộ / phần / hệ thống <span class="req">*</span></label>
+                    <input type="text" id="bo_ten" name="ten_bo" class="form-control"
+                           required maxlength="1000" placeholder="VD: BỘ DỤNG CỤ PHẪU THUẬT SỌ NÃO">
+                </div>
+
+                <!-- Chỉ hiện với nhóm bộ dụng cụ / hệ thống TBYT -->
+                <div class="form-group" id="grYcChung" hidden>
+                    <label for="bo_yc_chung">Yêu cầu chung</label>
+                    <textarea id="bo_yc_chung" name="yeu_cau_chung" class="form-control" rows="3"></textarea>
+                    <div class="form-hint">Áp dụng cho CẢ BỘ — mỗi tiêu chí một dòng.</div>
+                </div>
+
+                <div class="form-group" id="grYcKhac" hidden>
+                    <label for="bo_yc_khac">Yêu cầu khác</label>
+                    <textarea id="bo_yc_khac" name="yeu_cau_khac" class="form-control" rows="3"></textarea>
+                    <div class="form-hint">VD: bảo hành, đào tạo vận hành, cung cấp vật tư thay thế.</div>
+                </div>
+
+                <!-- Chỉ hiện với nhóm hệ thống thiết bị y tế -->
+                <div class="form-group" id="grYcCauHinh" hidden>
+                    <label for="bo_yc_cau_hinh">Yêu cầu cấu hình</label>
+                    <textarea id="bo_yc_cau_hinh" name="yeu_cau_cau_hinh" class="form-control" rows="3"></textarea>
+                    <div class="form-hint">Liệt kê thành phần của cả hệ thống và số lượng từng thành phần.</div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="bo_nhom_nuoc">Nhóm nước, vùng lãnh thổ</label>
+                        <input type="text" id="bo_nhom_nuoc" name="nhom_nuoc" class="form-control"
+                               maxlength="500" placeholder="VD: Nhóm G7, EU">
+                    </div>
+                    <div class="form-group">
+                        <label for="bo_dvt">Đơn vị tính</label>
+                        <input type="text" id="bo_dvt" name="dvt" class="form-control"
+                               maxlength="50" placeholder="VD: Bộ, Hệ thống">
+                    </div>
+                    <div class="form-group">
+                        <label for="bo_so_luong">Số lượng <span class="req">*</span></label>
+                        <input type="number" id="bo_so_luong" name="so_luong" class="form-control"
+                               min="0" step="0.001" required value="0">
+                        <div class="form-hint" id="boSlHint"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="dongModalBo()">Hủy</button>
+                <button type="submit" class="btn btn-primary"><?= IconHelper::svg('save', 16) ?>Lưu bộ</button>
+            </div>
+        </form>
+    </div>
+</div>
 
     <!-- ============ Modal import ============ -->
     <div class="modal" id="importModal">
@@ -267,6 +389,10 @@ var AJAX_URL = <?= json_encode($AJAX) ?>;
 var URL_DOWNLOAD = <?= json_encode(AppConfig::baseUrl('GUI/BG_HangHoa/download.php')) ?>;
 var CAN = { add: <?= $canAdd ? 'true' : 'false' ?>, edit: <?= $canEdit ? 'true' : 'false' ?>, del: <?= $canDel ? 'true' : 'false' ?> };
 var GOI_THAU_ID = <?= (int)$goiThauId ?>;
+/* Nhóm gói thầu — quyết định hiện cột yêu cầu chung/khác/cấu hình ở dòng BỘ */
+var NHOM = <?= json_encode(BG_Nhom_PUBLIC::chuanHoa($goiThau->nhom ?? null)) ?>;
+var CO_YC_CHUNG    = <?= BG_Nhom_PUBLIC::coYeuCauChung(BG_Nhom_PUBLIC::chuanHoa($goiThau->nhom ?? null)) ? 'true' : 'false' ?>;
+var CO_YC_CAU_HINH = <?= BG_Nhom_PUBLIC::coYeuCauCauHinh(BG_Nhom_PUBLIC::chuanHoa($goiThau->nhom ?? null)) ? 'true' : 'false' ?>;
 var currentPage = 1, pageSize = <?= (int)AppConfig::DEFAULT_PAGE_SIZE ?>, isLoading = false;
 var firstLoad = true;
 
@@ -294,18 +420,37 @@ function loadData() {
     });
 }
 
+/**
+ * Vẽ bảng danh mục theo CÂY BỘ: mỗi bộ 1 dòng tiêu đề nền đậm, hàng hóa
+ * chi tiết thụt vào bên dưới. Nhìn là biết ngay hàng nào thuộc bộ nào —
+ * danh sách phẳng như trước không phân biệt được.
+ *
+ * Dòng bộ hiện thêm yêu cầu chung / khác / cấu hình tùy NHÓM gói thầu.
+ */
 function renderTable(rows) {
+    var SO_COT = 8;
+
     if (!rows.length) {
-        $('#tbody').html(APP.emptyRow(7, currentTrash()
+        $('#tbody').html(APP.emptyRow(SO_COT, currentTrash()
             ? 'Thùng rác trống'
             : 'Gói thầu chưa có hàng hóa. Bấm "Import Excel" để nạp từ file mẫu, hoặc "Thêm hàng hóa" để nhập tay.'));
         return;
     }
-    var trash = currentTrash(), html = '';
+
+    var trash = currentTrash(), html = '', boHienTai = null, sttBo = 0;
 
     for (var i = 0; i < rows.length; i++) {
         var r = rows[i];
 
+        // ---- Dòng tiêu đề BỘ (chỉ in khi đổi sang bộ khác) ----
+        var boId = r.bo_id || 0;
+        if (boId !== boHienTai) {
+            boHienTai = boId;
+            sttBo++;
+            html += dongBo(r, sttBo, SO_COT);
+        }
+
+        // ---- Dòng hàng hóa chi tiết ----
         var actions = '';
         if (trash) {
             if (CAN.edit) actions += '<button class="btn btn-sm btn-outline-primary" onclick="restore(' + r.id + ')" title="Khôi phục">' + APP.icon('rotate-ccw', 15) + '</button>';
@@ -315,25 +460,106 @@ function renderTable(rows) {
         }
         if (!actions) actions = '<span class="text-muted">—</span>';
 
-        var phan = '';
-        phan = r.ma_hh ? '<span class="text-mono">' + APP.escape(r.ma_hh) + '</span>' : '<span class="text-muted">—</span>';
-        if (!phan) phan = '<span class="text-muted">—</span>';
-
         var tskt = r.thong_so_ky_thuat
             ? '<div class="spec-box">' + APP.escape(r.thong_so_ky_thuat) + '</div>'
             : '<span class="text-muted">—</span>';
 
-        html += '<tr>' +
-            '<td class="col-id">' + (r.thu_tu || (i + 1)) + '</td>' +
-            '<td>' + phan + '</td>' +
-            '<td><span class="cell-main">' + APP.escape(r.ten_hang_hoa) + '</span></td>' +
+        html += '<tr class="row-ct">' +
+            '<td class="col-id">' + (r.stt_chi_tiet || (i + 1)) + '</td>' +
+            '<td>' + (r.ma_hh
+                ? '<span class="text-mono">' + APP.escape(r.ma_hh) + '</span>'
+                : '<span class="text-muted">—</span>') + '</td>' +
+            '<td><span class="cell-main cell-thut">' + APP.escape(r.ten_hang_hoa) + '</span></td>' +
             '<td>' + tskt + '</td>' +
+            '<td>' + (r.nhom_nuoc ? APP.escape(r.nhom_nuoc) : '<span class="text-muted">—</span>') + '</td>' +
             '<td>' + (r.dvt ? APP.escape(r.dvt) : '<span class="text-muted">—</span>') + '</td>' +
             '<td class="col-qty">' + Number(r.so_luong || 0).toLocaleString('vi-VN') + '</td>' +
             '<td class="col-actions"><span class="row-actions">' + actions + '</span></td>' +
             '</tr>';
     }
     $('#tbody').html(html);
+}
+
+/** Dòng tiêu đề của 1 BỘ — gộp cả hàng, kèm yêu cầu chung/khác/cấu hình */
+function dongBo(r, stt, soCot) {
+    // Hàng LẺ (bo_id rỗng) là hợp lệ — vật tư, dược phần lớn không thuộc bộ.
+    // Không in dòng tiêu đề gì cả, hàng hiện thẳng như một dòng bình thường.
+    if (!r.bo_id) return '';
+
+    var ten = r.ten_bo || '(chưa đặt tên bộ)';
+    var h = '<tr class="row-bo">' +
+        '<td class="col-id">' + (r.stt_bo || stt) + '</td>' +
+        '<td>' + (r.ma_bo ? '<span class="text-mono">' + APP.escape(r.ma_bo) + '</span>' : '') + '</td>' +
+        '<td colspan="' + (soCot - 4) + '">' +
+            '<span class="ten-bo">' + APP.icon('package', 14) + ' ' + APP.escape(ten) + '</span>' +
+            yeuCauBo(r) +
+        '</td>' +
+        '<td>' + (r.dvt_bo ? APP.escape(r.dvt_bo) : '') + '</td>' +
+        '<td class="col-qty">' + (r.so_luong_bo ? Number(r.so_luong_bo).toLocaleString('vi-VN') : '') + '</td>' +
+        '<td class="col-actions"><span class="row-actions">' + nutBo(r) + '</span></td>' +
+        '</tr>';
+    return h;
+}
+
+/** Yêu cầu cấp BỘ — chỉ hiện phần nhóm gói thầu này thực sự dùng */
+/** Nút sửa / xóa trên dòng BỘ — ẩn khi ở thùng rác hoặc không có quyền */
+function nutBo(r) {
+    if (currentTrash() || !r.bo_id) return '';
+    var h = '';
+    if (CAN.edit) {
+        h += '<button class="btn btn-sm btn-outline-primary" onclick="suaBo(' + r.bo_id +
+             ')" title="Sửa thông tin bộ">' + APP.icon('pencil', 15) + '</button>';
+    }
+    if (CAN.del) {
+        // Tên bộ có dấu nháy sẽ cắt đứt thuộc tính onclick -> dùng data-* rồi
+        // bắt sự kiện bằng delegate.
+        h += '<button class="btn btn-sm btn-outline-danger js-xoa-bo"' +
+             ' data-id="' + r.bo_id + '" data-ten="' + APP.escape(r.ten_bo || '') + '"' +
+             ' title="Xóa bộ">' + APP.icon('trash', 15) + '</button>';
+    }
+    return h;
+}
+
+function yeuCauBo(r) {
+    var h = '';
+    if (CO_YC_CHUNG && r.yeu_cau_chung) {
+        h += '<div class="yc-bo"><span class="yc-nhan">Yêu cầu chung</span>' + APP.escape(r.yeu_cau_chung) + '</div>';
+    }
+    if (CO_YC_CHUNG && r.yeu_cau_khac) {
+        h += '<div class="yc-bo"><span class="yc-nhan">Yêu cầu khác</span>' + APP.escape(r.yeu_cau_khac) + '</div>';
+    }
+    if (CO_YC_CAU_HINH && r.yeu_cau_cau_hinh) {
+        h += '<div class="yc-bo"><span class="yc-nhan">Yêu cầu cấu hình</span>' + APP.escape(r.yeu_cau_cau_hinh) + '</div>';
+    }
+    if (r.nhom_nuoc_bo) {
+        h += '<div class="yc-bo"><span class="yc-nhan">Nhóm nước</span>' + APP.escape(r.nhom_nuoc_bo) + '</div>';
+    }
+    return h;
+}
+
+/* ---------- Ô chọn BỘ ----------
+   Nạp mỗi lần mở form vì bộ có thể vừa được import xong. */
+function napComboBo(chon, xong) {
+    APP.ajax(AJAX_URL, { action: 'getComboBo', goi_thau_id: GOI_THAU_ID }, {
+        success: function (res) {
+            var ds = res.data || [];
+            var h = '<option value="">— Hàng lẻ (không thuộc bộ nào) —</option>';
+            for (var i = 0; i < ds.length; i++) {
+                var nhan = (ds[i].stt_bo ? ds[i].stt_bo + '. ' : '') +
+                           (ds[i].ten_bo || '(chưa đặt tên)') +
+                           (ds[i].ma_bo ? ' [' + ds[i].ma_bo + ']' : '');
+                h += '<option value="' + ds[i].id + '">' + APP.escape(nhan) + '</option>';
+            }
+            $('#bo_id').html(h).val(chon || '');
+
+            // Chưa có bộ nào -> nói rõ để người dùng biết phải import trước
+            $('#boHint').text(ds.length
+                ? 'Vật tư, dược phần lớn là hàng lẻ. Bộ dụng cụ / hệ thống thì chọn bộ tương ứng.'
+                : 'Gói thầu chưa có bộ nào — import danh mục theo Phụ lục III để tạo bộ.');
+            if (xong) xong();
+        },
+        error: function () { if (xong) xong(); }
+    });
 }
 
 function openCreate() {
@@ -343,9 +569,20 @@ function openCreate() {
     $('#thu_tu').val('0');
     $('#goi_thau_id').val(GOI_THAU_ID);
     $('#so_luong').val(0);
+    napComboBo('');
+    capNhatGoiYSL();
     APP.clearFieldErrors('#form');
     $('#modal').addClass('open');
     $('#ten_hang_hoa').trigger('focus');
+}
+
+/* Nhóm mua theo BỘ thì SL bắt buộc > 0 — nói trước để khỏi bị chặn lúc lưu */
+function capNhatGoiYSL() {
+    var ep = NHOM !== 'vat_tu_duoc';
+    $('#slHint').html(ep
+        ? '<strong>Bắt buộc lớn hơn 0</strong> — nhóm này mua theo bộ, thiếu số lượng '
+          + 'của một chi tiết là không dựng được giá cả bộ.'
+        : 'Dùng để tính thành tiền = đơn giá × số lượng.');
 }
 
 function edit(id) {
@@ -359,11 +596,93 @@ function edit(id) {
             $('#ma_hh').val(d.ma_hh || '');
             $('#ten_hang_hoa').val(d.ten_hang_hoa || '');
             $('#thong_so_ky_thuat').val(d.thong_so_ky_thuat || '');
+            $('#nhom_nuoc').val(d.nhom_nuoc || '');
+            $('#stt_chi_tiet').val(d.stt_chi_tiet || '');
             $('#dvt').val(d.dvt || '');
-            $('#so_luong').val(d.so_luong || 0);            APP.clearFieldErrors('#form');
+            $('#so_luong').val(d.so_luong || 0);
+            napComboBo(d.bo_id || '');
+            capNhatGoiYSL();
+            APP.clearFieldErrors('#form');
             $('#modal').addClass('open');
         }
     });
+}
+
+/* ============ THÊM / SỬA BỘ ============
+   Yêu cầu chung / khác / cấu hình gắn với BỘ. Ô nào hiện là do NHÓM gói thầu
+   quyết định — cùng nguồn với file mẫu và bảng tổng hợp (BG_Nhom_PUBLIC). */
+
+function moThemBo() {
+    $('#boTitle').text('Thêm bộ');
+    $('#formBo')[0].reset();
+    $('#bo_id_edit').val('');
+    $('#bo_so_luong').val(0);
+    hienOTheoNhom();
+    APP.clearFieldErrors('#formBo');
+    $('#boModal').addClass('open');
+    $('#bo_ten').trigger('focus');
+}
+
+function suaBo(id) {
+    APP.ajax(AJAX_URL, { action: 'getBo', id: id }, {
+        success: function (res) {
+            var d = res.data;
+            $('#boTitle').text('Sửa bộ');
+            $('#bo_id_edit').val(d.id);
+            $('#bo_ma').val(d.ma_bo || '');
+            $('#bo_stt').val(d.stt_bo || '');
+            $('#bo_ten').val(d.ten_bo || '');
+            $('#bo_yc_chung').val(d.yeu_cau_chung || '');
+            $('#bo_yc_khac').val(d.yeu_cau_khac || '');
+            $('#bo_yc_cau_hinh').val(d.yeu_cau_cau_hinh || '');
+            $('#bo_nhom_nuoc').val(d.nhom_nuoc || '');
+            $('#bo_dvt').val(d.dvt || '');
+            $('#bo_so_luong').val(d.so_luong || 0);
+            hienOTheoNhom();
+            APP.clearFieldErrors('#formBo');
+            $('#boModal').addClass('open');
+        }
+    });
+}
+
+/** Ẩn/hiện ô yêu cầu theo nhóm + gợi ý số lượng */
+function hienOTheoNhom() {
+    $('#grYcChung').prop('hidden', !CO_YC_CHUNG);
+    $('#grYcKhac').prop('hidden', !CO_YC_CHUNG);
+    $('#grYcCauHinh').prop('hidden', !CO_YC_CAU_HINH);
+
+    $('#boSlHint').html(NHOM !== 'vat_tu_duoc'
+        ? '<strong>Bắt buộc lớn hơn 0</strong>'
+        : 'Số lượng của cả bộ.');
+}
+
+function dongModalBo() { $('#boModal').removeClass('open'); }
+
+function luuBo() {
+    var data = APP.serializeForm('#formBo');
+    data.action = 'luuBo';
+    APP.ajax(AJAX_URL, data, {
+        success: function (res) {
+            APP.toast(res.message, 'success');
+            dongModalBo();
+            loadData();
+        }
+    });
+    return false;
+}
+
+$(document).on('click', '.js-xoa-bo', function () {
+    var $b = $(this);
+    xoaBo(parseInt($b.data('id'), 10), String($b.data('ten') || ''));
+});
+
+function xoaBo(id, ten) {
+    APP.confirm('Xóa bộ "' + ten + '"?\n\nChỉ xóa được khi bộ không còn hàng hóa nào.',
+        function () {
+            APP.ajax(AJAX_URL, { action: 'xoaBo', id: id }, {
+                success: function (res) { APP.toast(res.message, 'success'); loadData(); }
+            });
+        }, { yesText: 'Xóa bộ', yesClass: 'btn-danger' });
 }
 
 function save() {

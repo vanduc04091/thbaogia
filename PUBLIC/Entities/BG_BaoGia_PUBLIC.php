@@ -27,8 +27,6 @@ class BG_BaoGia_PUBLIC
      * bảng này chỉ giữ khóa để không phình cột khi thêm loại file mới.
      */
     public ?int $file_ban_ky_id = null;
-    public ?int $file_catalog_id = null;   // Bước 5 — file catalog đã ký
-    public ?int $file_catalog_excel_id = null;   // Bước 5 — file Excel chỉ dẫn
     public float $tong_tien = 0;
     public ?string $ip_nop = null;
     public ?string $ngay_tao = null;

@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../../bootstrap.php';
 require_once __DIR__ . '/../../BUS/BG_HangHoa_BUS.php';
+require_once __DIR__ . '/../../DAL/BG_Bo_DAL.php';
+require_once __DIR__ . '/../../BUS/BG_Bo_BUS.php';
 require_once __DIR__ . '/../../BUS/BG_GoiThau_BUS.php';
 
 Helper::requireAjaxCsrf();
@@ -95,6 +97,72 @@ try {
             ResponseHelper::paged($res['data'], $page, $size, $res['totalRecords']);
             break;
 
+        /** Chi tiết 1 BỘ — cho form sửa */
+        case 'getBo':
+            PhanQuyenHelper::requireQuyen($MODULE, PhanQuyenHelper::QUYEN_XEM);
+            $bo = BG_Bo_BUS::getById(Helper::postInt('id'));
+            if (!$bo) ResponseHelper::error('Không tìm thấy bộ');
+            BG_QuyenGoiThau_BUS::requireXemAjax((int)$bo->goi_thau_id);
+            ResponseHelper::success('OK', $bo);
+            break;
+
+        /** Thêm / sửa BỘ */
+        case 'luuBo':
+            $boId = Helper::postInt('id', 0);
+            PhanQuyenHelper::requireQuyen($MODULE,
+                $boId > 0 ? PhanQuyenHelper::QUYEN_SUA : PhanQuyenHelper::QUYEN_THEM);
+
+            $eb = new BG_Bo_PUBLIC();
+            $eb->id               = $boId ?: null;
+            $eb->goi_thau_id      = Helper::postInt('goi_thau_id');
+            $eb->ma_bo            = Helper::postStr('ma_bo') ?: null;
+            $sttB                 = Helper::postInt('stt_bo', 0);
+            $eb->stt_bo           = $sttB > 0 ? $sttB : null;
+            $eb->ten_bo           = Helper::postStr('ten_bo');
+            $eb->yeu_cau_chung    = (string)Helper::post('yeu_cau_chung', '') ?: null;
+            $eb->yeu_cau_khac     = (string)Helper::post('yeu_cau_khac', '') ?: null;
+            $eb->yeu_cau_cau_hinh = (string)Helper::post('yeu_cau_cau_hinh', '') ?: null;
+            $eb->nhom_nuoc        = Helper::postStr('nhom_nuoc') ?: null;
+            $eb->dvt              = Helper::postStr('dvt') ?: null;
+            $eb->so_luong         = (float)ExcelHelper::toNumber(Helper::post('so_luong', 0));
+            $boId > 0 ? $eb->nguoi_cap_nhat = $u : $eb->nguoi_tao = $u;
+
+            $res = $boId > 0 ? BG_Bo_BUS::update($eb) : BG_Bo_BUS::insert($eb);
+            $res['success']
+                ? ResponseHelper::success($res['message'], $res['data'] ?? null)
+                : ResponseHelper::error($res['message']);
+            break;
+
+        /** Xóa BỘ (chỉ khi đã rỗng) */
+        case 'xoaBo':
+            PhanQuyenHelper::requireQuyen($MODULE, PhanQuyenHelper::QUYEN_XOA);
+            // Chi truyen id bo -> guard dau file khong bat duoc, phai tu kiem
+            // quyen xem goi thau cua chinh bo do (§3B.1).
+            $boXoa = BG_Bo_BUS::getById(Helper::postInt('id'));
+            if (!$boXoa) ResponseHelper::error('Không tìm thấy bộ');
+            BG_QuyenGoiThau_BUS::requireXemAjax((int)$boXoa->goi_thau_id);
+            $res = BG_Bo_BUS::trash(Helper::postInt('id'), $u);
+            $res['success']
+                ? ResponseHelper::success($res['message'])
+                : ResponseHelper::error($res['message']);
+            break;
+
+        /** Danh sách BỘ của gói thầu — cho ô chọn "Thuộc bộ" ở form */
+        case 'getComboBo':
+            PhanQuyenHelper::requireQuyen($MODULE, PhanQuyenHelper::QUYEN_XEM);
+            $gtCb = Helper::postInt('goi_thau_id');
+            $dsBo = [];
+            foreach (BG_Bo_DAL::getByGoiThau($gtCb) as $b) {
+                $dsBo[] = [
+                    'id'     => (int)$b['id'],
+                    'ma_bo'  => $b['ma_bo'],
+                    'stt_bo' => $b['stt_bo'],
+                    'ten_bo' => $b['ten_bo'],
+                ];
+            }
+            ResponseHelper::success('OK', $dsBo);
+            break;
+
         case 'getById':
             PhanQuyenHelper::requireQuyen($MODULE, PhanQuyenHelper::QUYEN_XEM);
             $hh = BG_HangHoa_BUS::getById(Helper::postInt('id'));
@@ -109,6 +177,12 @@ try {
             $e->ma_hh             = Helper::postStr('ma_hh');
             $e->ten_hang_hoa      = Helper::postStr('ten_hang_hoa');
             $e->thong_so_ky_thuat = (string)Helper::post('thong_so_ky_thuat', '');
+            $e->nhom_nuoc         = Helper::postStr('nhom_nuoc') ?: null;
+            // bo_id rong = hang le, KHONG thuoc bo nao
+            $boId                 = Helper::postInt('bo_id', 0);
+            $e->bo_id             = $boId > 0 ? $boId : null;
+            $sttCt                = Helper::postInt('stt_chi_tiet', 0);
+            $e->stt_chi_tiet      = $sttCt > 0 ? $sttCt : null;
             $e->dvt               = Helper::postStr('dvt');
             $e->so_luong          = (float)ExcelHelper::toNumber(Helper::post('so_luong', 0));
             $e->nguoi_tao         = $u;
@@ -125,6 +199,12 @@ try {
             $e->ma_hh             = Helper::postStr('ma_hh');
             $e->ten_hang_hoa      = Helper::postStr('ten_hang_hoa');
             $e->thong_so_ky_thuat = (string)Helper::post('thong_so_ky_thuat', '');
+            $e->nhom_nuoc         = Helper::postStr('nhom_nuoc') ?: null;
+            // bo_id rong = hang le, KHONG thuoc bo nao
+            $boId                 = Helper::postInt('bo_id', 0);
+            $e->bo_id             = $boId > 0 ? $boId : null;
+            $sttCt                = Helper::postInt('stt_chi_tiet', 0);
+            $e->stt_chi_tiet      = $sttCt > 0 ? $sttCt : null;
             $e->dvt               = Helper::postStr('dvt');
             $e->so_luong          = (float)ExcelHelper::toNumber(Helper::post('so_luong', 0));
             $e->thu_tu            = Helper::postInt('thu_tu', 0);
@@ -138,7 +218,10 @@ try {
             PhanQuyenHelper::requireQuyen($MODULE, PhanQuyenHelper::QUYEN_THEM);
             $path = nhanFileExcel('file');
             try {
-                $res = BG_HangHoa_BUS::docFileExcel($path);
+                // Truyền NHÓM để xem trước áp dụng đúng luật như import thật
+                // (nhóm mua theo bộ thì bắt buộc nhập đủ Số lượng).
+                $gtPv = BG_GoiThau_DAL::getById(Helper::postInt('goi_thau_id'));
+                $res = BG_HangHoa_BUS::docFileExcel($path, BG_Nhom_PUBLIC::chuanHoa($gtPv->nhom ?? null));
                 if (!$res['success']) ResponseHelper::error($res['message']);
                 // Chỉ trả 20 dòng đầu để xem trước, kèm tổng số
                 ResponseHelper::success($res['message'], [

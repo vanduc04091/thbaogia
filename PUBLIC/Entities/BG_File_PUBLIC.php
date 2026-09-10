@@ -33,7 +33,6 @@ class BG_File_PUBLIC
     public int $da_xoa = 0;
 
     const NHOM_BAN_KY = 'ban_ky';
-    const NHOM_CATALOG = 'catalog';   // Bước 5 — chỉ dẫn vị trí tài liệu
 
     /** Đuôi file được phép tải lên */
     const EXT_CHO_PHEP = ['pdf', 'jpg', 'jpeg', 'png'];
@@ -69,7 +68,6 @@ class BG_File_PUBLIC
         'pdf'  => ['application/pdf'],
     ];
 
-    const NHOM_CATALOG_EXCEL = 'catalog_excel';
 
     public function laAnh(): bool
     {
