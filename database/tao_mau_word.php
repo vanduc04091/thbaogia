@@ -51,27 +51,42 @@ $b[] = ['p' => 'Trên cơ sở yêu cầu báo giá của Bệnh viện Hữu ng
 // ===== 1. BẢNG CHÀO GIÁ (Mẫu 2 — 14 cột) =====
 $b[] = ['p' => '1. Báo giá cho các hàng hóa và dịch vụ liên quan', 'bold' => true, 'after' => 100];
 
+// Cot bam theo Mau 2 Phu luc II ban MOI: bo "Quy cach",
+// "Don gia trung thau gan nhat", "Tai lieu tham chieu"; them "Nam san xuat".
+// 14 cot LAY NGUYEN VAN tu Mau 2 - Phu luc II "Thu moi bao gia chung 3 nhom.docx".
+// KHONG tu dat lai ten cot: ben moi doi chieu voi ban giay in ra.
+// Dong BO co STT bo + Ten bo; dong CHI TIET co STT chi tiet + ten hang hoa.
 $b[] = [
     'tbl' => [
         [
-            'TT', 'Mã HH', 'Tên hàng hóa mời chào giá', 'Tên thương mại (2)',
-            "Ký, mã, nhãn hiệu,\nmodel (3)", 'Hãng sản xuất (4)', 'Xuất xứ (5)',
-            "Số lượng/\nkhối lượng (6)", 'Quy cách (7)', 'Đơn vị tính (8)',
-            "Đơn giá (đã bao gồm thuế, phí, lệ phí và các dịch vụ liên quan (nếu có)) (9)\n(VND)",
-            "Thành tiền (10)\n(VND)", "Đơn giá trúng thầu gần nhất (11)\n(VNĐ)",
-            "Tài liệu tham chiếu đơn giá trúng thầu gần nhất (12)",
+            'Mã bộ/phần/hệ thống/hàng hóa/dụng cụ chi tiết',
+            "STT bộ/phần/\nhệ thống",
+            'Tên bộ/phần/hệ thống',
+            'STT chi tiết',
+            'Tên danh mục hàng hóa/dụng cụ chi tiết',
+            'Tên thương mại chào giá',
+            'Ký mã, nhãn hiệu, model',
+            'Hãng sản xuất',
+            'Năm sản xuất',
+            'Xuất xứ',
+            'Đơn vị tính',
+            'Số lượng',
+            'Đơn giá',
+            'Thành tiền (VND)',
         ],
         [
-            '{{#CHAO_GIA}}{{STT}}', '{{MA_HH}}', '{{TEN_HANG_HOA}}', '{{TEN_THUONG_MAI}}',
-            '{{MODEL}}', '{{HANG_SAN_XUAT}}', '{{XUAT_XU}}', '{{SO_LUONG}}',
-            '{{QUY_CACH}}', '{{DVT}}', '{{DON_GIA}}', '{{THANH_TIEN}}',
-            '{{DON_GIA_TRUNG_THAU}}', '{{TAI_LIEU_THAM_CHIEU}}',
+            '{{#CHAO_GIA}}{{MA}}', '{{STT_BO}}', '{{TEN_BO}}', '{{STT_CT}}',
+            '{{TEN_HANG_HOA}}', '{{TEN_THUONG_MAI}}', '{{MODEL}}', '{{HANG_SAN_XUAT}}',
+            '{{NAM_SAN_XUAT}}', '{{XUAT_XU}}', '{{DVT}}', '{{SO_LUONG}}',
+            '{{DON_GIA}}', '{{THANH_TIEN}}',
         ],
-        ['', '', 'TỔNG CỘNG', '', '', '', '', '', '', '', '', '{{TONG_TIEN}}', '', ''],
+        ['', '', 'TỔNG CỘNG', '', '', '', '', '', '', '', '', '', '', '{{TONG_TIEN}}'],
     ],
-    'widths' => [420, 700, 1600, 1150, 950, 950, 750, 700, 800, 620, 1150, 1150, 1000, 2200],
-    'aligns' => ['center','center','left','left','left','left','left',
-                 'center','left','center','right','right','right','left'],
+    // Tong = 10115 twips = be rong long trang kho DOC (12240 - le trai 1275
+    // - le phai 850). Vuot so nay thi bang tran ra ngoai le khi in.
+    'widths' => [864, 466, 1128, 421, 1283, 902, 752, 714, 466, 601, 466, 421, 789, 842],
+    'aligns' => ['center','center','left','center','left','left','left','left',
+                 'center','left','center','center','right','right'],
 ];
 
 $b[] = ['p' => '2. Báo giá này có hiệu lực trong vòng: {{HIEU_LUC}} ngày, kể từ ngày {{NGAY_NOP}}.',
@@ -98,39 +113,73 @@ $ghiChu = [
     'Hãng sản xuất, nhà cung cấp ghi cụ thể tên thương mại của hàng hóa tương ứng với chủng loại hàng hóa ghi tại cột “Tên hàng hóa mời chào giá”',
     'Hãng sản xuất, nhà cung cấp ghi cụ thể ký hiệu, mã hiệu, model của hàng hóa chào.',
     'Hãng sản xuất, nhà cung cấp ghi cụ thể hãng sản xuất của hàng hóa chào.',
+    'Hãng sản xuất, nhà cung cấp ghi cụ thể năm sản xuất của hàng hóa chào.',
     'Hãng sản xuất, nhà cung cấp ghi cụ thể xuất xứ của hàng hóa chào.',
-    'Hãng sản xuất, nhà cung cấp ghi cụ thể số lượng, khối lượng theo đúng số lượng, khối lượng nêu trong Yêu cầu báo giá.',
-    'Hãng sản xuất, nhà cung cấp ghi cụ thể quy cách của hàng hóa.',
     'Hãng sản xuất, nhà cung cấp ghi đơn vị tính của hàng hóa.',
+    'Hãng sản xuất, nhà cung cấp ghi cụ thể số lượng, khối lượng theo đúng số lượng, khối lượng nêu trong Yêu cầu báo giá.',
     'Hãng sản xuất, nhà cung cấp ghi giá trị đơn giá của từng hàng hóa (đã bao gồm thuế, phí, lệ phí và dịch vụ liên quan (nếu có)) theo đúng yêu cầu nêu trong Yêu cầu báo giá.',
     'Hãng sản xuất, nhà cung cấp ghi giá trị báo giá cho từng hàng hóa. Giá trị ghi tại cột này được hiểu là toàn bộ chi phí của từng hàng hóa (bao gồm thuế, phí, lệ phí và dịch vụ liên quan (nếu có)) theo đúng yêu cầu nêu trong Yêu cầu báo giá.',
-    'Công ty điền đơn giá trúng thầu gần nhất trong vòng 360 ngày (nếu có) của hàng hóa chào cho Bệnh viện.',
-    'Công ty điền số thông báo mời thầu (Ví dụ: IB2500…)',
 ];
 foreach ($ghiChu as $i => $gc) {
     $b[] = ['p' => '(' . ($i + 1) . ') ' . $gc, 'size' => 22, 'align' => 'both', 'after' => 40];
 }
 
 // ===== BẢNG ĐÁP ỨNG KỸ THUẬT (Mẫu 1) — thay cho Phụ lục III =====
-$b[] = ['br' => true];
+// Ngat SECTION: het phan tren la kho DOC (giong Thu moi goc), tu day tro
+// xuong chuyen sang kho NGANG cho bang dap ung 21 cot du cho.
+// Khong can ['br'] nua — ngat section da tu sang trang moi.
+$b[] = ['sect' => WordHelper::A4_DOC];
 $b[] = ['p' => 'BẢNG ĐÁP ỨNG KỸ THUẬT HÀNG HÓA CHÀO GIÁ',
         'bold' => true, 'align' => 'center', 'size' => 28, 'after' => 60];
 $b[] = ['p' => '(Kèm theo báo giá của {{TEN_CONG_TY}} — Thư mời số {{SO_THONG_BAO}})',
         'style' => 'italic', 'align' => 'center', 'after' => 200];
 
+// 21 cot LAY NGUYEN VAN tu Mau 1 - Phu luc II: 10 cot "Yeu cau moi chao gia"
+// (Phu luc III) + 11 cot nha thau dien. Cot nao khong ap dung cho nhom thi
+// de trong — mau Word la tinh, phan an/hien theo nhom lam o file Excel.
 $b[] = [
     'tbl' => [
         [
-            'Mã HH', 'Tên hàng hóa mời chào giá', 'Yêu cầu kỹ thuật mời chào giá',
-            'Yêu cầu kỹ thuật chào giá', 'Các điểm không đạt kèm thuyết minh',
+            'Mã bộ/phần/hệ thống/hàng hóa/ dụng cụ chi tiết',
+            "STT bộ/phần/\nhệ thống",
+            'Tên bộ/phần/hệ thống',
+            'STT chi tiết',
+            'Tên danh mục hàng hóa/dụng cụ chi tiết',
+            'Yêu cầu chung',
+            'Yêu cầu khác',
+            'Yêu cầu cấu hình',
+            'Yêu cầu kỹ thuật',
+            'Yêu cầu về nhóm nước, vùng lãnh thổ (nếu có)',
+            'Đáp ứng về yêu cầu chung',
+            'Các điểm không đáp ứng về yêu cầu chung',
+            'Đáp ứng về yêu cầu khác',
+            'Các điểm không đáp ứng về yêu cầu khác',
+            'Đáp ứng về yêu cầu cấu hình',
+            'Các điểm không đáp ứng về yêu cầu cấu hình',
+            'Đáp ứng về yêu cầu kĩ thuật',
+            'Các điểm không đáp ứng về yêu cầu kỹ thuật',
+            'Đáp ứng về nhóm nước, vùng lãnh thổ',
+            'Không đáp ứng về nhóm nước, vùng lãnh thổ',
+            'Tài liệu chứng minh (cam kết, catalog, hướng dẫn sử dụng..)',
         ],
         [
-            '{{#DAP_UNG}}{{MA_HH}}', '{{TEN_HANG_HOA}}', '{{YEU_CAU_KY_THUAT}}',
+            '{{#DAP_UNG}}{{MA}}', '{{STT_BO}}', '{{TEN_BO}}', '{{STT_CT}}',
+            '{{TEN_HANG_HOA}}',
+            '{{YEU_CAU_CHUNG}}', '{{YEU_CAU_KHAC}}', '{{YEU_CAU_CAU_HINH}}',
+            '{{YEU_CAU_KY_THUAT}}', '{{YEU_CAU_NHOM_NUOC}}',
+            '{{DAP_UNG_CHUNG}}', '{{KHONG_DAT_CHUNG}}',
+            '{{DAP_UNG_KHAC}}', '{{KHONG_DAT_KHAC}}',
+            '{{DAP_UNG_CAU_HINH}}', '{{KHONG_DAT_CAU_HINH}}',
             '{{THONG_SO_CHAO_GIA}}', '{{DIEM_KHONG_DAT}}',
+            '{{DAP_UNG_NHOM_NUOC}}', '{{KHONG_DAT_NHOM_NUOC}}',
+            '{{TAI_LIEU_CHUNG_MINH}}',
         ],
     ],
-    'widths' => [900, 2600, 3400, 3200, 2900],
-    'aligns' => ['center', 'left', 'left', 'left', 'left'],
+    // Tong = 14140 twips = be rong long trang kho NGANG (15840 - 850 - 850).
+    'widths' => [703, 429, 815, 403, 950, 669, 669, 669, 772, 617,
+                 669, 669, 669, 669, 669, 669, 729, 729, 600, 600, 772],
+    'aligns' => ['center','center','left','center','left','left','left','left','left','left',
+                 'left','left','left','left','left','left','left','left','left','left','left'],
 ];
 
 $b[] = ['p' => '', 'after' => 240];
@@ -167,14 +216,22 @@ foreach (['GIOI_THIEU'    => 'Tên + MST + địa chỉ + ĐT + email của côn
 }
 say('');
 say('  --- Nhóm dòng lặp trong bảng ---');
-say('    {{#CHAO_GIA}} — bảng chào giá (Mẫu 2). Key con:');
-say('        {{STT}} {{MA_HH}} {{TEN_HANG_HOA}} {{TEN_THUONG_MAI}} {{MODEL}}');
-say('        {{HANG_SAN_XUAT}} {{XUAT_XU}} {{SO_LUONG}} {{QUY_CACH}} {{DVT}}');
-say('        {{DON_GIA}} {{THANH_TIEN}} {{DON_GIA_TRUNG_THAU}} {{TAI_LIEU_THAM_CHIEU}}');
+say('    {{#CHAO_GIA}} — bảng chào giá (Mẫu 2, 14 cột). Key con:');
+say('        {{MA}} {{STT_BO}} {{TEN_BO}} {{STT_CT}} {{TEN_HANG_HOA}}');
+say('        {{TEN_THUONG_MAI}} {{MODEL}} {{HANG_SAN_XUAT}} {{NAM_SAN_XUAT}}');
+say('        {{XUAT_XU}} {{DVT}} {{SO_LUONG}} {{DON_GIA}} {{THANH_TIEN}}');
 say('');
-say('    {{#DAP_UNG}} — bảng đáp ứng kỹ thuật (Mẫu 1). Key con:');
-say('        {{STT}} {{MA_HH}} {{TEN_HANG_HOA}} {{YEU_CAU_KY_THUAT}}');
+say('    {{#DAP_UNG}} — bảng đáp ứng kỹ thuật (Mẫu 1, 21 cột). Key con:');
+say('        {{MA}} {{STT_BO}} {{TEN_BO}} {{STT_CT}} {{TEN_HANG_HOA}}');
+say('        {{YEU_CAU_CHUNG}} {{YEU_CAU_KHAC}} {{YEU_CAU_CAU_HINH}}');
+say('        {{YEU_CAU_KY_THUAT}} {{YEU_CAU_NHOM_NUOC}}');
+say('        {{DAP_UNG_CHUNG}} {{KHONG_DAT_CHUNG}} {{DAP_UNG_KHAC}} {{KHONG_DAT_KHAC}}');
+say('        {{DAP_UNG_CAU_HINH}} {{KHONG_DAT_CAU_HINH}}');
 say('        {{THONG_SO_CHAO_GIA}} {{DIEM_KHONG_DAT}}');
+say('        {{DAP_UNG_NHOM_NUOC}} {{KHONG_DAT_NHOM_NUOC}} {{TAI_LIEU_CHUNG_MINH}}');
+say('');
+say('  Dòng BỘ dùng: {{MA}} {{STT_BO}} {{TEN_BO}} + các cột yêu cầu.');
+say('  Dòng CHI TIẾT dùng: {{STT_CT}} {{TEN_HANG_HOA}} + các cột còn lại.');
 say('');
 say('  Lưu ý: dòng chứa {{#...}} là DÒNG MẪU — sẽ được nhân bản cho mỗi');
 say('  hàng hóa. Muốn đổi định dạng mọi dòng thì sửa đúng dòng mẫu đó.');

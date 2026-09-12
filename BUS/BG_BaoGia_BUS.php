@@ -1344,19 +1344,7 @@ class BG_BaoGia_BUS
      *
      * Xem danh sach Key: php database/tao_mau_word.php
      */
-    /**
-     * Ten hang hoa kem ten bo — bang Word phang khong the long cay, phai ghi
-     * "Bo X > Hang Y" de ben moi biet hang nay thuoc bo nao.
-     * Hang le (ten bo trung ten hang) thi chi in 1 lan cho gon.
-     */
-    private static function tenKemBo(array $d): string
-    {
-        $ten = trim((string)($d['ten_hang_hoa'] ?? ''));
-        $bo  = trim((string)($d['ten_bo'] ?? ''));
-        if ($bo === '' || mb_strtolower($bo) === mb_strtolower($ten)) return $ten;
-        return $bo . ' › ' . $ten;
-    }
-
+    
     public static function xuatWordBanKy(int $baoGiaId): string
     {
         $bg = BG_BaoGia_DAL::getById($baoGiaId);
@@ -1365,18 +1353,11 @@ class BG_BaoGia_BUS
         $gt = BG_GoiThau_DAL::getById((int)$bg->goi_thau_id);
         if (!$gt) throw new RuntimeException('Không tìm thấy gói thầu');
 
-        // getBangChaoGia() tra CAY BO (nhom/cap/bo/tong) — trai phang lai
-        // thanh danh sach hang hoa chi tiet cho 2 bang Word.
-        $tt = self::getBangChaoGia($baoGiaId);
-        $dong = [];
-        foreach (($tt['bo'] ?? []) as $b) {
-            foreach (($b['chi_tiet'] ?? []) as $d) {
-                // Giu ten bo de in kem — bang Word phang nen phai ghi ro
-                // hang nay thuoc bo nao, neu khong ben moi khong doi chieu duoc.
-                $d['ten_bo'] = (string)($b['ten_bo'] ?? '');
-                $dong[] = $d;
-            }
-        }
+        // getBangChaoGia() tra CAY BO — GIU NGUYEN cay, khong trai phang:
+        // Mau 1/Mau 2 trong Thu moi co DONG BO rieng (STT bo + Ten bo + yeu
+        // cau chung/khac/cau hinh), dong chi tiet chi mang yeu cau ky thuat.
+        $tt    = self::getBangChaoGia($baoGiaId);
+        $cayBo = $tt['bo'] ?? [];
 
         $ten  = trim((string)$bg->ten_cong_ty);
         $mst  = trim((string)($bg->ma_so_thue ?? ''));
@@ -1391,56 +1372,112 @@ class BG_BaoGia_BUS
         if ($dt !== '')   $gioiThieu .= ', ĐT: ' . $dt;
         if ($mail !== '') $gioiThieu .= ', Email: ' . $mail;
 
-        // ----- Bang chao gia (Mau 2) + bang dap ung ky thuat (Mau 1) -----
+        // ----- Bang chao gia (Mau 2, 14 cot) + bang dap ung (Mau 1, 21 cot) -----
+        // Cot lay NGUYEN VAN tu Phu luc II Thu mopi; xem database/tao_mau_word.php.
         $chaoGia = [];
         $dapUng  = [];
         $tong    = 0.0;
-        $stt     = 0;
-        $sttKt = 0;   // STT rieng cho bang dap ung ky thuat
-        foreach ($dong as $d) {
-            $coGia = (float)$d['don_gia'] > 0;
-            $kt = $d['dap_ung']['ky_thuat'] ?? [];
-            $coKyThuat = trim((string)($kt['dap_ung'] ?? '')) !== ''
-                      || trim((string)($kt['khong_dat'] ?? '')) !== '';
 
-            // Bang DAP UNG KY THUAT: giu ca hang da khai ky thuat nhung chua
-            // chao gia — de ben moi biet cong ty co dap ung duoc mat hang do khong.
-            if ($coGia || $coKyThuat) {
-                $sttKt++;
-                $dapUng[] = [
-                    'STT'                => (string)$sttKt,
-                    'MA_HH'              => (string)$d['ma_hh'],
-                    'TEN_HANG_HOA'       => self::tenKemBo($d),
-                    'YEU_CAU_KY_THUAT'   => (string)$d['thong_so_ky_thuat'],
-                    'THONG_SO_CHAO_GIA'  => (string)($d['dap_ung']['ky_thuat']['dap_ung'] ?? ''),
-                    'DIEM_KHONG_DAT'     => (string)($d['dap_ung']['ky_thuat']['khong_dat'] ?? ''),
-                ];
+        /** O rong cho moi khoa cua 1 bang — tranh thieu khoa lam vo dong */
+        $rong = static function (array $khoa): array {
+            return array_fill_keys($khoa, '');
+        };
+        $khoaGia = ['MA','STT_BO','TEN_BO','STT_CT','TEN_HANG_HOA','TEN_THUONG_MAI',
+                    'MODEL','HANG_SAN_XUAT','NAM_SAN_XUAT','XUAT_XU','DVT','SO_LUONG',
+                    'DON_GIA','THANH_TIEN'];
+        $khoaDu  = ['MA','STT_BO','TEN_BO','STT_CT','TEN_HANG_HOA',
+                    'YEU_CAU_CHUNG','YEU_CAU_KHAC','YEU_CAU_CAU_HINH','YEU_CAU_KY_THUAT',
+                    'YEU_CAU_NHOM_NUOC',
+                    'DAP_UNG_CHUNG','KHONG_DAT_CHUNG','DAP_UNG_KHAC','KHONG_DAT_KHAC',
+                    'DAP_UNG_CAU_HINH','KHONG_DAT_CAU_HINH','THONG_SO_CHAO_GIA',
+                    'DIEM_KHONG_DAT','DAP_UNG_NHOM_NUOC','KHONG_DAT_NHOM_NUOC',
+                    'TAI_LIEU_CHUNG_MINH'];
+
+        foreach ($cayBo as $b) {
+            $laHangLe = !empty($b['la_hang_le']);
+            $ct       = $b['chi_tiet'] ?? [];
+
+            // Chi tiet co du lieu de in o tung bang
+            $ctGia = [];
+            $ctDu  = [];
+            foreach ($ct as $d) {
+                $kt = $d['dap_ung']['ky_thuat'] ?? [];
+                $coKyThuat = trim((string)($kt['dap_ung'] ?? '')) !== ''
+                          || trim((string)($kt['khong_dat'] ?? '')) !== '';
+                if ((float)$d['don_gia'] > 0) $ctGia[] = $d;
+                if ((float)$d['don_gia'] > 0 || $coKyThuat) $ctDu[] = $d;
             }
 
-            // Bang CHAO GIA: CHI hang thuc su co don gia.
-            // In ca hang khong chao vua thua giay vua de hieu nham la chao gia 0.
-            if (!$coGia) continue;
+            // ---- DONG BO (bo qua voi hang le) ----
+            // Chi in khi bo do thuc su co dong chi tiet ben duoi, neu khong
+            // se tho ra mot dong tieu de trong tron giua bang.
+            if (!$laHangLe && $ctGia) {
+                // Thanh tien cua dong BO = cong don thanh tien cac chi tiet ben
+                // duoi no. KHONG cong vao $tong o day — $tong van cong theo tung
+                // chi tiet o vong duoi, neu cong ca 2 cho thi TONG CONG gap doi.
+                $tienBo = 0.0;
+                foreach ($ctGia as $d) $tienBo += (float)$d['thanh_tien'];
 
-            $stt++;
-            $tong += (float)$d['thanh_tien'];
+                $r = $rong($khoaGia);
+                $r['MA']         = (string)($b['ma_bo'] ?? '');
+                $r['STT_BO']     = (string)($b['stt_bo'] ?? '');
+                $r['TEN_BO']     = (string)($b['ten_bo'] ?? '');
+                $r['DVT']        = (string)($b['dvt'] ?? '');
+                $r['SO_LUONG']   = self::soVN((float)($b['so_luong'] ?? 0));
+                $r['THANH_TIEN'] = self::soVN($tienBo);
+                $chaoGia[] = $r;
+            }
+            if (!$laHangLe && $ctDu) {
+                $r = $rong($khoaDu);
+                $r['MA']               = (string)($b['ma_bo'] ?? '');
+                $r['STT_BO']           = (string)($b['stt_bo'] ?? '');
+                $r['TEN_BO']           = (string)($b['ten_bo'] ?? '');
+                $r['YEU_CAU_CHUNG']    = (string)($b['yeu_cau_chung'] ?? '');
+                $r['YEU_CAU_KHAC']     = (string)($b['yeu_cau_khac'] ?? '');
+                $r['YEU_CAU_CAU_HINH'] = (string)($b['yeu_cau_cau_hinh'] ?? '');
+                $r['YEU_CAU_NHOM_NUOC'] = (string)($b['nhom_nuoc'] ?? '');
+                $dapUng[] = $r;
+            }
 
-            $chaoGia[] = [
-                'STT'                  => (string)$stt,
-                'MA_HH'                => (string)$d['ma_hh'],
-                'TEN_HANG_HOA'         => self::tenKemBo($d),
-                'TEN_THUONG_MAI'       => (string)$d['ten_thuong_mai'],
-                'MODEL'                => (string)$d['model'],
-                'HANG_SAN_XUAT'        => (string)$d['hang_san_xuat'],
-                'XUAT_XU'              => (string)$d['xuat_xu'],
-                'SO_LUONG'             => self::soVN((float)$d['so_luong']),
-                'QUY_CACH'             => '',
-                'DVT'                  => (string)$d['dvt'],
-                'DON_GIA'              => self::soVN((float)$d['don_gia']),
-                'THANH_TIEN'           => self::soVN((float)$d['thanh_tien']),
-                'DON_GIA_TRUNG_THAU'   => '',
-                'TAI_LIEU_THAM_CHIEU'  => '',
-            ];
+            // ---- DONG CHI TIET ----
+            foreach ($ctGia as $d) {
+                $tong += (float)$d['thanh_tien'];
+                $r = $rong($khoaGia);
+                $r['MA']             = (string)$d['ma_hh'];
+                $r['STT_CT']         = (string)($d['stt_chi_tiet'] ?? '');
+                $r['TEN_HANG_HOA']   = (string)$d['ten_hang_hoa'];
+                $r['TEN_THUONG_MAI'] = (string)$d['ten_thuong_mai'];
+                $r['MODEL']          = (string)$d['model'];
+                $r['HANG_SAN_XUAT']  = (string)$d['hang_san_xuat'];
+                $r['NAM_SAN_XUAT']   = (string)($d['nam_san_xuat'] ?? '');
+                $r['XUAT_XU']        = (string)$d['xuat_xu'];
+                $r['DVT']            = (string)$d['dvt'];
+                $r['SO_LUONG']       = self::soVN((float)$d['so_luong']);
+                $r['DON_GIA']        = self::soVN((float)$d['don_gia']);
+                $r['THANH_TIEN']     = self::soVN((float)$d['thanh_tien']);
+                $chaoGia[] = $r;
+            }
 
+            foreach ($ctDu as $d) {
+                $du = $d['dap_ung'] ?? [];
+                $r = $rong($khoaDu);
+                $r['MA']                = (string)$d['ma_hh'];
+                $r['STT_CT']            = (string)($d['stt_chi_tiet'] ?? '');
+                $r['TEN_HANG_HOA']      = (string)$d['ten_hang_hoa'];
+                $r['YEU_CAU_KY_THUAT']  = (string)$d['thong_so_ky_thuat'];
+                $r['DAP_UNG_CHUNG']     = (string)($du['chung']['dap_ung'] ?? '');
+                $r['KHONG_DAT_CHUNG']   = (string)($du['chung']['khong_dat'] ?? '');
+                $r['DAP_UNG_KHAC']      = (string)($du['khac']['dap_ung'] ?? '');
+                $r['KHONG_DAT_KHAC']    = (string)($du['khac']['khong_dat'] ?? '');
+                $r['DAP_UNG_CAU_HINH']  = (string)($du['cau_hinh']['dap_ung'] ?? '');
+                $r['KHONG_DAT_CAU_HINH'] = (string)($du['cau_hinh']['khong_dat'] ?? '');
+                $r['THONG_SO_CHAO_GIA'] = (string)($du['ky_thuat']['dap_ung'] ?? '');
+                $r['DIEM_KHONG_DAT']    = (string)($du['ky_thuat']['khong_dat'] ?? '');
+                $r['DAP_UNG_NHOM_NUOC'] = (string)($du['nhom_nuoc']['dap_ung'] ?? '');
+                $r['KHONG_DAT_NHOM_NUOC'] = (string)($du['nhom_nuoc']['khong_dat'] ?? '');
+                $r['TAI_LIEU_CHUNG_MINH'] = (string)($du['tai_lieu']['dap_ung'] ?? '');
+                $dapUng[] = $r;
+            }
         }
 
         $hieuLuc = (int)$bg->hieu_luc_bao_gia > 0 ? (int)$bg->hieu_luc_bao_gia : 180;

@@ -673,36 +673,39 @@ class BG_HangHoa_BUS
         };
 
         // Gói đã có danh mục -> đổ ra để sửa; chưa có -> ví dụ theo nhóm
-        $dsBo = BG_Bo_DAL::getByGoiThau($goiThauId);
-        if (!empty($dsBo)) {
-            $hangHoa = BG_HangHoa_DAL::getByGoiThau($goiThauId);
-            $theoBo = [];
-            foreach ($hangHoa as $hh) {
-                $theoBo[(int)($hh['bo_id'] ?? 0)][] = $hh;
+        $dsBo    = BG_Bo_DAL::getByGoiThau($goiThauId);
+        $hangHoa = BG_HangHoa_DAL::getByGoiThau($goiThauId);
+
+        // Gom theo bộ — khóa 0 = HÀNG LẺ (bo_id NULL)
+        $theoBo = [];
+        foreach ($hangHoa as $hh) {
+            $theoBo[(int)($hh['bo_id'] ?? 0)][] = $hh;
+        }
+
+        // Chỉ đổ VÍ DỤ khi gói chưa có hàng hóa nào. Trước đây xét theo $dsBo
+        // nên gói toàn HÀNG LẺ (vật tư, dược) bị coi là rỗng và file mẫu tải về
+        // toàn dòng ví dụ thay vì danh mục thật.
+        if (empty($hangHoa)) {
+            foreach (self::viDuTheoNhom($nhom) as $v) {
+                $rows[] = $dong($v);
+            }
+        } else {
+            // ---- HÀNG LẺ: không thuộc bộ nào, để trống cột B, C ----
+            foreach ($theoBo[0] ?? [] as $h) {
+                $rows[] = $dong([
+                    (string)($h['ma_hh'] ?? ''), '', '',
+                    '', (string)$h['ten_hang_hoa'],
+                    '', '', '',
+                    (string)($h['thong_so_ky_thuat'] ?? ''),
+                    (string)($h['nhom_nuoc'] ?? ''),
+                    (string)($h['dvt'] ?? ''), (float)$h['so_luong'],
+                ]);
             }
 
             foreach ($dsBo as $b) {
-                $bid = (int)$b['id'];
-                $ct  = $theoBo[$bid] ?? [];
+                $ct = $theoBo[(int)$b['id']] ?? [];
 
-                // Hàng lẻ (bộ đúng 1 chi tiết cùng tên) -> gộp về 1 dòng cho gọn
-                $goName = count($ct) === 1
-                       && trim((string)$b['ten_bo']) === trim((string)$ct[0]['ten_hang_hoa']);
-
-                if ($goName) {
-                    $h = $ct[0];
-                    $rows[] = $dong([
-                        (string)($h['ma_hh'] ?? ''), $b['stt_bo'], (string)$b['ten_bo'],
-                        $h['stt_chi_tiet'] ?? 1, (string)$h['ten_hang_hoa'],
-                        (string)($b['yeu_cau_chung'] ?? ''), (string)($b['yeu_cau_khac'] ?? ''),
-                        (string)($b['yeu_cau_cau_hinh'] ?? ''),
-                        (string)($h['thong_so_ky_thuat'] ?? ''),
-                        (string)($b['nhom_nuoc'] ?? ''),
-                        (string)($h['dvt'] ?? ''), (float)$h['so_luong'],
-                    ]);
-                    continue;
-                }
-
+                // Dòng BỘ — mang yêu cầu chung/khác/cấu hình
                 $rows[] = $dong([
                     (string)($b['ma_bo'] ?? ''), $b['stt_bo'], (string)$b['ten_bo'],
                     '', '',
@@ -721,10 +724,6 @@ class BG_HangHoa_BUS
                         (string)($h['dvt'] ?? ''), (float)$h['so_luong'],
                     ]);
                 }
-            }
-        } else {
-            foreach (self::viDuTheoNhom($nhom) as $v) {
-                $rows[] = $dong($v);
             }
         }
 
@@ -804,11 +803,15 @@ class BG_HangHoa_BUS
         $gt = BG_GoiThau_DAL::getById($goiThauId);
         if (!$gt) throw new RuntimeException('Không tìm thấy gói thầu');
 
-        $dsBo = BG_Bo_DAL::getByGoiThau($goiThauId);
-        if (empty($dsBo)) throw new RuntimeException('Gói thầu chưa có danh mục hàng hóa');
-
-        // Gom hàng hóa theo bộ, giữ đúng thứ tự in ở Phụ lục III
+        $dsBo    = BG_Bo_DAL::getByGoiThau($goiThauId);
         $hangHoa = BG_HangHoa_DAL::getByGoiThau($goiThauId);
+
+        // Chan theo HANG HOA, khong theo BO: goi toan hang le (vat tu, duoc)
+        // khong co bo nao van phai tai duoc file mau, neu khong nha thau
+        // khong co gi de dien va upload.
+        if (empty($hangHoa)) throw new RuntimeException('Gói thầu chưa có danh mục hàng hóa');
+
+        // Gom hàng hóa theo bộ — khóa 0 = HÀNG LẺ (bo_id NULL)
         $theoBo = [];
         foreach ($hangHoa as $hh) $theoBo[(int)($hh['bo_id'] ?? 0)][] = $hh;
 
@@ -872,48 +875,56 @@ class BG_HangHoa_BUS
             $hdr,
         ];
 
+        // Dựng 1 dòng CHI TIẾT — dùng chung cho hàng lẻ và hàng trong bộ.
+        // $b = null nghĩa là HÀNG LẺ (không thuộc bộ nào).
+        $dongChiTiet = function (array $h, ?array $b, int $stt)
+            use ($nhom, $cap, $S, $C): array {
+            $d = [
+                ['v' => (string)($h['ma_hh'] ?? ''), 's' => $C],
+                ['v' => '', 's' => $C],
+                ['v' => '', 's' => $S],
+                ['v' => $b === null ? '' : (string)($h['stt_chi_tiet'] ?? $stt), 's' => $C],
+                ['v' => (string)$h['ten_hang_hoa'], 's' => $S],
+            ];
+            // Yêu cầu chung/khác/cấu hình gắn với BỘ nên dòng chi tiết để trống
+            if (BG_Nhom_PUBLIC::coYeuCauChung($nhom))   $d[] = ['v' => '', 's' => $S];
+            if (BG_Nhom_PUBLIC::coYeuCauKhac($nhom))    $d[] = ['v' => '', 's' => $S];
+            if (BG_Nhom_PUBLIC::coYeuCauCauHinh($nhom)) $d[] = ['v' => '', 's' => $S];
+            $d[] = ['v' => (string)($h['thong_so_ky_thuat'] ?? ''), 's' => $S];
+            $d[] = ['v' => (string)($h['nhom_nuoc'] ?? ''), 's' => $C];
+            foreach ($cap as $_) { $d[] = ['v' => '', 's' => $S]; $d[] = ['v' => '', 's' => $S]; }
+            $d[] = ['v' => '', 's' => $S];
+            return $d;
+        };
+
+        // ---- HÀNG LẺ đứng TRƯỚC: không có dòng tiêu đề bộ ----
+        foreach ($theoBo[0] ?? [] as $k => $h) {
+            $rows[] = $dongChiTiet($h, null, $k + 1);
+        }
+
         foreach ($dsBo as $b) {
-            $bid = (int)$b['id'];
-            $ct  = $theoBo[$bid] ?? [];
-            $goName = count($ct) === 1
-                   && trim((string)$b['ten_bo']) === trim((string)$ct[0]['ten_hang_hoa']);
+            $ct = $theoBo[(int)$b['id']] ?? [];
 
             // --- Dòng BỘ (yêu cầu chung/khác/cấu hình nằm ở đây) ---
-            if (!$goName) {
-                $d = [
-                    ['v' => (string)($b['ma_bo'] ?? ''), 's' => $C],
-                    ['v' => (string)($b['stt_bo'] ?? ''), 's' => $C],
-                    ['v' => (string)($b['ten_bo'] ?? ''), 's' => $S],
-                    ['v' => '', 's' => $C],
-                    ['v' => '', 's' => $S],
-                ];
-                if (BG_Nhom_PUBLIC::coYeuCauChung($nhom))   $d[] = ['v' => (string)($b['yeu_cau_chung'] ?? ''), 's' => $S];
-                if (BG_Nhom_PUBLIC::coYeuCauKhac($nhom))    $d[] = ['v' => (string)($b['yeu_cau_khac'] ?? ''), 's' => $S];
-                if (BG_Nhom_PUBLIC::coYeuCauCauHinh($nhom)) $d[] = ['v' => (string)($b['yeu_cau_cau_hinh'] ?? ''), 's' => $S];
-                $d[] = ['v' => '', 's' => $S];
-                $d[] = ['v' => (string)($b['nhom_nuoc'] ?? ''), 's' => $C];
-                foreach ($cap as $_) { $d[] = ['v' => '', 's' => $S]; $d[] = ['v' => '', 's' => $S]; }
-                $d[] = ['v' => '', 's' => $S];
-                $rows[] = $d;
-            }
+            $d = [
+                ['v' => (string)($b['ma_bo'] ?? ''), 's' => $C],
+                ['v' => (string)($b['stt_bo'] ?? ''), 's' => $C],
+                ['v' => (string)($b['ten_bo'] ?? ''), 's' => $S],
+                ['v' => '', 's' => $C],
+                ['v' => '', 's' => $S],
+            ];
+            if (BG_Nhom_PUBLIC::coYeuCauChung($nhom))   $d[] = ['v' => (string)($b['yeu_cau_chung'] ?? ''), 's' => $S];
+            if (BG_Nhom_PUBLIC::coYeuCauKhac($nhom))    $d[] = ['v' => (string)($b['yeu_cau_khac'] ?? ''), 's' => $S];
+            if (BG_Nhom_PUBLIC::coYeuCauCauHinh($nhom)) $d[] = ['v' => (string)($b['yeu_cau_cau_hinh'] ?? ''), 's' => $S];
+            $d[] = ['v' => '', 's' => $S];
+            $d[] = ['v' => (string)($b['nhom_nuoc'] ?? ''), 's' => $C];
+            foreach ($cap as $_) { $d[] = ['v' => '', 's' => $S]; $d[] = ['v' => '', 's' => $S]; }
+            $d[] = ['v' => '', 's' => $S];
+            $rows[] = $d;
 
             // --- Dòng CHI TIẾT (yêu cầu kỹ thuật nằm ở đây) ---
             foreach ($ct as $k => $h) {
-                $d = [
-                    ['v' => (string)($h['ma_hh'] ?? ''), 's' => $C],
-                    ['v' => $goName ? (string)($b['stt_bo'] ?? '') : '', 's' => $C],
-                    ['v' => $goName ? (string)($b['ten_bo'] ?? '') : '', 's' => $S],
-                    ['v' => (string)($h['stt_chi_tiet'] ?? ($k + 1)), 's' => $C],
-                    ['v' => (string)$h['ten_hang_hoa'], 's' => $S],
-                ];
-                if (BG_Nhom_PUBLIC::coYeuCauChung($nhom))   $d[] = ['v' => $goName ? (string)($b['yeu_cau_chung'] ?? '') : '', 's' => $S];
-                if (BG_Nhom_PUBLIC::coYeuCauKhac($nhom))    $d[] = ['v' => $goName ? (string)($b['yeu_cau_khac'] ?? '') : '', 's' => $S];
-                if (BG_Nhom_PUBLIC::coYeuCauCauHinh($nhom)) $d[] = ['v' => $goName ? (string)($b['yeu_cau_cau_hinh'] ?? '') : '', 's' => $S];
-                $d[] = ['v' => (string)($h['thong_so_ky_thuat'] ?? ''), 's' => $S];
-                $d[] = ['v' => (string)($h['nhom_nuoc'] ?? ($goName ? ($b['nhom_nuoc'] ?? '') : '')), 's' => $C];
-                foreach ($cap as $_) { $d[] = ['v' => '', 's' => $S]; $d[] = ['v' => '', 's' => $S]; }
-                $d[] = ['v' => '', 's' => $S];
-                $rows[] = $d;
+                $rows[] = $dongChiTiet($h, $b, $k + 1);
             }
         }
 
@@ -971,40 +982,46 @@ class BG_HangHoa_BUS
             ],
         ];
 
-        foreach ($dsBo as $b) {
-            $bid = (int)$b['id'];
-            $ct  = $theoBo[$bid] ?? [];
-            $goName = count($ct) === 1
-                   && trim((string)$b['ten_bo']) === trim((string)$ct[0]['ten_hang_hoa']);
+        // Dựng 1 dòng CHI TIẾT — dùng chung cho hàng lẻ và hàng trong bộ
+        $dongChiTiet = function (array $h, bool $trongBo, int $stt)
+            use ($S, $C, $N): array {
+            return [
+                ['v' => (string)($h['ma_hh'] ?? ''), 's' => $C],
+                ['v' => '', 's' => $C],
+                ['v' => '', 's' => $S],
+                ['v' => $trongBo ? (string)($h['stt_chi_tiet'] ?? $stt) : '', 's' => $C],
+                ['v' => (string)$h['ten_hang_hoa'], 's' => $S],
+                ['v' => '', 's' => $S], ['v' => '', 's' => $S], ['v' => '', 's' => $S],
+                ['v' => '', 's' => $C], ['v' => '', 's' => $S],
+                ['v' => (string)($h['dvt'] ?? ''), 's' => $C],
+                ['v' => (float)$h['so_luong'], 's' => $N, 't' => 'n'],
+                ['v' => '', 's' => $N], ['v' => '', 's' => $N],
+            ];
+        };
 
-            if (!$goName) {
-                // Dòng bộ: chỉ để nhận biết, không chào giá ở đây
-                $rows[] = [
-                    ['v' => (string)($b['ma_bo'] ?? ''), 's' => $C],
-                    ['v' => (string)($b['stt_bo'] ?? ''), 's' => $C],
-                    ['v' => (string)($b['ten_bo'] ?? ''), 's' => $S],
-                    ['v' => '', 's' => $C], ['v' => '', 's' => $S],
-                    ['v' => '', 's' => $S], ['v' => '', 's' => $S], ['v' => '', 's' => $S],
-                    ['v' => '', 's' => $C], ['v' => '', 's' => $S],
-                    ['v' => (string)($b['dvt'] ?? ''), 's' => $C],
-                    ['v' => (float)$b['so_luong'], 's' => $N, 't' => 'n'],
-                    ['v' => '', 's' => $N], ['v' => '', 's' => $N],
-                ];
-            }
+        // ---- HÀNG LẺ đứng TRƯỚC: không có dòng tiêu đề bộ ----
+        foreach ($theoBo[0] ?? [] as $k => $h) {
+            $rows[] = $dongChiTiet($h, false, $k + 1);
+        }
+
+        foreach ($dsBo as $b) {
+            $ct = $theoBo[(int)$b['id']] ?? [];
+
+            // Dòng bộ: chỉ để nhận biết, không chào giá ở đây
+            $rows[] = [
+                ['v' => (string)($b['ma_bo'] ?? ''), 's' => $C],
+                ['v' => (string)($b['stt_bo'] ?? ''), 's' => $C],
+                ['v' => (string)($b['ten_bo'] ?? ''), 's' => $S],
+                ['v' => '', 's' => $C], ['v' => '', 's' => $S],
+                ['v' => '', 's' => $S], ['v' => '', 's' => $S], ['v' => '', 's' => $S],
+                ['v' => '', 's' => $C], ['v' => '', 's' => $S],
+                ['v' => (string)($b['dvt'] ?? ''), 's' => $C],
+                ['v' => (float)$b['so_luong'], 's' => $N, 't' => 'n'],
+                ['v' => '', 's' => $N], ['v' => '', 's' => $N],
+            ];
 
             foreach ($ct as $k => $h) {
-                $rows[] = [
-                    ['v' => (string)($h['ma_hh'] ?? ''), 's' => $C],
-                    ['v' => $goName ? (string)($b['stt_bo'] ?? '') : '', 's' => $C],
-                    ['v' => $goName ? (string)($b['ten_bo'] ?? '') : '', 's' => $S],
-                    ['v' => (string)($h['stt_chi_tiet'] ?? ($k + 1)), 's' => $C],
-                    ['v' => (string)$h['ten_hang_hoa'], 's' => $S],
-                    ['v' => '', 's' => $S], ['v' => '', 's' => $S], ['v' => '', 's' => $S],
-                    ['v' => '', 's' => $C], ['v' => '', 's' => $S],
-                    ['v' => (string)($h['dvt'] ?? ''), 's' => $C],
-                    ['v' => (float)$h['so_luong'], 's' => $N, 't' => 'n'],
-                    ['v' => '', 's' => $N], ['v' => '', 's' => $N],
-                ];
+                $rows[] = $dongChiTiet($h, true, $k + 1);
             }
         }
 

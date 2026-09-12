@@ -9,12 +9,24 @@
  *   ['p'   => 'văn bản', 'style' => 'title|h1|h2|normal|italic|center|right', 'bold' => true]
  *   ['tbl' => [['ô A','ô B'], ...], 'widths' => [1000, 2000], 'header' => true]
  *   ['br']  — ngắt trang
+ *   ['sect' => 'ngang'|'doc']  — ngắt SECTION, đổi khổ giấy từ đây trở đi
+ *
+ * Khổ giấy bám theo "Thư mời báo giá chung 3 nhóm.docx": Letter 12240x15840,
+ * KHÔNG phải A4. Đổi ở đây thì mọi file mẫu sinh ra đều theo.
  */
 class WordHelper
 {
-    /** Khổ A4 ngang (landscape) — bảng chào giá 15 cột không đủ chỗ ở khổ dọc */
+    /** Khổ ngang (landscape) — bảng đáp ứng 21 cột không đủ chỗ ở khổ dọc */
     public const A4_NGANG = 'ngang';
     public const A4_DOC   = 'doc';
+
+    /** Khổ giấy + lề — lấy đúng theo file Thư mời gốc (Letter, không phải A4) */
+    private const KHO_W   = 12240;
+    private const KHO_H   = 15840;
+    private const LE_TREN  = 380;
+    private const LE_PHAI  = 850;
+    private const LE_DUOI  = 280;
+    private const LE_TRAI  = 1275;
 
     /** Escape ký tự đặc biệt của XML */
     private static function esc(string $s): string
@@ -79,7 +91,9 @@ class WordHelper
                    . '<w:t xml:space="preserve">' . self::esc($line) . '</w:t></w:r>';
         }
 
-        $shd = $header ? '<w:shd w:val="clear" w:color="auto" w:fill="D9E2F3"/>' : '';
+        // File Thư mời gốc KHÔNG tô nền dòng tiêu đề (chỉ nền trắng) — tiêu đề
+        // phân biệt bằng in đậm. Tô nền xanh làm bản in khác bản giấy + tốn mực.
+        $shd = '';
 
         return '<w:tc>'
              . '<w:tcPr><w:tcW w:w="' . $width . '" w:type="dxa"/>'
@@ -99,13 +113,14 @@ class WordHelper
      */
     private static function table(array $rows, array $widths, array $aligns = []): string
     {
+        // Viền mảnh sz=4 — đúng như bảng trong file Thư mời gốc (trước đây sz=6).
         $borders = '<w:tblBorders>'
-                 . '<w:top w:val="single" w:sz="6" w:color="000000"/>'
-                 . '<w:left w:val="single" w:sz="6" w:color="000000"/>'
-                 . '<w:bottom w:val="single" w:sz="6" w:color="000000"/>'
-                 . '<w:right w:val="single" w:sz="6" w:color="000000"/>'
-                 . '<w:insideH w:val="single" w:sz="6" w:color="000000"/>'
-                 . '<w:insideV w:val="single" w:sz="6" w:color="000000"/>'
+                 . '<w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                 . '<w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                 . '<w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                 . '<w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                 . '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+                 . '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
                  . '</w:tblBorders>';
 
         $grid = '<w:tblGrid>';
@@ -133,17 +148,50 @@ class WordHelper
     }
 
     /**
+     * Thuộc tính section (khổ giấy + lề) cho 1 khổ.
+     *
+     * Dùng chung cho CẢ section giữa tài liệu lẫn section cuối, để hai chỗ
+     * không bao giờ lệch nhau khi sửa lề.
+     */
+    private static function sectPr(string $kho): string
+    {
+        $ngang = ($kho === self::A4_NGANG);
+        $w = $ngang ? self::KHO_H : self::KHO_W;
+        $h = $ngang ? self::KHO_W : self::KHO_H;
+
+        // Khổ ngang thì lề trên/dưới đổi vai cho trái/phải để mép in cân đối.
+        $tren = $ngang ? self::LE_DUOI : self::LE_TREN;
+        $duoi = $ngang ? self::LE_DUOI : self::LE_DUOI;
+        $trai = $ngang ? self::LE_PHAI : self::LE_TRAI;
+        $phai = $ngang ? self::LE_PHAI : self::LE_PHAI;
+
+        return '<w:pgSz w:w="' . $w . '" w:h="' . $h . '"'
+             . ($ngang ? ' w:orient="landscape"' : '') . '/>'
+             . '<w:pgMar w:top="' . $tren . '" w:right="' . $phai . '"'
+             . ' w:bottom="' . $duoi . '" w:left="' . $trai . '"'
+             . ' w:header="720" w:footer="720" w:gutter="0"/>'
+             . '<w:cols w:space="720"/>';
+    }
+
+    /**
      * Sinh file .docx.
      *
      * @param string $path   Đường dẫn file xuất
      * @param array  $blocks Danh sách block (xem chú thích đầu class)
-     * @param string $kho    A4_NGANG hoặc A4_DOC
+     * @param string $kho    Khổ của section CUỐI (A4_NGANG hoặc A4_DOC)
      */
     public static function write(string $path, array $blocks, string $kho = self::A4_DOC): void
     {
         $body = '';
         foreach ($blocks as $b) {
-            if (isset($b['br'])) {
+            if (isset($b['sect'])) {
+                // Ngắt SECTION: phần TRƯỚC đoạn này mang khổ giấy $b['sect'],
+                // phần sau lấy khổ của section kế tiếp (hoặc sectPr cuối body).
+                // Word quy định sectPr của 1 section nằm ở đoạn CUỐI section đó.
+                $body .= '<w:p><w:pPr><w:sectPr>'
+                       . self::sectPr((string)$b['sect'])
+                       . '</w:sectPr></w:pPr></w:p>';
+            } elseif (isset($b['br'])) {
                 $body .= '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
             } elseif (isset($b['tbl'])) {
                 $body .= self::table($b['tbl'], $b['widths'] ?? [], $b['aligns'] ?? []);
@@ -154,14 +202,7 @@ class WordHelper
             }
         }
 
-        // A4: 11906 x 16838 twips
-        $sect = $kho === self::A4_NGANG
-            ? '<w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>'
-              . '<w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850"'
-              . ' w:header="708" w:footer="708" w:gutter="0"/>'
-            : '<w:pgSz w:w="11906" w:h="16838"/>'
-              . '<w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1418"'
-              . ' w:header="708" w:footer="708" w:gutter="0"/>';
+        $sect = self::sectPr($kho);
 
         $document = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             . '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
@@ -185,13 +226,17 @@ class WordHelper
             . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
             . '</Relationships>';
 
-        // Font mặc định Times New Roman 13pt cho toàn tài liệu
+        // Mặc định Times New Roman 14pt + giãn dòng — lấy đúng docDefaults của
+        // file Thư mời gốc (sz=28, spacing before/after=60, line=288).
         $styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             . '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
             . '<w:docDefaults><w:rPrDefault><w:rPr>'
             . '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="Times New Roman" w:cs="Times New Roman"/>'
-            . '<w:sz w:val="26"/><w:szCs w:val="26"/>'
-            . '</w:rPr></w:rPrDefault></w:docDefaults>'
+            . '<w:sz w:val="28"/><w:szCs w:val="28"/>'
+            . '</w:rPr></w:rPrDefault>'
+            . '<w:pPrDefault><w:pPr>'
+            . '<w:spacing w:before="60" w:after="60" w:line="288" w:lineRule="auto"/>'
+            . '</w:pPr></w:pPrDefault></w:docDefaults>'
             . '<w:style w:type="paragraph" w:default="1" w:styleId="Normal">'
             . '<w:name w:val="Normal"/><w:qFormat/></w:style>'
             . '</w:styles>';
