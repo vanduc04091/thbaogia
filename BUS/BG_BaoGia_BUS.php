@@ -185,63 +185,6 @@ class BG_BaoGia_BUS
         }
     }
 
-    /**
-     * Lưu giá cho 1 hàng hóa (nhập tay trên form web).
-     *
-     * @param array $input dữ liệu 1 dòng chào giá
-     */
-    public static function luuDongChaoGia(int $baoGiaId, int $hangHoaId, array $input, int $u): array
-    {
-        $bg = BG_BaoGia_DAL::getById($baoGiaId);
-        if (!$bg || $bg->da_xoa === 1) return ['success' => false, 'message' => 'Không tìm thấy báo giá'];
-        if ((int)($bg->da_hoan_thanh ?? 0) === 1) {
-            return ['success' => false, 'message' => 'Báo giá đã hoàn thành — không chỉnh sửa được nữa'];
-        }
-
-        $hh = BG_HangHoa_DAL::getById($hangHoaId);
-        if (!$hh || $hh->da_xoa === 1) return ['success' => false, 'message' => 'Không tìm thấy hàng hóa'];
-        if ((int)$hh->goi_thau_id !== (int)$bg->goi_thau_id) {
-            return ['success' => false, 'message' => 'Hàng hóa không thuộc gói thầu của báo giá này'];
-        }
-
-        $donGia = ExcelHelper::toNumber($input['don_gia'] ?? 0);
-        if ($donGia < 0) return ['success' => false, 'message' => 'Đơn giá không được âm'];
-
-        $ct = new BG_BaoGiaChiTiet_PUBLIC();
-        $ct->bao_gia_id          = $baoGiaId;
-        $ct->hang_hoa_id         = $hangHoaId;
-        // ===== Mẫu 2: Bảng chào giá =====
-        $ct->ten_thuong_mai        = self::nullIfEmpty($input['ten_thuong_mai'] ?? '', 1000);
-        $ct->model                 = self::nullIfEmpty($input['model'] ?? '', 500);
-        $ct->hang_san_xuat         = self::nullIfEmpty($input['hang_san_xuat'] ?? '', 500);
-        $ct->xuat_xu               = self::nullIfEmpty($input['xuat_xu'] ?? '', 500);
-        $ct->quy_cach              = self::nullIfEmpty($input['quy_cach'] ?? '', 500);
-        $ct->don_gia               = $donGia;
-        // Thành tiền LUÔN tính ở server = đơn giá × số lượng của bên mời (§10.2),
-        // không nhận giá trị client gửi lên.
-        $ct->thanh_tien            = round($donGia * (float)$hh->so_luong, 2);
-        $ct->don_gia_trung_thau    = ExcelHelper::toNumber($input['don_gia_trung_thau'] ?? 0);
-        $ct->tai_lieu_tham_chieu   = self::nullIfEmpty($input['tai_lieu_tham_chieu'] ?? '');
-        // ===== Mẫu 1: Bảng đáp ứng kỹ thuật =====
-        $ct->thong_so_chao_gia     = self::nullIfEmpty($input['thong_so_chao_gia'] ?? '');
-        $ct->diem_khong_dat        = self::nullIfEmpty($input['diem_khong_dat'] ?? '');
-
-        // Ghi chi tiết + cập nhật tổng tiền ở bảng cha → 2 bảng, bọc transaction
-        try {
-            Database::beginTransaction();
-            BG_BaoGia_DAL::upsertChiTiet($ct);
-            BG_BaoGia_DAL::updateTongTien($baoGiaId);
-            Database::commit();
-            return ['success' => true, 'message' => 'Đã lưu', 'data' => [
-                'thanh_tien' => $ct->thanh_tien,
-            ]];
-        } catch (Throwable $ex) {
-            Database::rollBack();
-            return ['success' => false, 'message' => 'Lỗi: ' . $ex->getMessage()];
-        }
-    }
-
-
     private static function nullIfEmpty($v, int $maxLen = 0): ?string
     {
         $s = ExcelHelper::toText($v, $maxLen);
@@ -626,6 +569,9 @@ class BG_BaoGia_BUS
             ];
         }
 
+        // Chỉ ghi 1 bảng nghiệp vụ (bg_bao_gia) nên KHÔNG cần transaction.
+        // Nhật ký cố ý để ngoài: log hỏng thì chỉ mất vết, không đáng rollback
+        // việc duyệt — bọc chung sẽ biến lỗi phụ thành lỗi chặn nghiệp vụ.
         BG_BaoGia_DAL::updateXacNhan($id, BG_BaoGia_PUBLIC::TT_DA_XAC_NHAN, null, $u);
         DM_NhatKyHeThong_DAL::log(
             $u, self::MODULE_LOG,
@@ -1518,108 +1464,16 @@ class BG_BaoGia_BUS
     }
 
 
-    // =====================================================================
-    //  LUU HANG LOAT (Buoc 2 + Buoc 3)
-    // =====================================================================
-
     /**
-     * Luu NHIEU dong cung luc — dung cho nut "Luu va tiep tuc" o Buoc 2/3.
+     * Nhà thầu chốt xong toàn bộ 4 bước — KHÓA mọi chỉnh sửa.
      *
-     * Truoc day moi dong phai bam Luu rieng; gio nha thau dien het roi bam
-     * 1 lan. Bao het trong 1 transaction: hoac an toan bo, hoac khong dong nao
-     * — tranh tinh trang luu duoc nua chung roi bao loi.
+     * Gọi từ Bước 4 sau khi đã tải lên bản báo giá có ký và đóng dấu.
+     * Sau khi chốt, nhà thầu chỉ còn XEM lại, không sửa được nữa; báo giá
+     * chuyển sang CHỜ BÊN MỜI DUYỆT (trang_thai vẫn 0 — §10.2).
      *
-     * @param array $dong Mang cac dong, moi dong co 'hang_hoa_id' + cac truong
-     */
-    public static function luuNhieuDong(int $baoGiaId, array $dong, int $u): array
-    {
-        $bg = BG_BaoGia_DAL::getById($baoGiaId);
-        if (!$bg || (int)$bg->da_xoa === 1) {
-            return ['success' => false, 'message' => 'Không tìm thấy báo giá'];
-        }
-        // Upload bản ký ở Bước 4 đã đặt trạng thái "Đã xác nhận",
-        // nhưng nhà thầu vẫn còn Bước 5 — chỉ khóa khi đã bấm HOÀN THÀNH.
-        if ((int)($bg->da_hoan_thanh ?? 0) === 1) {
-            return ['success' => false, 'message' => 'Báo giá đã hoàn thành — không chỉnh sửa được nữa'];
-        }
-        if (empty($dong)) {
-            return ['success' => false, 'message' => 'Không có dữ liệu để lưu'];
-        }
-
-        // Chi nhan hang hoa THUOC goi thau cua bao gia nay
-        $hopLe = [];
-        foreach (BG_HangHoa_DAL::getByGoiThau((int)$bg->goi_thau_id) as $hh) {
-            $hopLe[(int)$hh['id']] = $hh;
-        }
-
-        $soLuu = 0;
-        try {
-            Database::beginTransaction();
-
-            foreach ($dong as $d) {
-                $hhId = (int)($d['hang_hoa_id'] ?? 0);
-                if ($hhId <= 0 || !isset($hopLe[$hhId])) continue;
-
-                $hh     = $hopLe[$hhId];
-                $donGia = ExcelHelper::toNumber($d['don_gia'] ?? 0);
-
-                $ct = new BG_BaoGiaChiTiet_PUBLIC();
-                $ct->bao_gia_id  = $baoGiaId;
-                $ct->hang_hoa_id = $hhId;
-
-                // ===== Mau 1 =====
-                $ct->thong_so_chao_gia = self::nullIfEmpty($d['thong_so_chao_gia'] ?? '');
-                $ct->diem_khong_dat    = self::nullIfEmpty($d['diem_khong_dat'] ?? '');
-
-                // ===== Mau 2 =====
-                $ct->ten_thuong_mai      = self::nullIfEmpty($d['ten_thuong_mai'] ?? '', 500);
-                $ct->model               = self::nullIfEmpty($d['model'] ?? '', 500);
-                $ct->hang_san_xuat       = self::nullIfEmpty($d['hang_san_xuat'] ?? '', 500);
-                $ct->xuat_xu             = self::nullIfEmpty($d['xuat_xu'] ?? '', 500);
-                $ct->quy_cach            = self::nullIfEmpty($d['quy_cach'] ?? '', 500);
-                $ct->don_gia             = $donGia;
-                // Thanh tien LUON tinh o server (10.2)
-                $ct->thanh_tien          = round($donGia * (float)$hh['so_luong'], 2);
-                $ct->don_gia_trung_thau  = ExcelHelper::toNumber($d['don_gia_trung_thau'] ?? 0);
-                $ct->tai_lieu_tham_chieu = self::nullIfEmpty($d['tai_lieu_tham_chieu'] ?? '');
-
-                BG_BaoGia_DAL::upsertChiTiet($ct);
-                $soLuu++;
-            }
-
-            BG_BaoGia_DAL::updateTongTien($baoGiaId);
-            Database::commit();
-        } catch (Throwable $ex) {
-            Database::rollBack();
-            return ['success' => false, 'message' => 'Lỗi: ' . $ex->getMessage()];
-        }
-
-        return [
-            'success' => true,
-            'message' => 'Đã lưu ' . $soLuu . ' dòng',
-            'data'    => ['so_dong' => $soLuu],
-        ];
-    }
-
-    // =====================================================================
-    //  BUOC 5 — CHI DAN VI TRI TAI LIEU (CATALOG)
-    // =====================================================================
-
-
-
-
-
-
-
-
-
-
-
-    /**
-     * Nhà thầu chốt xong toàn bộ 5 bước — KHÓA mọi chỉnh sửa.
-     *
-     * Gọi từ Bước 5 sau khi đã upload file chỉ dẫn vị trí tài liệu.
-     * Sau khi chốt, nhà thầu chỉ còn XEM lại, không sửa được nữa.
+     * Ghi nhật ký đặt NGOÀI phần ghi dữ liệu và cố ý KHÔNG bọc chung
+     * transaction: log hỏng là chuyện phụ, không đáng để rollback việc nhà
+     * thầu đã hoàn thành nộp báo giá.
      */
     public static function hoanThanh(int $baoGiaId, int $u): array
     {

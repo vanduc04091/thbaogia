@@ -5,6 +5,8 @@ require_once __DIR__ . '/../PUBLIC/Common/WordHelper.php';
 require_once __DIR__ . '/../DAL/BG_GoiThau_DAL.php';
 require_once __DIR__ . '/../PUBLIC/Entities/BG_Nhom_PUBLIC.php';
 require_once __DIR__ . '/../DAL/BG_HangHoa_DAL.php';
+require_once __DIR__ . '/../DAL/BG_Bo_DAL.php';
+require_once __DIR__ . '/../DAL/BG_QuyenGoiThau_DAL.php';
 require_once __DIR__ . '/../DAL/DM_NhatKyHeThong_DAL.php';
 
 class BG_GoiThau_BUS
@@ -211,10 +213,18 @@ class BG_GoiThau_BUS
             return ['success' => false, 'message' => 'Gói thầu đã có báo giá — không thể xóa vĩnh viễn'];
         }
 
-        // Ghi 2 bảng (hàng hóa + gói thầu) → bọc transaction
+        // Ghi 4 bảng (hàng hóa + bộ + phân quyền gói + gói thầu) → bọc transaction
+        //
+        // PHẢI dọn cả bg_bo và bg_quyen_goi_thau, không chỉ hàng hóa:
+        //   - bg_bo còn lại sẽ thành rác vĩnh viễn (không còn gói thầu để tới)
+        //   - bg_quyen_goi_thau còn lại NGUY HIỂM HƠN: nếu id gói được cấp lại
+        //     cho gói mới thì người được phân quyền ở gói cũ vô tình thấy gói mới.
+        // Thứ tự: hàng hóa TRƯỚC rồi mới tới bộ (hàng trỏ tới bo_id).
         try {
             Database::beginTransaction();
             BG_HangHoa_DAL::softDeleteByGoiThau($id, $u);
+            BG_Bo_DAL::deleteByGoiThau($id);
+            BG_QuyenGoiThau_DAL::xoaTheoGoiThau($id);
             $n = BG_GoiThau_DAL::delete($id);
             Database::commit();
 

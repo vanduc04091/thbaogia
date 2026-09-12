@@ -34,7 +34,9 @@ try {
     $moc = time() - $gioHetHan * 3600;
     $daXoa = 0;
 
-    foreach ((array)glob($dir . '/*.xlsx') as $f) {
+    // Quét cả .docx (báo giá bản ký, thư mời) và .zip (xuatZipTaiLieu) — trước
+    // đây chỉ quét .xlsx nên file Word/zip mồ côi nằm lại vĩnh viễn.
+    foreach ((array)glob($dir . '/*.{xlsx,docx,zip}', GLOB_BRACE) as $f) {
         if (is_file($f) && filemtime($f) < $moc && @unlink($f)) {
             $daXoa++;
         }

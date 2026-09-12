@@ -182,57 +182,6 @@ try {
             ResponseHelper::success('OK', $tt);
             break;
 
-        /** Lưu 1 dòng chào giá (nhập tay) */
-        case 'luuDong':
-            $id = Helper::postInt('bao_gia_id');
-            kiemTraBaoGiaThuocPhien($id, $gt);
-
-            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
-            if (!$conNhan['ok']) ResponseHelper::error($conNhan['message'], 403);
-
-            $hangHoaId = Helper::postInt('hang_hoa_id');
-            $input = [
-                // Mẫu 1: Bảng đáp ứng kỹ thuật
-                'thong_so_chao_gia'     => Helper::post('thong_so_chao_gia', ''),
-                'diem_khong_dat'        => Helper::post('diem_khong_dat', ''),
-                // Mẫu 2: Bảng chào giá
-                'ten_thuong_mai'        => Helper::post('ten_thuong_mai', ''),
-                'model'                 => Helper::post('model', ''),
-                'hang_san_xuat'         => Helper::post('hang_san_xuat', ''),
-                'xuat_xu'               => Helper::post('xuat_xu', ''),
-                'quy_cach'              => Helper::post('quy_cach', ''),
-                'don_gia'               => Helper::post('don_gia', 0),
-                'don_gia_trung_thau'    => Helper::post('don_gia_trung_thau', 0),
-                'tai_lieu_tham_chieu'   => Helper::post('tai_lieu_tham_chieu', ''),
-            ];
-            $res = BG_BaoGia_BUS::luuDongChaoGia($id, $hangHoaId, $input, $u);
-            $res['success']
-                ? ResponseHelper::success($res['message'], $res['data'] ?? null)
-                : ResponseHelper::error($res['message']);
-            break;
-
-        /**
-         * Lưu NHIỀU dòng cùng lúc — nút "Lưu và tiếp tục" ở Bước 2/3.
-         * Nhận mảng dong[] gửi kèm dạng JSON để tránh hàng trăm field POST.
-         */
-        case 'luuNhieuDong':
-            $id = Helper::postInt('bao_gia_id');
-            kiemTraBaoGiaThuocPhien($id, $gt);
-
-            $conNhan = BG_GoiThau_BUS::kiemTraConNhan($gt);
-            if (!$conNhan['ok']) ResponseHelper::error($conNhan['message'], 403);
-
-            $json = (string)Helper::post('dong', '');
-            $dong = json_decode($json, true);
-            if (!is_array($dong)) ResponseHelper::error('Dữ liệu gửi lên không hợp lệ');
-
-            $res = BG_BaoGia_BUS::luuNhieuDong($id, $dong, $u);
-            $res['success']
-                ? ResponseHelper::success($res['message'], $res['data'] ?? null)
-                : ResponseHelper::error($res['message']);
-            break;
-
-        /** Bước 5 — bảng chỉ dẫn vị trí tài liệu */
         /** Bước 4 — trạng thái bản ký của báo giá đang làm */
         case 'trangThaiBanKy':
             $id = Helper::postInt('bao_gia_id');
@@ -283,6 +232,11 @@ try {
          * quyền xem lại của chính nhà thầu. Chỉ trả báo giá khớp đúng MST.
          */
         case 'traCuuMst':
+            // Chặn Ở SERVER khi tắt tra cứu — ẩn nút ngoài giao diện không phải
+            // bảo mật (§3B.1), kẻ gọi thẳng ajax_handler vẫn tra được như thường.
+            if (!AppConfig::PORTAL_CHO_TRA_CUU) {
+                ResponseHelper::error('Chức năng tra cứu báo giá hiện không khả dụng.', 403);
+            }
             $mst = Helper::postStr('ma_so_thue');
             // Tra TẤT CẢ gói thầu — nhà thầu thường chào nhiều gói, cần xem 1 chỗ
             $res = BG_BaoGia_BUS::traCuuTatCaTheoMst($mst);

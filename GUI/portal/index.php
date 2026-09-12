@@ -1238,8 +1238,8 @@ function loadBang() {
             }
             if (DU_LIEU && DU_LIEU.ten_nhom) {
                 $('#ghiChuNhom').html('Gói thầu thuộc nhóm <strong>' +
-                    APP.escape(DU_LIEU.ten_nhom) + '</strong> — file mẫu đã ẩn sẵn ' +
-                    'các cột không áp dụng cho nhóm này.');
+                    APP.escape(DU_LIEU.ten_nhom) + '</strong> — file mẫu chỉ gồm ' +
+                    'các cột áp dụng cho nhóm này.');
             }
             chuyenTab(TAB_HIEN);
         }

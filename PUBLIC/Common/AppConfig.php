@@ -21,7 +21,7 @@ class AppConfig
 
     // === App Config ===
     const APP_NAME = 'Tổng Hợp Báo Giá';
-    const APP_VERSION = '5.9.1';
+    const APP_VERSION = '5.9.2';
 
     const APP_URL = 'http://thbg.bv'; 
     const APP_TIMEZONE = 'Asia/Ho_Chi_Minh';

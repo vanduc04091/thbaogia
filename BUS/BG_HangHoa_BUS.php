@@ -19,8 +19,8 @@ class BG_HangHoa_BUS
     const BATCH_SIZE = 100;
 
     /**
-     * Chỉ số cột (0-based) file mẫu danh mục — theo **Phụ lục III Thư mời
-     * báo giá chung 3 nhóm**, đúng 12 cột:
+     * Chỉ số cột (0-based) của file mẫu danh mục **ĐẦY ĐỦ** (Phụ lục III Thư
+     * mời báo giá chung 3 nhóm) — 12 cột:
      *
      *   A: Mã bộ/phần/hệ thống/hàng hóa/dụng cụ chi tiết
      *   B: STT bộ/phần/hệ thống      C: Tên bộ/phần/hệ thống
@@ -29,6 +29,16 @@ class BG_HangHoa_BUS
      *   H: Yêu cầu cấu hình          I: Yêu cầu kỹ thuật
      *   J: Yêu cầu nhóm nước, vùng lãnh thổ
      *   K: ĐVT                       L: Số lượng
+     *
+     * ⚠️ SỐ CỘT THẬT THAY ĐỔI THEO NHÓM — xem cotDanhMuc().
+     * Nhóm "vật tư, dược" KHÔNG có yêu cầu chung/khác/cấu hình nên file mẫu
+     * của nhóm này bỏ hẳn 3 cột F, G, H và chỉ còn 9 cột. Vì vậy:
+     *   - Khi GHI file mẫu: dựng dòng 12 ô theo hằng COL_* rồi CHIẾU qua
+     *     cotDanhMuc() để bỏ các cột nhóm không dùng.
+     *   - Khi ĐỌC file lên: dò cột theo TÊN TIÊU ĐỀ (doCotDanhMuc()), TUYỆT
+     *     ĐỐI không đọc theo vị trí cố định — file 9 cột sẽ làm mọi cột từ I
+     *     trở đi lệch sang trái 3 ô, yêu cầu kỹ thuật rơi vào tên hàng hóa,
+     *     số lượng rơi vào ĐVT mà không có lỗi nào báo ra.
      *
      * Phân biệt 2 loại dòng:
      *   - Dòng BỘ     : có STT bộ (cột B) → mở một bộ mới
@@ -48,6 +58,67 @@ class BG_HangHoa_BUS
     const COL_NHOM_NUOC     = 9;   // J
     const COL_DVT           = 10;  // K
     const COL_SO_LUONG      = 11;  // L
+
+    /**
+     * Các cột (hằng COL_*) mà file mẫu danh mục của NHÓM này thực sự có,
+     * theo đúng thứ tự trái → phải.
+     *
+     * NGUỒN quyết định vẫn là BG_Nhom_PUBLIC — ở đây chỉ ánh xạ sang chỉ số
+     * cột, KHÔNG tự viết lại điều kiện nhóm nào có yêu cầu gì.
+     *
+     * @return int[]
+     */
+    public static function cotDanhMuc(string $nhom): array
+    {
+        $cot = [
+            self::COL_MA, self::COL_STT_BO, self::COL_TEN_BO,
+            self::COL_STT_CT, self::COL_TEN_HANG_HOA,
+        ];
+        if (BG_Nhom_PUBLIC::coYeuCauChung($nhom))   $cot[] = self::COL_YC_CHUNG;
+        if (BG_Nhom_PUBLIC::coYeuCauKhac($nhom))    $cot[] = self::COL_YC_KHAC;
+        if (BG_Nhom_PUBLIC::coYeuCauCauHinh($nhom)) $cot[] = self::COL_YC_CAU_HINH;
+        $cot[] = self::COL_THONG_SO;
+        $cot[] = self::COL_NHOM_NUOC;
+        $cot[] = self::COL_DVT;
+        $cot[] = self::COL_SO_LUONG;
+        return $cot;
+    }
+
+    /**
+     * Tên tiêu đề + bề rộng của từng cột, khóa theo hằng COL_*.
+     * Dùng chung cho lúc ghi file mẫu và lúc dò cột khi đọc file lên.
+     *
+     * @return array [COL_* => ['ten' => string, 'rong' => int, 'khop' => string[]]]
+     */
+    private static function moTaCotDanhMuc(): array
+    {
+        return [
+            self::COL_MA           => ['ten' => 'Mã bộ/hàng hóa chi tiết', 'rong' => 16,
+                                       'khop' => ['ma bo/hang hoa', 'ma bo', 'ma hang hoa', 'ma hh']],
+            self::COL_STT_BO       => ['ten' => 'STT bộ/phần/hệ thống', 'rong' => 8,
+                                       'khop' => ['stt bo']],
+            self::COL_TEN_BO       => ['ten' => 'Tên bộ/phần/hệ thống', 'rong' => 34,
+                                       'khop' => ['ten bo']],
+            self::COL_STT_CT       => ['ten' => 'STT chi tiết', 'rong' => 8,
+                                       'khop' => ['stt chi tiet']],
+            self::COL_TEN_HANG_HOA => ['ten' => 'Tên danh mục hàng hóa/dụng cụ chi tiết', 'rong' => 40,
+                                       'khop' => ['ten danh muc', 'ten hang hoa']],
+            self::COL_YC_CHUNG     => ['ten' => 'Yêu cầu chung', 'rong' => 30,
+                                       'khop' => ['yeu cau chung']],
+            self::COL_YC_KHAC      => ['ten' => 'Yêu cầu khác', 'rong' => 30,
+                                       'khop' => ['yeu cau khac']],
+            self::COL_YC_CAU_HINH  => ['ten' => 'Yêu cầu cấu hình', 'rong' => 30,
+                                       'khop' => ['yeu cau cau hinh']],
+            self::COL_THONG_SO     => ['ten' => 'Yêu cầu kỹ thuật', 'rong' => 40,
+                                       'khop' => ['yeu cau ky thuat', 'thong so ky thuat']],
+            self::COL_NHOM_NUOC    => ['ten' => 'Yêu cầu nhóm nước, vùng lãnh thổ (nếu có)', 'rong' => 20,
+                                       'khop' => ['nhom nuoc']],
+            self::COL_DVT          => ['ten' => 'ĐVT', 'rong' => 10,
+                                       'khop' => ['dvt', 'don vi tinh']],
+            self::COL_SO_LUONG     => ['ten' => 'Số lượng', 'rong' => 10,
+                                       'khop' => ['so luong']],
+        ];
+    }
 
     private static function validate(BG_HangHoa_PUBLIC $e, bool $isUpdate = false): string
     {
@@ -226,26 +297,16 @@ class BG_HangHoa_BUS
             return ['success' => false, 'message' => 'File không có dữ liệu'];
         }
 
-        // Dò dòng header trong 8 dòng đầu (file thật có tiêu đề + dòng đánh số cột).
-        // So khớp sau khi BỎ DẤU để không phụ thuộc dấu tiếng Việt.
-        $dongHeader = 0;
-        for ($d = 1; $d <= 8; $d++) {
-            $tenCt = self::boDau(ExcelHelper::toText($rows[$d][self::COL_TEN_HANG_HOA] ?? ''));
-            $tenBo = self::boDau(ExcelHelper::toText($rows[$d][self::COL_TEN_BO] ?? ''));
-            if (mb_stripos($tenCt, 'ten danh muc') !== false
-                || mb_stripos($tenCt, 'hang hoa') !== false
-                || mb_stripos($tenBo, 'ten bo') !== false) {
-                $dongHeader = $d;
-                break;
-            }
-        }
+        // Dò dòng header + vị trí THẬT của từng cột (số cột khác nhau theo nhóm)
+        [$cot, $dongHeader] = self::doCotDanhMuc($rows);
         if ($dongHeader === 0) {
             return [
                 'success' => false,
-                'message' => 'File không đúng định dạng Phụ lục III (12 cột). Cần: '
+                'message' => 'File không đúng định dạng Phụ lục III. Cần có dòng tiêu đề gồm: '
                            . 'Mã | STT bộ | Tên bộ | STT chi tiết | Tên hàng hóa chi tiết | '
-                           . 'Yêu cầu chung | Yêu cầu khác | Yêu cầu cấu hình | Yêu cầu kỹ thuật | '
-                           . 'Nhóm nước | ĐVT | Số lượng. Hãy tải file mẫu và điền theo đúng cấu trúc.',
+                           . '[Yêu cầu chung | Yêu cầu khác | Yêu cầu cấu hình — tùy nhóm] | '
+                           . 'Yêu cầu kỹ thuật | Nhóm nước | ĐVT | Số lượng. '
+                           . 'Hãy tải file mẫu của đúng gói thầu rồi điền theo cấu trúc đó.',
             ];
         }
 
@@ -257,8 +318,12 @@ class BG_HangHoa_BUS
         foreach ($rows as $rowNo => $cells) {
             if ($rowNo <= $dongHeader) continue;
 
-            $lay = function (int $c, int $max = 0) use ($cells): string {
-                return ExcelHelper::toText($cells[$c] ?? '', $max ?: 0);
+            // Đọc theo BẢN ĐỒ CỘT, không theo vị trí cố định. Cột nhóm này
+            // không có (vd yêu cầu chung ở vật tư dược) → trả '' chứ KHÔNG
+            // lấy nhầm giá trị của cột bên cạnh.
+            $lay = function (int $khoa, int $max = 0) use ($cells, $cot): string {
+                if (!isset($cot[$khoa])) return '';
+                return ExcelHelper::toText($cells[$cot[$khoa]] ?? '', $max ?: 0);
             };
 
             $ma      = $lay(self::COL_MA, 50);
@@ -276,15 +341,17 @@ class BG_HangHoa_BUS
                 continue;
             }
 
-            $soLuong = ExcelHelper::toNumber($cells[self::COL_SO_LUONG] ?? 0);
+            $soLuong = isset($cot[self::COL_SO_LUONG])
+                ? ExcelHelper::toNumber($cells[$cot[self::COL_SO_LUONG]] ?? 0)
+                : 0;
             if ($soLuong < 0) {
                 $loi[] = "Dòng {$rowNo}: số lượng âm → đặt về 0";
                 $soLuong = 0;
             }
             $dvt = $lay(self::COL_DVT, 50);
 
-            // CHỈ là dòng BỘ khi có TÊN BỘ (cột C). Chỉ điền STT bộ mà không
-            // có tên thì không đủ để dựng một bộ — thường là hàng lẻ đánh số.
+            // CHỈ là dòng BỘ khi có TÊN BỘ. Chỉ điền STT bộ mà không có tên
+            // thì không đủ để dựng một bộ — thường là hàng lẻ đánh số.
             $laDongBo = ($tenBo !== '');
             $laDongCt = ($sttCt !== '' || $tenCt !== '');
 
@@ -312,7 +379,8 @@ class BG_HangHoa_BUS
             // ---- Chi tiết ----
             if ($laDongCt) {
                 if ($tenCt === '') {
-                    $loi[] = "Dòng {$rowNo}: có STT chi tiết nhưng thiếu Tên hàng hóa (cột E) → đã bỏ qua";
+                    $loi[] = "Dòng {$rowNo}: có STT chi tiết nhưng thiếu cột "
+                           . "\"Tên danh mục hàng hóa/dụng cụ chi tiết\" → đã bỏ qua";
                     continue;
                 }
                 // KHÔNG tự tạo bộ ngầm nữa: hàng không có bộ là HÀNG LẺ hợp lệ
@@ -322,7 +390,7 @@ class BG_HangHoa_BUS
 
                 $dich[] = [
                     'row'               => $rowNo,
-                    // Dòng bộ-kiêm-chi-tiết: mã nằm ở cột A của chính dòng đó
+                    // Dòng bộ-kiêm-chi-tiết: mã nằm ở cột Mã của chính dòng đó
                     'ma_hh'             => $ma,
                     'stt_chi_tiet'      => $sttCt !== '' ? (int)ExcelHelper::toNumber($sttCt) : null,
                     'ten_hang_hoa'      => $tenCt,
@@ -342,7 +410,7 @@ class BG_HangHoa_BUS
             return [
                 'success' => false,
                 'message' => 'Không tìm thấy hàng hóa chi tiết nào. Mỗi bộ phải có ít nhất 1 dòng '
-                           . 'chi tiết (cột D "STT chi tiết" + cột E "Tên hàng hóa").',
+                           . 'chi tiết (cột "STT chi tiết" + cột "Tên danh mục hàng hóa/dụng cụ chi tiết").',
                 'loi' => $loi,
             ];
         }
@@ -373,7 +441,7 @@ class BG_HangHoa_BUS
                 return [
                     'success' => false,
                     'message' => 'Nhóm ' . BG_Nhom_PUBLIC::tenNhom($nhom) . ' mua theo BỘ nên '
-                               . 'MỌI hàng hóa chi tiết đều phải có Số lượng (cột L) lớn hơn 0. '
+                               . 'MỌI hàng hóa chi tiết đều phải có Số lượng lớn hơn 0. '
                                . 'Còn ' . count($thieu) . ' dòng chưa nhập: '
                                . implode('; ', array_slice($thieu, 0, 5))
                                . (count($thieu) > 5 ? '; ...' : ''),
@@ -576,6 +644,55 @@ class BG_HangHoa_BUS
      *
      * Cot phai khop hang so COL_* dung khi import (Â§4.2).
      */
+    /**
+     * Dò dòng tiêu đề của file danh mục rồi map "hằng COL_* → chỉ số cột THẬT".
+     *
+     * Dò theo TÊN cột chứ không theo vị trí, vì số cột khác nhau giữa 3 nhóm:
+     * nhóm vật tư dược bỏ 3 cột F, G, H nên mọi cột từ "Yêu cầu kỹ thuật" trở
+     * đi lùi sang trái 3 ô. Đọc theo vị trí cố định sẽ nhét yêu cầu kỹ thuật
+     * vào tên hàng hóa và số lượng vào ĐVT mà KHÔNG có lỗi nào báo ra.
+     *
+     * Vẫn đọc được file 12 cột cũ: khớp theo tên nên thừa cột cũng không sao.
+     *
+     * @return array [ [COL_* => chỉ số cột], số hiệu dòng tiêu đề (0 = không thấy) ]
+     */
+    private static function doCotDanhMuc(array $rows): array
+    {
+        $moTa = self::moTaCotDanhMuc();
+
+        for ($d = 1; $d <= 8; $d++) {
+            if (!isset($rows[$d])) continue;
+
+            $cot = [];
+            foreach ((array)$rows[$d] as $i => $v) {
+                $t = self::boDau(ExcelHelper::toText($v));
+                if ($t === '') continue;
+
+                // Mỗi ô chỉ nhận 1 khóa: duyệt hết các khóa chưa dùng, lấy từ
+                // khóa khớp DÀI NHẤT để 'yeu cau cau hinh' không bị 'yeu cau'
+                // ngắn hơn giành mất.
+                $khoaTot = null;
+                $daiNhat = 0;
+                foreach ($moTa as $khoa => $m) {
+                    if (isset($cot[$khoa])) continue;
+                    foreach ($m['khop'] as $tk) {
+                        if (mb_strpos($t, $tk) !== false && mb_strlen($tk) > $daiNhat) {
+                            $khoaTot = $khoa;
+                            $daiNhat = mb_strlen($tk);
+                        }
+                    }
+                }
+                if ($khoaTot !== null) $cot[$khoaTot] = (int)$i;
+            }
+
+            // Đủ điều kiện là dòng tiêu đề: nhận ra được tên hàng hóa hoặc tên bộ
+            if (isset($cot[self::COL_TEN_HANG_HOA]) || isset($cot[self::COL_TEN_BO])) {
+                return [$cot, $d];
+            }
+        }
+        return [[], 0];
+    }
+
     /** Bỏ dấu tiếng Việt để so khớp tiêu đề cột không phụ thuộc dấu */
     private static function boDau(string $s): string
     {
@@ -600,9 +717,9 @@ class BG_HangHoa_BUS
     /**
      * File Excel mẫu DANH MỤC (Phụ lục III) cho BÊN MỜI import lên.
      *
-     * Luôn xuất đủ 12 cột đúng thứ tự hằng COL_* — parser đọc theo VỊ TRÍ cột,
-     * nên KHÔNG được bỏ bớt cột của nhóm không dùng, chỉ đánh dấu "không áp
-     * dụng" ở tiêu đề để người điền biết mà bỏ qua.
+     * SỐ CỘT THEO NHÓM (cotDanhMuc()): nhóm "vật tư, dược" không có yêu cầu
+     * chung/khác/cấu hình nên file mẫu bỏ hẳn 3 cột F, G, H — chỉ còn 9 cột.
+     * Parser dò cột theo TÊN tiêu đề nên bỏ bớt cột không làm lệch dữ liệu.
      *
      * Dòng ví dụ sinh theo đúng nhóm của gói thầu (bộ dụng cụ / hệ thống TBYT /
      * vật tư dược), lấy nguyên mẫu từ Phụ lục III Thư mời.
@@ -619,10 +736,17 @@ class BG_HangHoa_BUS
         $C = ExcelHelper::S_CENTER;
         $N = ExcelHelper::S_NUMBER;
 
-        // Cột không dùng ở nhóm này vẫn PHẢI giữ chỗ — ghi rõ để khỏi điền nhầm
-        $naChung   = BG_Nhom_PUBLIC::coYeuCauChung($nhom)   ? '' : ' (không áp dụng)';
-        $naKhac    = BG_Nhom_PUBLIC::coYeuCauKhac($nhom)    ? '' : ' (không áp dụng)';
-        $naCauHinh = BG_Nhom_PUBLIC::coYeuCauCauHinh($nhom) ? '' : ' (không áp dụng)';
+        // Cột thật của nhóm này — nhóm không dùng yêu cầu nào thì BỎ HẲN cột
+        // đó, không còn giữ chỗ rồi ghi "(không áp dụng)" như trước.
+        $dsCot = self::cotDanhMuc($nhom);
+        $moTa  = self::moTaCotDanhMuc();
+
+        $hdrCot = [];
+        $rongCot = [];
+        foreach ($dsCot as $c) {
+            $hdrCot[]  = ['v' => $moTa[$c]['ten'], 's' => $H];
+            $rongCot[] = $moTa[$c]['rong'];
+        }
 
         $rows = [
             [['v' => 'PHỤ LỤC III — BẢNG MÔ TẢ YÊU CẦU', 's' => ExcelHelper::S_TITLE]],
@@ -635,41 +759,41 @@ class BG_HangHoa_BUS
                    . 'điền cột D,E. Hàng lẻ điền cả B,C,D,E trên cùng 1 dòng. '
                    . 'Bỏ trống cột A (Mã) thì hệ thống tự sinh. Xóa các dòng ví dụ trước khi import.',
               's' => ExcelHelper::S_SUBTITLE]],
-            [
-                ['v' => 'Mã bộ/hàng hóa chi tiết', 's' => $H],
-                ['v' => 'STT bộ/phần/hệ thống', 's' => $H],
-                ['v' => 'Tên bộ/phần/hệ thống', 's' => $H],
-                ['v' => 'STT chi tiết', 's' => $H],
-                ['v' => 'Tên danh mục hàng hóa/dụng cụ chi tiết', 's' => $H],
-                ['v' => 'Yêu cầu chung' . $naChung, 's' => $H],
-                ['v' => 'Yêu cầu khác' . $naKhac, 's' => $H],
-                ['v' => 'Yêu cầu cấu hình' . $naCauHinh, 's' => $H],
-                ['v' => 'Yêu cầu kỹ thuật', 's' => $H],
-                ['v' => 'Yêu cầu nhóm nước, vùng lãnh thổ (nếu có)', 's' => $H],
-                ['v' => 'ĐVT', 's' => $H],
-                ['v' => 'Số lượng', 's' => $H],
-            ],
+            $hdrCot,
         ];
 
-        /** Dựng 1 dòng 12 cột — tham số rỗng thì để trống */
-        $dong = function (array $c) use ($S, $C, $N): array {
-            $sl = $c[11] ?? '';
-            return [
-                ['v' => (string)($c[0] ?? ''),  's' => $C],
-                ['v' => $c[1] === '' || !isset($c[1]) ? '' : (float)$c[1], 's' => $C,
-                 't' => isset($c[1]) && $c[1] !== '' ? 'n' : 's'],
-                ['v' => (string)($c[2] ?? ''),  's' => $S],
-                ['v' => $c[3] === '' || !isset($c[3]) ? '' : (float)$c[3], 's' => $C,
-                 't' => isset($c[3]) && $c[3] !== '' ? 'n' : 's'],
-                ['v' => (string)($c[4] ?? ''),  's' => $S],
-                ['v' => (string)($c[5] ?? ''),  's' => $S],
-                ['v' => (string)($c[6] ?? ''),  's' => $S],
-                ['v' => (string)($c[7] ?? ''),  's' => $S],
-                ['v' => (string)($c[8] ?? ''),  's' => $S],
-                ['v' => (string)($c[9] ?? ''),  's' => $C],
-                ['v' => (string)($c[10] ?? ''), 's' => $C],
-                ['v' => $sl === '' ? '' : (float)$sl, 's' => $N, 't' => $sl === '' ? 's' : 'n'],
-            ];
+        /**
+         * Dựng 1 dòng: nhận mảng 12 ô theo đúng thứ tự hằng COL_* rồi CHIẾU
+         * qua $dsCot để bỏ các cột nhóm này không dùng.
+         *
+         * Giữ đầu vào luôn 12 ô để viDuTheoNhom() và 2 nhánh dựng dòng bên
+         * dưới khỏi phải biết nhóm nào bỏ cột nào — chỉ 1 chỗ duy nhất
+         * ($dsCot) quyết định, sửa nhóm không phải sửa rải rác.
+         */
+        $dong = function (array $c) use ($S, $C, $N, $dsCot): array {
+            $o = [];
+            foreach ($dsCot as $i) {
+                $v = $c[$i] ?? '';
+                switch ($i) {
+                    case self::COL_STT_BO:
+                    case self::COL_STT_CT:
+                        $o[] = ['v' => $v === '' ? '' : (float)$v, 's' => $C,
+                                't' => $v === '' ? 's' : 'n'];
+                        break;
+                    case self::COL_SO_LUONG:
+                        $o[] = ['v' => $v === '' ? '' : (float)$v, 's' => $N,
+                                't' => $v === '' ? 's' : 'n'];
+                        break;
+                    case self::COL_MA:
+                    case self::COL_NHOM_NUOC:
+                    case self::COL_DVT:
+                        $o[] = ['v' => (string)$v, 's' => $C];
+                        break;
+                    default:
+                        $o[] = ['v' => (string)$v, 's' => $S];
+                }
+            }
+            return $o;
         };
 
         // Gói đã có danh mục -> đổ ra để sửa; chưa có -> ví dụ theo nhóm
@@ -733,7 +857,7 @@ class BG_HangHoa_BUS
 
         ExcelHelper::write($path, [
             'DanhMucHangHoa' => [
-                'cols'    => [16, 8, 34, 8, 40, 30, 30, 30, 40, 20, 10, 10],
+                'cols'    => $rongCot,
                 'freeze'  => 'A6',
                 'heights' => [5 => 46],
                 'rows'    => $rows,
