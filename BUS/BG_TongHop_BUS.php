@@ -189,6 +189,11 @@ class BG_TongHop_BUS
             // Giá chào cho cả BỘ: [bao_gia_id][bo_id] => dòng giá.
             // Nhóm mua theo bộ lấy tiền từ đây, không lấy ở hàng hóa chi tiết.
             'gia_bo'   => $giaBoTheoBaoGia,
+            // Nhà thầu chào THẤP NHẤT cho từng bộ: [bo_id => [gia, thanh_tien,
+            // bao_gia_id]]. Trả xuống để xuatExcel() tô vàng ô giá thấp nhất
+            // mà KHÔNG phải dựng lại — dựng 2 lần là 2 nguồn sự thật, sửa một
+            // chỗ quên chỗ kia thì ô tô vàng sai nhà thầu.
+            'gia_min_bo' => $giaMinBo,
             'gia_theo_bo' => $nhomGt !== BG_Nhom_PUBLIC::VAT_TU_DUOC,
             'tong_ket' => [
                 'so_nha_thau'         => count($baoGia),
@@ -214,6 +219,14 @@ class BG_TongHop_BUS
         $nhaThau = $d['nha_thau'];
         $hangHoa = $d['hang_hoa'];
         $nhom    = (string)($d['nhom'] ?? BG_Nhom_PUBLIC::MAC_DINH);
+        // Giá + đáp ứng nhà thầu chào cho CẢ BỘ: [bao_gia_id][bo_id] => dòng.
+        // Thiếu biến này thì dòng BỘ trong file xuất ra trống trơn phần nhà
+        // thầu, dù dữ liệu vẫn nằm đủ trong bg_bao_gia_bo.
+        $giaBo   = $d['gia_bo'] ?? [];
+        // Bộ nào nhà thầu nào chào thấp nhất — dùng để tô vàng ô đơn giá.
+        // Biến này dựng ở duLieuTongHop(), KHÔNG có sẵn trong hàm này; thiếu
+        // dòng nhận lại thì isset() luôn false và không ô nào được tô.
+        $giaMinBo = $d['gia_min_bo'] ?? [];
 
         if (empty($nhaThau)) {
             throw new RuntimeException('Chưa có báo giá nào được xác nhận bản giấy — không có gì để tổng hợp.');
@@ -331,19 +344,72 @@ class BG_TongHop_BUS
                         $yc[] = 'YÊU CẦU CẤU HÌNH: ' . $hh['yeu_cau_cau_hinh'];
                     }
 
-                    $rBo = array_fill(0, $soCot, ['v' => '', 's' => $H]);
-                    $rBo[0] = ['v' => (string)($hh['stt_bo'] ?? ''), 's' => $C];
-                    $rBo[1] = ['v' => (string)($hh['ma_bo'] ?? ''), 's' => $C];
-                    $rBo[2] = ['v' => (string)$hh['ten_bo'], 's' => $H];
-                    $rBo[3] = ['v' => implode("\n", $yc), 's' => $W];
-                    $rBo[4] = ['v' => (string)($hh['nhom_nuoc_bo'] ?? ''), 's' => $C];
-                    $rBo[5] = ['v' => (string)($hh['dvt_bo'] ?? ''), 's' => $C];
-                    $rBo[6] = isset($hh['so_luong_bo'])
-                        ? ['v' => (float)$hh['so_luong_bo'], 's' => $N, 't' => 'n']
-                        : ['v' => '', 's' => $N];
+                    // MỖI NHÀ THẦU MỘT DÒNG cho bộ này — giống hệt cách dòng
+                    // hàng hóa bên dưới làm. Trước đây chỉ in 1 dòng với 7 cột
+                    // bên mời, mọi cột nhà thầu bỏ trống nên file xuất ra
+                    // "thiếu thông tin ở hàng Bộ" dù DB có đủ.
+                    $boDongDau = $dongHienTai + 1;
+                    $boSoDong  = 0;
 
-                    $rows1[] = $rBo;
-                    $dongHienTai++;
+                    foreach ($nhaThau as $nt) {
+                        $gb     = $giaBo[(int)$nt['id']][$boId] ?? null;
+                        $dgBo   = (float)($gb['don_gia'] ?? 0);
+                        $coGia  = $dgBo > 0;
+                        $laMinB = $coGia && isset($giaMinBo[$boId])
+                               && (int)$giaMinBo[$boId]['bao_gia_id'] === (int)$nt['id'];
+
+                        $dau = ($boSoDong === 0);
+                        $o   = static fn($v, $s) => ['v' => $v, 's' => $s];
+
+                        $rBo = [
+                            $dau ? $o((string)($hh['stt_bo'] ?? ''), $C) : $o('', $C),
+                            $dau ? $o((string)($hh['ma_bo'] ?? ''), $C)  : $o('', $C),
+                            $dau ? $o((string)$hh['ten_bo'], $H)         : $o('', $W),
+                            $dau ? $o(implode("\n", $yc), $W)            : $o('', $W),
+                            $dau ? $o((string)($hh['nhom_nuoc_bo'] ?? ''), $C) : $o('', $C),
+                            $dau ? $o((string)($hh['dvt_bo'] ?? ''), $C) : $o('', $C),
+                            $dau && isset($hh['so_luong_bo'])
+                                ? ['v' => (float)$hh['so_luong_bo'], 's' => $N, 't' => 'n']
+                                : $o('', $N),
+                            // --- Nhà thầu ---
+                            $o((string)$nt['ten_cong_ty'], $W),
+                            $o((string)($nt['ma_so_thue'] ?? ''), $C),
+                        ];
+
+                        // Mẫu 1 — đáp ứng CẤP BỘ. bg_bao_gia_bo đặt tên cột
+                        // trùng bg_bao_gia_chi_tiet nên dùng chung $capDapUng.
+                        foreach ($capDapUng as $c) {
+                            $rBo[] = $o((string)($gb[$c[1]] ?? ''), $W);
+                            $rBo[] = $o((string)($gb[$c[2]] ?? ''), $W);
+                        }
+                        $rBo[] = $o((string)($gb['tai_lieu_chung_minh'] ?? ''), $W);
+
+                        // Mẫu 2
+                        $rBo[] = $o((string)($gb['ten_thuong_mai'] ?? ''), $W);
+                        $rBo[] = $o((string)($gb['model'] ?? ''), $W);
+                        $rBo[] = $o((string)($gb['hang_san_xuat'] ?? ''), $W);
+                        $rBo[] = $o((string)($gb['nam_san_xuat'] ?? ''), $C);
+                        $rBo[] = $o((string)($gb['xuat_xu'] ?? ''), $W);
+                        $rBo[] = $coGia
+                            ? ['v' => $dgBo, 's' => $laMinB ? $B : $M, 't' => 'n']
+                            : $o('Không chào', $C);
+                        $rBo[] = $coGia
+                            ? ['v' => (float)($gb['thanh_tien'] ?? 0), 's' => $M, 't' => 'n']
+                            : $o('', $M);
+
+                        $rows1[] = $rBo;
+                        $boSoDong++;
+                        $dongHienTai++;
+                    }
+
+                    // Gộp dọc cột bên mời của khối dòng BỘ
+                    if ($boSoDong > 1) {
+                        $boDongCuoi = $boDongDau + $boSoDong - 1;
+                        for ($c = 0; $c < $soCotMoi; $c++) {
+                            $L = ExcelHelper::colLetter($c);
+                            $merges[] = $L . $boDongDau . ':' . $L . $boDongCuoi;
+                        }
+                    }
                 }
             }
 
