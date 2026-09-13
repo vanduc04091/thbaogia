@@ -1604,14 +1604,23 @@ class BG_BaoGia_BUS
             $ct       = $b['chi_tiet'] ?? [];
 
             // Chi tiet co du lieu de in o tung bang
+            // Nhóm mua theo BỘ và nhập giá bộ TAY (he_thong_tbyt): hàng hóa
+            // chi tiết KHÔNG có đơn giá — ô giá của chúng bị khóa ở Mẫu 2.
+            // Lọc theo don_gia > 0 sẽ vứt sạch chi tiết, bảng chào giá chỉ còn
+            // trơ dòng BỘ. Với nhóm đó phải in MỌI chi tiết thuộc bộ.
+            // Hàng LẺ thì vẫn lọc theo giá: không chào thì không in.
+            $inHetCt = !$laHangLe && BG_Nhom_PUBLIC::giaBoNhapTay($nhomGt);
+
             $ctGia = [];
             $ctDu  = [];
             foreach ($ct as $d) {
                 $kt = $d['dap_ung']['ky_thuat'] ?? [];
                 $coKyThuat = trim((string)($kt['dap_ung'] ?? '')) !== ''
                           || trim((string)($kt['khong_dat'] ?? '')) !== '';
-                if ((float)$d['don_gia'] > 0) $ctGia[] = $d;
-                if ((float)$d['don_gia'] > 0 || $coKyThuat) $ctDu[] = $d;
+                $coGia = (float)$d['don_gia'] > 0;
+
+                if ($inHetCt || $coGia)              $ctGia[] = $d;
+                if ($inHetCt || $coGia || $coKyThuat) $ctDu[] = $d;
             }
 
             // ---- DONG BO (bo qua voi hang le) ----
