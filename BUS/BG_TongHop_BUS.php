@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../DAL/BG_BaoGia_DAL.php';
+require_once __DIR__ . '/../DAL/BG_BaoGiaBo_DAL.php';
 require_once __DIR__ . '/../DAL/BG_HangHoa_DAL.php';
 require_once __DIR__ . '/../DAL/BG_GoiThau_DAL.php';
 require_once __DIR__ . '/../DAL/DM_NhatKyHeThong_DAL.php';
@@ -45,9 +46,38 @@ class BG_TongHop_BUS
             $chiTietTheoBaoGia[(int)$bg['id']] = BG_BaoGia_DAL::getChiTietMap((int)$bg['id']);
         }
 
+        // Giá chào cho CẢ BỘ của MỌI nhà thầu — nạp 1 lần (gọi trong vòng lặp
+        // sẽ thành N+1 truy vấn). Nhóm mua theo bộ đặt giá ở đây chứ không ở
+        // từng hàng hóa, nên thiếu map này bảng tổng hợp sẽ trống cột tiền.
+        $giaBoTheoBaoGia = BG_BaoGiaBo_DAL::getMapNhieuBaoGia(
+            array_map(static fn(array $b): int => (int)$b['id'], $baoGia)
+        );
+
         $rows = [];
         $tongGiaMin = 0.0;
         $soCoGia = 0;
+
+        // Giá thấp nhất theo từng BỘ: [bo_id => ['gia'=>..., 'bao_gia_id'=>...]]
+        // Dựng trước để vòng hàng hóa bên dưới biết bộ nào đã có giá.
+        $giaMinBo = [];
+        foreach ($giaBoTheoBaoGia as $bgIdX => $dsBoX) {
+            foreach ($dsBoX as $boIdX => $gX) {
+                $dgX = (float)($gX['don_gia'] ?? 0);
+                if ($dgX <= 0) continue;
+                if (!isset($giaMinBo[$boIdX]) || $dgX < $giaMinBo[$boIdX]['gia']) {
+                    $giaMinBo[$boIdX] = [
+                        'gia'        => $dgX,
+                        'thanh_tien' => (float)($gX['thanh_tien'] ?? 0),
+                        'bao_gia_id' => (int)$bgIdX,
+                    ];
+                }
+            }
+        }
+        // Tiền của phần mua theo BỘ — cộng thẳng vào tổng giá thấp nhất.
+        foreach ($giaMinBo as $gm) {
+            $soCoGia++;
+            $tongGiaMin += (float)$gm['thanh_tien'];
+        }
 
         foreach ($hangHoa as $hh) {
             $hhId = (int)$hh['id'];
@@ -98,7 +128,10 @@ class BG_TongHop_BUS
                 }
             }
 
-            if ($giaMin !== null) {
+            // Nhóm mua theo BỘ: hàng hóa chi tiết không có giá (giá nằm ở dòng
+            // BỘ) nên KHÔNG cộng vào tổng giá thấp nhất — cộng riêng theo BỘ ở
+            // dưới. Nếu cộng cả hai thì tổng bị nhân đôi.
+            if ($giaMin !== null && empty($hh['bo_id'])) {
                 $soCoGia++;
                 $tongGiaMin += $giaMin * $soLuong;
             }
@@ -153,6 +186,10 @@ class BG_TongHop_BUS
             'ten_nhom' => BG_Nhom_PUBLIC::tenNhom($nhomGt),
             'co_yc_chung'    => BG_Nhom_PUBLIC::coYeuCauChung($nhomGt),
             'co_yc_cau_hinh' => BG_Nhom_PUBLIC::coYeuCauCauHinh($nhomGt),
+            // Giá chào cho cả BỘ: [bao_gia_id][bo_id] => dòng giá.
+            // Nhóm mua theo bộ lấy tiền từ đây, không lấy ở hàng hóa chi tiết.
+            'gia_bo'   => $giaBoTheoBaoGia,
+            'gia_theo_bo' => $nhomGt !== BG_Nhom_PUBLIC::VAT_TU_DUOC,
             'tong_ket' => [
                 'so_nha_thau'         => count($baoGia),
                 'so_hang_hoa'         => count($rows),
@@ -553,11 +590,20 @@ class BG_TongHop_BUS
             ],
         ];
 
+        // Tiền của các BỘ nhà thầu đã chào — bảng chi tiết bên dưới chỉ liệt kê
+        // hàng hóa nên thiếu khoản này; cộng riêng để TỔNG CỘNG khớp tong_tien.
+        $tongBo = 0.0;
+        foreach (BG_BaoGiaBo_DAL::getByBaoGia($baoGiaId) as $gbX) {
+            $tongBo += (float)($gbX['thanh_tien'] ?? 0);
+        }
+
         $stt = 0;
-        $tong = 0.0;
+        $tong = $tongBo;
         foreach ($rows as $r) {
             $stt++;
-            $tong += (float)$r['thanh_tien'];
+            // Hàng thuộc BỘ không có giá riêng (giá nằm ở dòng bộ) — cộng vào
+            // đây nữa sẽ nhân đôi. Khớp công thức updateTongTien().
+            if (empty($r['bo_id'])) $tong += (float)$r['thanh_tien'];
             $out[] = [
                 ['v' => $stt, 's' => $C, 't' => 'n'],
                 ['v' => (string)($r['ma_hh'] ?? ''), 's' => $C],

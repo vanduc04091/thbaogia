@@ -397,7 +397,7 @@ function showCt(id) {
                 '</div>';
             $('#ctThongTin').html(info);
 
-            renderChiTiet(ct, cap);
+            renderChiTiet(ct, cap, res.data.gia_bo, res.data.nhom);
             $('#ctModal').addClass('open');
         }
     });
@@ -411,10 +411,17 @@ function showCt(id) {
  * thay đổi theo nhóm gói thầu — server gửi sẵn qua `cap`.
  */
 var CT_DONG = [], CT_CAP = [], CT_TAB = 'gia';
+/* Giá nhà thầu chào cho CẢ BỘ: { bo_id: {don_gia, thanh_tien, ...} }.
+   Nhóm mua theo bộ (bộ dụng cụ / hệ thống TBYT) đặt giá ở dòng BỘ, hàng hóa
+   chi tiết bên dưới bỏ trống — xem BG_BaoGiaBo_PUBLIC. */
+var CT_GIA_BO = {}, CT_GIA_THEO_BO = false;
 
-function renderChiTiet(ct, cap) {
+function renderChiTiet(ct, cap, giaBo, nhom) {
     CT_DONG = ct || [];
     CT_CAP  = cap || [];
+    CT_GIA_BO = giaBo || {};
+    // Nhóm mua theo bộ: giá nằm ở dòng BỘ, chi tiết bên dưới bỏ trống
+    CT_GIA_THEO_BO = !!(nhom && nhom !== 'vat_tu_duoc');
     veBangCt();
 }
 
@@ -468,14 +475,58 @@ function veBangCt() {
         if (boId !== boHienTai) {
             boHienTai = boId;
             if (boId && r.ten_bo) {
-                html += '<tr class="row-bo">' +
-                    '<td class="col-id">' + APP.escape(String(r.stt_bo || '')) + '</td>' +
-                    '<td>' + APP.escape(r.ma_bo || '') + '</td>' +
-                    '<td colspan="' + (soCot - 2) + '">' +
-                        '<span class="ten-bo">' + APP.icon('package', 14) + ' ' +
-                        APP.escape(r.ten_bo) + '</span>' +
-                        (laGia ? '' : yeuCauCuaBo(r)) +
-                    '</td></tr>';
+                // Tab CHÀO GIÁ của nhóm mua theo bộ: dòng BỘ mang giá thật do
+                // nhà thầu chào (bg_bao_gia_bo) nên in đủ cột như một dòng giá,
+                // không gộp ô nữa. Các tab/nhóm khác giữ nguyên kiểu gộp.
+                var gb = CT_GIA_BO[boId] || null;
+                if (laGia && CT_GIA_THEO_BO) {
+                    var coGiaBo = gb && Number(gb.don_gia) > 0;
+                    html += '<tr class="row-bo">' +
+                        '<td class="col-id">' + APP.escape(String(r.stt_bo || '')) + '</td>' +
+                        '<td>' + APP.escape(r.ma_bo || '') + '</td>' +
+                        '<td><span class="ten-bo">' + APP.icon('package', 14) + ' ' +
+                            APP.escape(r.ten_bo) + '</span></td>' +
+                        '<td>' + oHoac(gb && gb.ten_thuong_mai) + '</td>' +
+                        '<td>' + oHoac(gb && gb.model) + '</td>' +
+                        '<td>' + oHoac(gb && gb.hang_san_xuat) + '</td>' +
+                        '<td>' + oHoac(gb && gb.nam_san_xuat) + '</td>' +
+                        '<td>' + oHoac(gb && gb.xuat_xu) + '</td>' +
+                        '<td>' + oHoac(r.dvt_bo) + '</td>' +
+                        '<td class="col-qty">' +
+                            Number(r.so_luong_bo || 0).toLocaleString('vi-VN') + '</td>' +
+                        '<td class="cell-money">' + (coGiaBo ? money(gb.don_gia)
+                            : '<span class="text-muted">Chưa chào</span>') + '</td>' +
+                        '<td class="cell-total">' + (coGiaBo ? money(gb.thanh_tien) : '—') + '</td>' +
+                        '</tr>';
+                } else if (!laGia) {
+                    // Tab ĐÁP ỨNG: yêu cầu chung/khác/cấu hình gắn với BỘ nên
+                    // phần ĐÁP ỨNG cho chúng nhà thầu điền ở DÒNG BỘ
+                    // (bg_bao_gia_bo). Gộp ô như trước thì bên mời không thấy
+                    // nhà thầu đã trả lời gì cho các yêu cầu cấp bộ.
+                    html += '<tr class="row-bo">' +
+                        '<td class="col-id">' + APP.escape(String(r.stt_bo || '')) + '</td>' +
+                        '<td>' + APP.escape(r.ma_bo || '') + '</td>' +
+                        '<td><span class="ten-bo">' + APP.icon('package', 14) + ' ' +
+                            APP.escape(r.ten_bo) + '</span>' + yeuCauCuaBo(r) + '</td>' +
+                        // "Yêu cầu kỹ thuật mời chào giá" là của hàng hóa chi
+                        // tiết — dòng bộ để trống cho khỏi hiểu nhầm.
+                        '<td></td>';
+                    for (var cb = 0; cb < CT_CAP.length; cb++) {
+                        html += '<td class="cell-wrap">' +
+                            (gb ? oDapUngCt(gb, CT_CAP[cb])
+                                : '<span class="text-muted">—</span>') + '</td>';
+                    }
+                    html += '<td class="cell-wrap">' +
+                        oHoac(gb && gb.tai_lieu_chung_minh) + '</td></tr>';
+                } else {
+                    html += '<tr class="row-bo">' +
+                        '<td class="col-id">' + APP.escape(String(r.stt_bo || '')) + '</td>' +
+                        '<td>' + APP.escape(r.ma_bo || '') + '</td>' +
+                        '<td colspan="' + (soCot - 2) + '">' +
+                            '<span class="ten-bo">' + APP.icon('package', 14) + ' ' +
+                            APP.escape(r.ten_bo) + '</span>' +
+                        '</td></tr>';
+                }
             }
         }
 

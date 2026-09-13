@@ -158,6 +158,16 @@ try {
                     'ma_bo'  => $b['ma_bo'],
                     'stt_bo' => $b['stt_bo'],
                     'ten_bo' => $b['ten_bo'],
+                    // Đủ trường để màn hình vẽ được DÒNG BỘ RỖNG (bộ chưa có
+                    // hàng hóa nào). Danh sách hàng hóa đi từ bg_hang_hoa nên
+                    // bộ rỗng không bao giờ lọt ra -> không có nút sửa/xóa.
+                    'so_chi_tiet'      => (int)($b['so_chi_tiet'] ?? 0),
+                    'dvt'              => $b['dvt'],
+                    'so_luong'         => $b['so_luong'],
+                    'yeu_cau_chung'    => $b['yeu_cau_chung'],
+                    'yeu_cau_khac'     => $b['yeu_cau_khac'],
+                    'yeu_cau_cau_hinh' => $b['yeu_cau_cau_hinh'],
+                    'nhom_nuoc'        => $b['nhom_nuoc'],
                 ];
             }
             ResponseHelper::success('OK', $dsBo);

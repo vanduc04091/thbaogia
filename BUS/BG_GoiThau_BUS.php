@@ -404,10 +404,29 @@ class BG_GoiThau_BUS
               . preg_replace('/[^0-9A-Za-z]/', '_', (string)$gt->so_thong_bao)
               . '_' . date('Ymd_His') . '.docx';
 
+        // ----- Bỏ cột KHÔNG áp dụng cho nhóm ở Phụ lục I và Phụ lục III -----
+        // Cùng quy tắc với bảng đáp ứng ở Bước 4 (xem BG_BaoGia_BUS::xuatWordBanKy):
+        // vật tư dược không có yêu cầu chung/khác/cấu hình, bộ y dụng cụ không
+        // có yêu cầu cấu hình. Để cột rỗng thì bản in bị ép ngang khó đọc.
+        //
+        // Bảng 4 = Phụ lục I (21 cột, tiêu đề 2 tầng có gridSpan)
+        // Bảng 6 = Phụ lục III (12 cột)
+        $nhomGt = BG_Nhom_PUBLIC::chuanHoa($gt->nhom ?? null);
+        $boCot  = [];
+        if (!BG_Nhom_PUBLIC::coYeuCauChung($nhomGt)) {
+            // Bỏ cả chung + khác + cấu hình, kèm các cặp đáp ứng tương ứng
+            $boCot[4] = [5, 6, 7, 10, 11, 12, 13, 14, 15];
+            $boCot[6] = [5, 6, 7];
+        } elseif (!BG_Nhom_PUBLIC::coYeuCauCauHinh($nhomGt)) {
+            // Chỉ bỏ cấu hình + cặp đáp ứng cấu hình
+            $boCot[4] = [7, 14, 15];
+            $boCot[6] = [7];
+        }
+
         try {
             $out = WordTemplate::render('thu_moi.docx', $path, $data, [], [
                 'QR' => ['path' => $qrPath, 'w' => 45, 'h' => 45],
-            ]);
+            ], $boCot);
         } finally {
             @unlink($qrPath);   // don anh tam du thanh cong hay khong
         }

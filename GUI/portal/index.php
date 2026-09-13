@@ -1199,6 +1199,10 @@ function capNhatTomTat() {
    màn hình chỉ hiện tóm tắt để đối chiếu (§10.2). */
 var TAB_HIEN = 1;      // 1 = Mẫu 1 (đáp ứng), 2 = Mẫu 2 (chào giá)
 var DU_LIEU = null;    // kết quả getBangChaoGia gần nhất
+/* Nhóm mua theo BỘ (bộ dụng cụ / hệ thống TBYT): giá chào nằm ở DÒNG BỘ,
+   hàng hóa chi tiết bên dưới không cần điền đơn giá / thành tiền.
+   Gán lại mỗi lần nạp dữ liệu — xem loadBang(). */
+var GIA_THEO_BO = false;
 
 /** Chuyển giữa Mẫu 1 (bước 2) và Mẫu 2 (bước 3) */
 function chuyenTab(n) {
@@ -1236,6 +1240,9 @@ function loadBang() {
             if (DU_LIEU && DU_LIEU.bao_gia && Number(DU_LIEU.bao_gia.da_hoan_thanh) === 1) {
                 apDungKhoa(true);
             }
+            // Nhóm mua theo BỘ: giá nằm ở dòng BỘ, chi tiết bên dưới bỏ trống.
+            // Nhóm vật tư dược ngược lại — giá ở từng hàng hóa.
+            GIA_THEO_BO = !!(DU_LIEU && DU_LIEU.nhom && DU_LIEU.nhom !== 'vat_tu_duoc');
             if (DU_LIEU && DU_LIEU.ten_nhom) {
                 $('#ghiChuNhom').html('Gói thầu thuộc nhóm <strong>' +
                     APP.escape(DU_LIEU.ten_nhom) + '</strong> — file mẫu chỉ gồm ' +
@@ -1347,15 +1354,59 @@ function renderBang() {
             continue;
         }
 
-        html += '<tr class="row-bo">' +
-            '<td>' + APP.escape(bo.ma_bo || '') + '</td>' +
-            '<td colspan="' + (soCot - 1) + '"><strong>' +
-                (bo.stt_bo ? APP.escape(String(bo.stt_bo)) + '. ' : '') +
-                APP.escape(bo.ten_bo || '') + '</strong>' +
-                (bo.dvt ? ' <span class="cell-sub">' + APP.escape(bo.dvt) +
-                    ' × ' + APP.escape(String(bo.so_luong)) + '</span>' : '') +
-                yeuCauBo(bo) +
-            '</td></tr>';
+        // Ở tab MẪU 2 của nhóm mua theo bộ, chính DÒNG BỘ mang giá chào —
+        // không gộp hết cột nữa mà in đủ tên thương mại / model / ... / thành
+        // tiền, giống một dòng chào giá thật sự.
+        if (!m1 && GIA_THEO_BO) {
+            html += '<tr class="row-bo">' +
+                '<td>' + APP.escape(bo.ma_bo || '') + '</td>' +
+                '<td class="sticky-col"><strong>' +
+                    (bo.stt_bo ? APP.escape(String(bo.stt_bo)) + '. ' : '') +
+                    APP.escape(bo.ten_bo || '') + '</strong></td>' +
+                '<td>' + (bo.ten_thuong_mai ? APP.escape(bo.ten_thuong_mai) : chuaCo()) + '</td>' +
+                '<td>' + APP.escape(bo.model || '') + '</td>' +
+                '<td>' + APP.escape(bo.hang_san_xuat || '') + '</td>' +
+                '<td>' + APP.escape(bo.nam_san_xuat || '') + '</td>' +
+                '<td>' + APP.escape(bo.xuat_xu || '') + '</td>' +
+                '<td class="col-qty">' + APP.escape(String(bo.so_luong)) + '</td>' +
+                '<td>' + APP.escape(bo.dvt || '') + '</td>' +
+                '<td class="col-price">' + (bo.don_gia > 0 ? money(bo.don_gia) : chuaCo()) + '</td>' +
+                '<td class="col-price">' + (bo.thanh_tien > 0 ? money(bo.thanh_tien) : '—') + '</td>' +
+                '</tr>';
+        } else if (m1) {
+            // Tab MẪU 1: yêu cầu chung/khác/cấu hình gắn với BỘ nên phần ĐÁP
+            // ỨNG cho chúng nhà thầu điền ở DÒNG BỘ. Vì vậy dòng bộ phải hiện
+            // từng cột như dòng chi tiết, không gộp ô — nếu gộp thì nhà thầu
+            // điền xong không thấy đâu, tưởng hệ thống không lưu.
+            var duBo = bo.dap_ung || {};
+            html += '<tr class="row-bo">' +
+                '<td>' + APP.escape(bo.ma_bo || '') + '</td>' +
+                '<td class="sticky-col"><strong>' +
+                    (bo.stt_bo ? APP.escape(String(bo.stt_bo)) + '. ' : '') +
+                    APP.escape(bo.ten_bo || '') + '</strong>' +
+                    yeuCauBo(bo) +
+                '</td>' +
+                // Cột "Yêu cầu kỹ thuật mời chào giá" là của hàng hóa chi tiết,
+                // dòng bộ không có → để trống cho khỏi hiểu nhầm.
+                '<td></td>';
+            for (var cb = 0; cb < cap.length; cb++) {
+                html += '<td class="cell-wrap">' + oDapUng(duBo[cap[cb].khoa] || {}) + '</td>';
+            }
+            var tlBo = duBo.tai_lieu;
+            html += '<td class="cell-wrap">' +
+                (tlBo && tlBo.dap_ung ? APP.escape(tlBo.dap_ung) : chuaCo()) + '</td>' +
+                '</tr>';
+        } else {
+            html += '<tr class="row-bo">' +
+                '<td>' + APP.escape(bo.ma_bo || '') + '</td>' +
+                '<td colspan="' + (soCot - 1) + '"><strong>' +
+                    (bo.stt_bo ? APP.escape(String(bo.stt_bo)) + '. ' : '') +
+                    APP.escape(bo.ten_bo || '') + '</strong>' +
+                    (bo.dvt ? ' <span class="cell-sub">' + APP.escape(bo.dvt) +
+                        ' × ' + APP.escape(String(bo.so_luong)) + '</span>' : '') +
+                    yeuCauBo(bo) +
+                '</td></tr>';
+        }
 
         // Dòng chi tiết
         html += veChiTiet(ct, cap, m1, true);

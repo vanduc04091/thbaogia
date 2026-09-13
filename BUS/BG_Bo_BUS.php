@@ -18,6 +18,25 @@ class BG_Bo_BUS
     const MODULE_KEY = 'BG_HangHoa';   // dùng chung quyền với màn hình hàng hóa
     const MODULE_LOG = 'BaoGia';
 
+    /**
+     * Sinh mã bộ tiếp theo cho gói thầu: BO01, BO02, ...
+     *
+     * Dùng khuôn BO + số cho MỌI nhóm, không theo tiền tố nhóm (BDC/HT/VT):
+     * gói thầu có thể đổi nhóm, lúc đó mã theo nhóm cũ sẽ sai ngữ nghĩa mà
+     * không sửa được (mã đã in ra giấy, nhà thầu đã điền theo).
+     *
+     * Vòng lặp phòng trường hợp mã BOxx đã bị người dùng đặt tay cho bộ khác.
+     */
+    public static function sinhMaBo(int $goiThauId): string
+    {
+        $n = BG_Bo_DAL::soThuTuMaLonNhat($goiThauId);
+        do {
+            $n++;
+            $ma = 'BO' . str_pad((string)$n, 2, '0', STR_PAD_LEFT);
+        } while (BG_Bo_DAL::maTonTai($goiThauId, $ma));
+        return $ma;
+    }
+
     private static function validate(BG_Bo_PUBLIC $e): string
     {
         $e->ten_bo = trim((string)$e->ten_bo);
@@ -65,6 +84,13 @@ class BG_Bo_BUS
                 $max = 0;
                 foreach ($ds as $b) $max = max($max, (int)($b['stt_bo'] ?? 0));
                 $e->stt_bo = $max + 1;
+            }
+
+            // Bỏ trống Mã bộ -> TỰ SINH. Mã bộ là thứ duy nhất để đối chiếu
+            // dòng BỘ khi nhà thầu import file; bộ không có mã thì dữ liệu
+            // nhà thầu điền ở dòng đó từng bị bỏ qua im lặng (§ sự cố đã gặp).
+            if (trim((string)$e->ma_bo) === '') {
+                $e->ma_bo = self::sinhMaBo($e->goi_thau_id);
             }
 
             $id = BG_Bo_DAL::insert($e);

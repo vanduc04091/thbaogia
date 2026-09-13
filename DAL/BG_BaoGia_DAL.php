@@ -20,9 +20,16 @@ class BG_BaoGia_DAL
                        f.kich_thuoc AS kich_thuoc_file,
                        f.loai_file,
                        f.ngay_tao AS ngay_upload_ban_ky,
-                       (SELECT COUNT(*) FROM bg_bao_gia_chi_tiet ct
-                         WHERE ct.bao_gia_id = bg.id AND ct.da_xoa = 0
-                           AND ct.don_gia > 0) AS so_dong_chao
+                       -- Số dòng đã chào = chi tiết CÓ giá + BỘ có giá.
+                       -- Nhóm mua theo bộ chỉ điền giá ở dòng BỘ; nếu chỉ đếm
+                       -- chi tiết thì so_dong_chao = 0 và nhà thầu bị chặn
+                       -- không nộp / không duyệt / không upload bản ký được.
+                       ((SELECT COUNT(*) FROM bg_bao_gia_chi_tiet ct
+                          WHERE ct.bao_gia_id = bg.id AND ct.da_xoa = 0
+                            AND ct.don_gia > 0)
+                      + (SELECT COUNT(*) FROM bg_bao_gia_bo gb
+                          WHERE gb.bao_gia_id = bg.id AND gb.da_xoa = 0
+                            AND gb.don_gia > 0)) AS so_dong_chao
                 FROM bg_bao_gia bg
                 LEFT JOIN bg_goi_thau gt ON gt.id = bg.goi_thau_id
                 LEFT JOIN dm_nguoi_dung nd ON nd.id = bg.nguoi_xac_nhan
@@ -175,15 +182,61 @@ class BG_BaoGia_DAL
         return $stmt->rowCount();
     }
 
+    /**
+     * Tính lại tổng tiền báo giá — CÔNG THỨC KHÁC NHAU THEO NHÓM.
+     *
+     *   he_thong_tbyt : tổng = SUM(thành tiền BỘ do nhà thầu nhập) + hàng lẻ.
+     *                   Chi tiết trong bộ KHÔNG cộng (chúng không có giá).
+     *   bo_dung_cu    : tổng = SUM(thành tiền TỪNG CHI TIẾT) + hàng lẻ.
+     *                   Bộ dụng cụ là tập hợp dụng cụ rời, mỗi cái một đơn giá
+     *                   → tiền của bộ là tổng các chi tiết, nhà thầu không nhập
+     *                   tay. Dòng bg_bao_gia_bo của nhóm này KHÔNG được cộng.
+     *   vat_tu_duoc   : phần lớn là hàng lẻ → chỉ nhánh chi tiết có tác dụng.
+     *
+     * Quy tắc nhóm nào nhập tay lấy từ BG_Nhom_PUBLIC::giaBoNhapTay() — nguồn
+     * duy nhất. Chọn sai nhánh là NHÂN ĐÔI hoặc MẤT TRẮNG tiền của cả gói.
+     */
     public static function updateTongTien(int $id): void
     {
+        require_once __DIR__ . '/../PUBLIC/Entities/BG_Nhom_PUBLIC.php';
+
+        // Nhóm của gói thầu quyết định công thức
         $stmt = Database::getConnection()->prepare(
-            "UPDATE bg_bao_gia bg
-             SET bg.tong_tien = COALESCE((
-                    SELECT SUM(ct.thanh_tien) FROM bg_bao_gia_chi_tiet ct
-                     WHERE ct.bao_gia_id = bg.id AND ct.da_xoa = 0), 0)
+            "SELECT gt.nhom FROM bg_bao_gia bg
+             INNER JOIN bg_goi_thau gt ON gt.id = bg.goi_thau_id
              WHERE bg.id = :id"
         );
+        $stmt->execute([':id' => $id]);
+        $nhom = BG_Nhom_PUBLIC::chuanHoa((string)$stmt->fetchColumn());
+
+        if (BG_Nhom_PUBLIC::giaBoNhapTay($nhom)) {
+            // Giá nằm ở DÒNG BỘ; chi tiết thuộc bộ không cộng (tránh nhân đôi)
+            $sql = "UPDATE bg_bao_gia bg
+                    SET bg.tong_tien =
+                        COALESCE((
+                           SELECT SUM(gb.thanh_tien) FROM bg_bao_gia_bo gb
+                            WHERE gb.bao_gia_id = bg.id AND gb.da_xoa = 0), 0)
+                      + COALESCE((
+                           SELECT SUM(ct.thanh_tien)
+                             FROM bg_bao_gia_chi_tiet ct
+                             INNER JOIN bg_hang_hoa hh ON hh.id = ct.hang_hoa_id AND hh.da_xoa = 0
+                            WHERE ct.bao_gia_id = bg.id AND ct.da_xoa = 0
+                              AND hh.bo_id IS NULL), 0)
+                    WHERE bg.id = :id";
+        } else {
+            // Giá nằm ở TỪNG CHI TIẾT (cả trong bộ lẫn hàng lẻ) → cộng hết.
+            // KHÔNG cộng bg_bao_gia_bo: nhóm này không nhập giá bộ, dòng đó
+            // chỉ mang phần đáp ứng cấp bộ.
+            $sql = "UPDATE bg_bao_gia bg
+                    SET bg.tong_tien = COALESCE((
+                           SELECT SUM(ct.thanh_tien)
+                             FROM bg_bao_gia_chi_tiet ct
+                             INNER JOIN bg_hang_hoa hh ON hh.id = ct.hang_hoa_id AND hh.da_xoa = 0
+                            WHERE ct.bao_gia_id = bg.id AND ct.da_xoa = 0), 0)
+                    WHERE bg.id = :id";
+        }
+
+        $stmt = Database::getConnection()->prepare($sql);
         $stmt->execute([':id' => $id]);
     }
 
@@ -334,7 +387,9 @@ class BG_BaoGia_DAL
                     f.kich_thuoc AS kich_thuoc_file,
                     f.ngay_tao AS ngay_upload_ban_ky,
                     (SELECT COUNT(*) FROM bg_bao_gia_chi_tiet ct
-                      WHERE ct.bao_gia_id = bg.id AND ct.da_xoa = 0 AND ct.don_gia > 0) AS so_dong_chao
+                      WHERE ct.bao_gia_id = bg.id AND ct.da_xoa = 0 AND ct.don_gia > 0)
+                    + (SELECT COUNT(*) FROM bg_bao_gia_bo gb
+                        WHERE gb.bao_gia_id = bg.id AND gb.da_xoa = 0 AND gb.don_gia > 0) AS so_dong_chao
              FROM bg_bao_gia bg
              LEFT JOIN bg_goi_thau gt ON gt.id = bg.goi_thau_id
              LEFT JOIN bg_file f ON f.id = bg.file_ban_ky_id AND f.da_xoa = 0
@@ -371,7 +426,9 @@ class BG_BaoGia_DAL
                     f.kich_thuoc AS kich_thuoc_file,
                     f.ngay_tao AS ngay_upload_ban_ky,
                     (SELECT COUNT(*) FROM bg_bao_gia_chi_tiet ct
-                      WHERE ct.bao_gia_id = bg.id AND ct.da_xoa = 0 AND ct.don_gia > 0) AS so_dong_chao
+                      WHERE ct.bao_gia_id = bg.id AND ct.da_xoa = 0 AND ct.don_gia > 0)
+                    + (SELECT COUNT(*) FROM bg_bao_gia_bo gb
+                        WHERE gb.bao_gia_id = bg.id AND gb.da_xoa = 0 AND gb.don_gia > 0) AS so_dong_chao
              FROM bg_bao_gia bg
              INNER JOIN bg_goi_thau gt ON gt.id = bg.goi_thau_id
              LEFT JOIN bg_file f ON f.id = bg.file_ban_ky_id AND f.da_xoa = 0

@@ -41,20 +41,6 @@
         </li>
     </ol>
 
-    <!-- Quy tắc bảo mật: đây là CĂN CỨ NGHIỆP VỤ của việc bắt làm liên tục
-         hết các bước và không lưu dữ liệu khi chưa hoàn thành (§10.2).
-         Dùng tông đỏ vì đây là điều nhà thầu hay vi phạm nhất — làm nửa chừng
-         rồi tắt trình duyệt, tưởng hệ thống có lưu lại. -->
-    <div class="hd-luu-y hd-bao-mat">
-        <?= IconHelper::svg('lock', 17) ?>
-        <span>
-            Để bảo đảm <strong>bảo mật thông tin chào giá giữa các nhà thầu</strong>,
-            Nhà thầu chỉ được thực hiện thao tác chào giá <strong>theo trình tự từ Bước 1
-            đến khi hoàn thành</strong>. Hệ thống <strong>không cho phép lưu dữ liệu</strong>
-            khi Nhà thầu chưa hoàn tất toàn bộ quy trình chào giá.
-        </span>
-    </div>
-
     <div class="hd-luu-y hd-lien-he">
         <?= IconHelper::svg('info', 17) ?>
         <span>

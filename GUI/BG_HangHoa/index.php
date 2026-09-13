@@ -389,6 +389,9 @@ var AJAX_URL = <?= json_encode($AJAX) ?>;
 var URL_DOWNLOAD = <?= json_encode(AppConfig::baseUrl('GUI/BG_HangHoa/download.php')) ?>;
 var CAN = { add: <?= $canAdd ? 'true' : 'false' ?>, edit: <?= $canEdit ? 'true' : 'false' ?>, del: <?= $canDel ? 'true' : 'false' ?> };
 var GOI_THAU_ID = <?= (int)$goiThauId ?>;
+/* Danh sách BỘ của gói thầu — nạp kèm mỗi lần loadData().
+   Dùng để vẽ bộ RỖNG (chưa có hàng hóa), thứ mà truy vấn hàng hóa không trả về. */
+var DS_BO = [];
 /* Nhóm gói thầu — quyết định hiện cột yêu cầu chung/khác/cấu hình ở dòng BỘ */
 var NHOM = <?= json_encode(BG_Nhom_PUBLIC::chuanHoa($goiThau->nhom ?? null)) ?>;
 var CO_YC_CHUNG    = <?= BG_Nhom_PUBLIC::coYeuCauChung(BG_Nhom_PUBLIC::chuanHoa($goiThau->nhom ?? null)) ? 'true' : 'false' ?>;
@@ -413,8 +416,17 @@ function loadData() {
         da_xoa: $('#filterDaXoa').val()
     }, {
         success: function (res) {
-            renderTable(res.data || []);
-            $('#paginationWrap').html(APP.renderPagination(res.pagination));
+            // Nạp kèm danh sách BỘ để vẽ được cả bộ RỖNG. Danh sách hàng hóa
+            // đi từ bg_hang_hoa nên bộ chưa có hàng nào không lọt ra dòng nào
+            // -> trước đây bộ rỗng vô hình, không có nút sửa/xóa để bấm.
+            APP.ajax(AJAX_URL, { action: 'getComboBo', goi_thau_id: GOI_THAU_ID }, {
+                success: function (rb) { DS_BO = rb.data || []; },
+                error:   function () { DS_BO = []; },
+                complete: function () {
+                    renderTable(res.data || []);
+                    $('#paginationWrap').html(APP.renderPagination(res.pagination));
+                }
+            });
         },
         complete: function () { isLoading = false; firstLoad = false; APP.hideLoading('#tableWrap'); }
     });
@@ -429,15 +441,25 @@ function loadData() {
  */
 function renderTable(rows) {
     var SO_COT = 8;
+    var trash = currentTrash();
 
-    if (!rows.length) {
-        $('#tbody').html(APP.emptyRow(SO_COT, currentTrash()
+    // Bộ RỖNG (chưa có hàng hóa nào) — vẫn phải hiện để còn sửa/xóa được.
+    // Không hiện ở thùng rác: ở đó đang xem hàng hóa đã xóa, không phải bộ.
+    var boRong = [];
+    if (!trash) {
+        for (var b = 0; b < DS_BO.length; b++) {
+            if (Number(DS_BO[b].so_chi_tiet || 0) === 0) boRong.push(DS_BO[b]);
+        }
+    }
+
+    if (!rows.length && !boRong.length) {
+        $('#tbody').html(APP.emptyRow(SO_COT, trash
             ? 'Thùng rác trống'
             : 'Gói thầu chưa có hàng hóa. Bấm "Import Excel" để nạp từ file mẫu, hoặc "Thêm hàng hóa" để nhập tay.'));
         return;
     }
 
-    var trash = currentTrash(), html = '', boHienTai = null, sttBo = 0;
+    var html = '', boHienTai = null, sttBo = 0;
 
     for (var i = 0; i < rows.length; i++) {
         var r = rows[i];
@@ -477,11 +499,32 @@ function renderTable(rows) {
             '<td class="col-actions"><span class="row-actions">' + actions + '</span></td>' +
             '</tr>';
     }
+
+    // Bộ rỗng xếp cuối bảng, kèm ghi chú để bên mời biết còn thiếu hàng hóa.
+    // dongBo() nhận khóa theo tên cột của bg_hang_hoa (bo_id, dvt_bo...) nên
+    // phải ánh xạ lại từ bản ghi bg_bo.
+    for (var k = 0; k < boRong.length; k++) {
+        var bo = boRong[k];
+        sttBo++;
+        html += dongBo({
+            bo_id:            bo.id,
+            ma_bo:            bo.ma_bo,
+            stt_bo:           bo.stt_bo,
+            ten_bo:           bo.ten_bo,
+            dvt_bo:           bo.dvt,
+            so_luong_bo:      bo.so_luong,
+            yeu_cau_chung:    bo.yeu_cau_chung,
+            yeu_cau_khac:     bo.yeu_cau_khac,
+            yeu_cau_cau_hinh: bo.yeu_cau_cau_hinh,
+            nhom_nuoc_bo:     bo.nhom_nuoc
+        }, sttBo, SO_COT, true);
+    }
+
     $('#tbody').html(html);
 }
 
 /** Dòng tiêu đề của 1 BỘ — gộp cả hàng, kèm yêu cầu chung/khác/cấu hình */
-function dongBo(r, stt, soCot) {
+function dongBo(r, stt, soCot, rong) {
     // Hàng LẺ (bo_id rỗng) là hợp lệ — vật tư, dược phần lớn không thuộc bộ.
     // Không in dòng tiêu đề gì cả, hàng hiện thẳng như một dòng bình thường.
     if (!r.bo_id) return '';
@@ -492,6 +535,7 @@ function dongBo(r, stt, soCot) {
         '<td>' + (r.ma_bo ? '<span class="text-mono">' + APP.escape(r.ma_bo) + '</span>' : '') + '</td>' +
         '<td colspan="' + (soCot - 4) + '">' +
             '<span class="ten-bo">' + APP.icon('package', 14) + ' ' + APP.escape(ten) + '</span>' +
+            (rong ? ' <span class="badge badge-warning">Chưa có hàng hóa</span>' : '') +
             yeuCauBo(r) +
         '</td>' +
         '<td>' + (r.dvt_bo ? APP.escape(r.dvt_bo) : '') + '</td>' +

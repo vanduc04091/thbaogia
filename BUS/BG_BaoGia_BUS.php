@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../DAL/BG_BaoGia_DAL.php';
+require_once __DIR__ . '/../DAL/BG_BaoGiaBo_DAL.php';
 require_once __DIR__ . '/../DAL/BG_HangHoa_DAL.php';
 require_once __DIR__ . '/../DAL/BG_Bo_DAL.php';
 require_once __DIR__ . '/../DAL/BG_GoiThau_DAL.php';
@@ -269,6 +270,8 @@ class BG_BaoGia_BUS
         $nhom     = BG_Nhom_PUBLIC::chuanHoa($gt->nhom ?? null);
         $canhBao  = [];
         $duLieu   = [];
+        /** Giá nhà thầu chào cho CẢ BỘ: [bo_id => các cột Mẫu 2] */
+        $duLieuBo = [];
 
         try {
             $tenSheet = ExcelHelper::sheetNames($filePath);
@@ -290,11 +293,31 @@ class BG_BaoGia_BUS
                 foreach ($rows as $rowNo => $cells) {
                     if ($rowNo <= $dongDau) continue;
                     $ma = mb_strtoupper(ExcelHelper::toText($cells[$cot['ma'] ?? 0] ?? '', 50));
-                    if ($ma === '') continue;                 // dòng BỘ, không có mã hàng
-                    if (!isset($theoMa[$ma])) {
-                        // Dòng BỘ cũng có mã (ma_bo) nhưng không phải hàng hóa —
-                        // bỏ qua im lặng, chỉ cảnh báo mã lạ thật sự.
-                        if (!self::laMaBo($ma, (int)$bg->goi_thau_id)) {
+                    if (!isset($theoMa[$ma]) || $ma === '') {
+                        // DÒNG BỘ: yêu cầu chung/khác/cấu hình gắn với BỘ nên
+                        // phần ĐÁP ỨNG cho chúng cũng điền ở dòng bộ. Trước đây
+                        // bỏ qua im lặng → nhà thầu điền xong mà Bước 4 in ra
+                        // bảng đáp ứng trống trơn.
+                        //
+                        // KHÔNG chặn sớm bằng `$ma === ''`: bộ có ma_bo NULL thì
+                        // ô Mã trống, chặn sớm là mất trắng dữ liệu dòng bộ.
+                        $boId = self::nhanDangDongBo($cells, $cot, $ma, (int)$bg->goi_thau_id);
+                        if ($boId > 0) {
+                            foreach ($cap as $khoa => $c) {
+                                $iDu    = $cot['dap_ung_' . $khoa]   ?? null;
+                                $iKhong = $cot['khong_dat_' . $khoa] ?? null;
+                                if ($iDu !== null) {
+                                    $duLieuBo[$boId][$c[1]] = ExcelHelper::toText($cells[$iDu] ?? '');
+                                }
+                                if ($iKhong !== null) {
+                                    $duLieuBo[$boId][$c[2]] = ExcelHelper::toText($cells[$iKhong] ?? '');
+                                }
+                            }
+                            if (isset($cot['tai_lieu_chung_minh'])) {
+                                $duLieuBo[$boId]['tai_lieu_chung_minh'] =
+                                    ExcelHelper::toText($cells[$cot['tai_lieu_chung_minh']] ?? '');
+                            }
+                        } elseif ($ma !== '') {
                             $canhBao[] = "Mẫu 1 dòng {$rowNo}: Mã \"{$ma}\" không có trong gói thầu — bỏ qua";
                         }
                         continue;
@@ -330,9 +353,45 @@ class BG_BaoGia_BUS
                 foreach ($rows as $rowNo => $cells) {
                     if ($rowNo <= $dongDau) continue;
                     $ma = mb_strtoupper(ExcelHelper::toText($cells[$cot['ma'] ?? 0] ?? '', 50));
-                    if ($ma === '') continue;
-                    if (!isset($theoMa[$ma])) {
-                        if (!self::laMaBo($ma, (int)$bg->goi_thau_id)) {
+                    if (!isset($theoMa[$ma]) || $ma === '') {
+                        // DÒNG BỘ: nhà thầu chào giá cho CẢ BỘ ở đây (2 nhóm mua
+                        // theo bộ). Trước đây bỏ qua im lặng vì giá bộ là tổng
+                        // cộng dồn của chi tiết — giờ chính dòng này mang giá.
+                        //
+                        // Nhận dạng theo Mã, thiếu mã thì theo Tên bộ — xem
+                        // nhanDangDongBo(). Chặn sớm bằng `$ma === ''` sẽ làm
+                        // mất giá của mọi bộ không đặt mã.
+                        $boId = self::nhanDangDongBo($cells, $cot, $ma, (int)$bg->goi_thau_id);
+                        if ($boId > 0) {
+                            $layB = function (string $k, int $max = 0) use ($cot, $cells): string {
+                                return isset($cot[$k]) ? ExcelHelper::toText($cells[$cot[$k]] ?? '', $max) : '';
+                            };
+                            $dgBo = isset($cot['don_gia'])
+                                ? ExcelHelper::toNumber($cells[$cot['don_gia']] ?? 0) : 0;
+                            if ($dgBo < 0) {
+                                $canhBao[] = "Mẫu 2 dòng {$rowNo}: đơn giá bộ âm → đặt về 0";
+                                $dgBo = 0;
+                            }
+                            // Thành tiền của BỘ lấy NGUYÊN số nhà thầu ghi (ngoại
+                            // lệ §10.2 — giá trọn gói không phải lúc nào cũng
+                            // chia đều theo số lượng bộ). Xem BG_BaoGiaBo_PUBLIC.
+                            $ttBo = isset($cot['thanh_tien'])
+                                ? ExcelHelper::toNumber($cells[$cot['thanh_tien']] ?? 0) : 0;
+                            if ($ttBo < 0) {
+                                $canhBao[] = "Mẫu 2 dòng {$rowNo}: thành tiền bộ âm → đặt về 0";
+                                $ttBo = 0;
+                            }
+
+                            $duLieuBo[$boId] = [
+                                'ten_thuong_mai' => $layB('ten_thuong_mai', 1000),
+                                'model'          => $layB('model', 500),
+                                'hang_san_xuat'  => $layB('hang_san_xuat', 500),
+                                'nam_san_xuat'   => $layB('nam_san_xuat', 20),
+                                'xuat_xu'        => $layB('xuat_xu', 500),
+                                'don_gia'        => $dgBo,
+                                'thanh_tien'     => $ttBo,
+                            ];
+                        } elseif ($ma !== '') {
                             $canhBao[] = "Mẫu 2 dòng {$rowNo}: Mã \"{$ma}\" không có trong gói thầu — bỏ qua";
                         }
                         continue;
@@ -359,7 +418,9 @@ class BG_BaoGia_BUS
             }
         }
 
-        if (empty($duLieu)) {
+        // Nhóm mua theo bộ có thể CHỈ điền dòng BỘ (chi tiết bỏ trống) — khi đó
+        // $duLieu rỗng nhưng $duLieuBo có dữ liệu, không được coi là file sai.
+        if (empty($duLieu) && empty($duLieuBo)) {
             return [
                 'success' => false,
                 'message' => 'Không đọc được dòng nào khớp Mã của gói thầu. Hãy tải lại '
@@ -424,6 +485,62 @@ class BG_BaoGia_BUS
                 $soDong++;
             }
 
+            // ---- Giá chào cho CẢ BỘ (2 nhóm mua theo bộ) ----
+            // thanh_tien lấy NGUYÊN số nhà thầu ghi; nếu bỏ trống thì suy ra
+            // = đơn giá × số lượng bộ để bên mời không phải nhìn ô rỗng.
+            $boCuaGoi = [];
+            foreach (BG_Bo_DAL::getByGoiThau((int)$bg->goi_thau_id) as $b) {
+                $boCuaGoi[(int)$b['id']] = $b;
+            }
+            // Giá/đáp ứng bộ đã lưu từ lần import trước — đọc 1 lần trước vòng lặp
+            $giaBoCu = BG_BaoGiaBo_DAL::getMap($baoGiaId);
+            foreach ($duLieuBo as $boId => $v) {
+                // Import Mẫu 1 chỉ mang cột ĐÁP ỨNG, không có giá → 2 khóa này
+                // vắng mặt là chuyện bình thường, phải ?? chứ không đọc thẳng.
+                $slBo = (float)($boCuaGoi[$boId]['so_luong'] ?? 0);
+                $dgV  = (float)($v['don_gia'] ?? 0);
+                $tt   = (float)($v['thanh_tien'] ?? 0);
+                if ($tt <= 0 && $dgV > 0) {
+                    $tt = round($dgV * $slBo, 2);
+                }
+
+                // Import Mẫu 1 rồi Mẫu 2 ở 2 lần khác nhau: lần sau không được
+                // xóa dữ liệu lần trước → thiếu khóa nào thì giữ giá trị cũ.
+                $cuBo = $giaBoCu[$boId] ?? null;
+                $giuBo = function (string $k) use ($v, $cuBo) {
+                    if (array_key_exists($k, $v)) return self::nullIfEmpty((string)$v[$k]);
+                    return $cuBo[$k] ?? null;
+                };
+
+                $eb = new BG_BaoGiaBo_PUBLIC();
+                $eb->bao_gia_id     = $baoGiaId;
+                $eb->bo_id          = (int)$boId;
+                $eb->ten_thuong_mai = $giuBo('ten_thuong_mai');
+                $eb->model          = $giuBo('model');
+                $eb->hang_san_xuat  = $giuBo('hang_san_xuat');
+                $eb->nam_san_xuat   = $giuBo('nam_san_xuat');
+                $eb->xuat_xu        = $giuBo('xuat_xu');
+                $eb->don_gia        = array_key_exists('don_gia', $v)
+                    ? (float)$v['don_gia'] : (float)($cuBo['don_gia'] ?? 0);
+                $eb->thanh_tien     = $tt > 0 ? $tt : (float)($cuBo['thanh_tien'] ?? 0);
+
+                // ---- Đáp ứng cấp BỘ (Mẫu 1, dòng BỘ) ----
+                $eb->dap_ung_chung       = $giuBo('dap_ung_chung');
+                $eb->khong_dat_chung     = $giuBo('khong_dat_chung');
+                $eb->dap_ung_khac        = $giuBo('dap_ung_khac');
+                $eb->khong_dat_khac      = $giuBo('khong_dat_khac');
+                $eb->dap_ung_cau_hinh    = $giuBo('dap_ung_cau_hinh');
+                $eb->khong_dat_cau_hinh  = $giuBo('khong_dat_cau_hinh');
+                $eb->thong_so_chao_gia   = $giuBo('thong_so_chao_gia');
+                $eb->diem_khong_dat      = $giuBo('diem_khong_dat');
+                $eb->dap_ung_nhom_nuoc   = $giuBo('dap_ung_nhom_nuoc');
+                $eb->khong_dat_nhom_nuoc = $giuBo('khong_dat_nhom_nuoc');
+                $eb->tai_lieu_chung_minh = $giuBo('tai_lieu_chung_minh');
+
+                BG_BaoGiaBo_DAL::upsert($eb);
+                $soDong++;
+            }
+
             BG_BaoGia_DAL::updateTongTien($baoGiaId);
             Database::commit();
 
@@ -475,7 +592,12 @@ class BG_BaoGia_BUS
             'nam_san_xuat'        => ['nam san xuat'],
             'xuat_xu'             => ['xuat xu'],
             'don_gia'             => ['don gia'],
-            'ma'                  => ['ma bo/hang hoa', 'ma bo', 'ma hh', 'ma hang hoa'],
+            'thanh_tien'          => ['thanh tien'],
+            'ma'                  => ['ma bo/hang hoa', 'ma hh', 'ma hang hoa'],
+            // Cần để nhận dạng DÒNG BỘ khi bộ không có Mã (ma_bo cho phép NULL).
+            // Đặt SAU 'ma' vì 'ma bo/hang hoa' phải giành được cột A trước.
+            'ten_bo'              => ['ten bo/phan/he thong', 'ten bo'],
+            'stt_bo'              => ['stt bo'],
         ];
 
         for ($d = 1; $d <= 10; $d++) {
@@ -509,15 +631,88 @@ class BG_BaoGia_BUS
      */
     private static function laMaBo(string $ma, int $goiThauId): bool
     {
+        return self::timBoTheoMa($ma, $goiThauId) > 0;
+    }
+
+    /**
+     * Mã này là mã của BỘ nào trong gói thầu? Trả 0 nếu không phải mã bộ.
+     *
+     * Dùng khi import Mẫu 2: dòng BỘ mang giá trọn bộ nên phải biết ghi vào
+     * bo_id nào, không chỉ cần biết "có phải mã bộ không" như trước.
+     */
+    private static function timBoTheoMa(string $ma, int $goiThauId): int
+    {
         static $cache = [];
         if (!isset($cache[$goiThauId])) {
             $cache[$goiThauId] = [];
             foreach (BG_Bo_DAL::getByGoiThau($goiThauId) as $b) {
                 $m = mb_strtoupper(trim((string)($b['ma_bo'] ?? '')));
-                if ($m !== '') $cache[$goiThauId][$m] = true;
+                if ($m !== '') $cache[$goiThauId][$m] = (int)$b['id'];
             }
         }
-        return isset($cache[$goiThauId][$ma]);
+        return $cache[$goiThauId][$ma] ?? 0;
+    }
+
+    /**
+     * Tìm BỘ theo TÊN (+ STT nếu trùng tên). Trả 0 nếu không thấy.
+     *
+     * VÌ SAO CẦN: bg_bo.ma_bo cho phép NULL. Bộ không có mã thì file mẫu sinh
+     * ra với ô Mã TRỐNG, mà import lại bỏ qua mọi dòng có mã rỗng → nhà thầu
+     * điền đáp ứng/giá ở dòng bộ xong vẫn mất sạch, không một cảnh báo nào.
+     * Nhận dạng theo tên là đường dự phòng, giống cách parser Phụ lục III
+     * nhận dòng bộ bằng "có Tên bộ" chứ không bằng mã.
+     */
+    private static function timBoTheoTen(string $ten, $sttBo, int $goiThauId): int
+    {
+        $ten = self::boDauChuoi(trim($ten));
+        if ($ten === '') return 0;
+
+        static $cache = [];
+        if (!isset($cache[$goiThauId])) {
+            $cache[$goiThauId] = [];
+            foreach (BG_Bo_DAL::getByGoiThau($goiThauId) as $b) {
+                $t = self::boDauChuoi(trim((string)($b['ten_bo'] ?? '')));
+                if ($t === '') continue;
+                // Nhiều bộ có thể trùng tên → gom theo tên rồi lọc tiếp bằng STT
+                $cache[$goiThauId][$t][] = [
+                    'id'     => (int)$b['id'],
+                    'stt_bo' => $b['stt_bo'] !== null ? (int)$b['stt_bo'] : null,
+                ];
+            }
+        }
+
+        $ds = $cache[$goiThauId][$ten] ?? [];
+        if (!$ds) return 0;
+        if (count($ds) === 1) return $ds[0]['id'];
+
+        // Trùng tên: phải có STT bộ mới phân biệt được, không thì bỏ qua cho an toàn
+        $stt = ($sttBo === null || $sttBo === '') ? null : (int)ExcelHelper::toNumber((string)$sttBo);
+        if ($stt === null) return 0;
+        foreach ($ds as $b) {
+            if ($b['stt_bo'] === $stt) return $b['id'];
+        }
+        return 0;
+    }
+
+    /**
+     * Dòng này là DÒNG BỘ của gói thầu nào? Trả bo_id, hoặc 0 nếu không phải.
+     *
+     * Thử theo MÃ trước (chắc chắn nhất), không có mã thì theo TÊN + STT.
+     * Dùng chung cho cả 2 nhánh import Mẫu 1 / Mẫu 2 để chúng không lệch nhau.
+     */
+    private static function nhanDangDongBo(array $cells, array $cot, string $ma, int $goiThauId): int
+    {
+        if ($ma !== '') {
+            $boId = self::timBoTheoMa($ma, $goiThauId);
+            if ($boId > 0) return $boId;
+        }
+        $tenBo = isset($cot['ten_bo'])
+            ? ExcelHelper::toText($cells[$cot['ten_bo']] ?? '', 1000) : '';
+        if ($tenBo === '') return 0;
+
+        $sttBo = isset($cot['stt_bo'])
+            ? ExcelHelper::toText($cells[$cot['stt_bo']] ?? '') : '';
+        return self::timBoTheoTen($tenBo, $sttBo, $goiThauId);
     }
 
     /** Bỏ dấu tiếng Việt + hạ chữ thường để so khớp tiêu đề cột */
@@ -646,11 +841,14 @@ class BG_BaoGia_BUS
         $bg = BG_BaoGia_DAL::getById($id);
         if (!$bg) return ['success' => false, 'message' => 'Không tìm thấy báo giá'];
 
-        // Chi tiết xóa theo (ON DELETE không khai báo) → xóa tay, 2 bảng, bọc transaction
+        // Chi tiết + giá bộ xóa theo (ON DELETE không khai báo) → xóa tay,
+        // 3 bảng, bọc transaction. Bỏ sót bg_bao_gia_bo sẽ để lại dòng giá
+        // mồ côi trỏ tới báo giá không còn tồn tại.
         try {
             Database::beginTransaction();
             $stmt = Database::getConnection()->prepare("DELETE FROM bg_bao_gia_chi_tiet WHERE bao_gia_id = :id");
             $stmt->execute([':id' => $id]);
+            BG_BaoGiaBo_DAL::deleteByBaoGia($id);
             $n = BG_BaoGia_DAL::delete($id);
             Database::commit();
 
@@ -733,7 +931,15 @@ class BG_BaoGia_BUS
                 if ($daDapUng) $soDaDapUng++;
                 if ($giaTri > 0) {
                     $soDaChao++;
-                    $tongTien += (float)($c['thanh_tien'] ?? 0);
+                    // Khớp đúng công thức BG_BaoGia_DAL::updateTongTien():
+                    //   - hàng LẺ: luôn cộng.
+                    //   - hàng trong BỘ: chỉ cộng khi nhóm KHÔNG nhập giá bộ
+                    //     tay (bo_dung_cu — tiền của bộ chính là tổng chi tiết).
+                    //     Với he_thong_tbyt tiền nằm ở dòng BỘ, cộng thêm ở đây
+                    //     sẽ NHÂN ĐÔI.
+                    if (empty($hh['bo_id']) || !BG_Nhom_PUBLIC::giaBoNhapTay($nhom)) {
+                        $tongTien += (float)($c['thanh_tien'] ?? 0);
+                    }
                 }
 
                 $dong[] = [
@@ -787,9 +993,38 @@ class BG_BaoGia_BUS
             ];
         }
 
+        // Giá nhà thầu chào cho CẢ BỘ — nạp 1 lần, tra theo bo_id.
+        // Nhóm mua theo bộ: giá nằm ở đây chứ không cộng dồn từ chi tiết nữa.
+        $giaBo = BG_BaoGiaBo_DAL::getMap($baoGiaId);
+
+        // bo_dung_cu: tiền của BỘ = tổng thành tiền các chi tiết bên dưới,
+        // nhà thầu không nhập tay. he_thong_tbyt thì ngược lại — xem
+        // BG_Nhom_PUBLIC::giaBoNhapTay().
+        $boNhapTay = BG_Nhom_PUBLIC::giaBoNhapTay($nhom);
+
         foreach ($dsBo as $b) {
+            $boId = (int)$b['id'];
+            $g    = $giaBo[$boId] ?? null;
+            $dgBo = (float)($g['don_gia'] ?? 0);
+
+            $ctCuaBo = $dungDong($theoBo[$boId] ?? []);
+
+            if ($boNhapTay) {
+                if ($dgBo > 0) {
+                    $soDaChao++;
+                    $tongTien += (float)($g['thanh_tien'] ?? 0);
+                }
+                $tienBo = (float)($g['thanh_tien'] ?? 0);
+            } else {
+                // Cộng dồn từ chi tiết. $tongTien đã được $dungDong() cộng cho
+                // từng chi tiết rồi nên KHÔNG cộng lại ở đây (sẽ nhân đôi).
+                $tienBo = 0.0;
+                foreach ($ctCuaBo as $d) $tienBo += (float)$d['thanh_tien'];
+                $dgBo = 0.0;   // nhóm này bộ không có đơn giá riêng
+            }
+
             $boOut[] = [
-                'id'               => (int)$b['id'],
+                'id'               => $boId,
                 'la_hang_le'       => false,
                 'ma_bo'            => $b['ma_bo'],
                 'stt_bo'           => $b['stt_bo'],
@@ -800,7 +1035,25 @@ class BG_BaoGia_BUS
                 'nhom_nuoc'        => $b['nhom_nuoc'],
                 'dvt'              => $b['dvt'],
                 'so_luong'         => (float)$b['so_luong'],
-                'chi_tiet'         => $dungDong($theoBo[(int)$b['id']] ?? []),
+
+                // ---- Nhà thầu chào cho cả bộ ----
+                'ten_thuong_mai'   => (string)($g['ten_thuong_mai'] ?? ''),
+                'model'            => (string)($g['model'] ?? ''),
+                'hang_san_xuat'    => (string)($g['hang_san_xuat'] ?? ''),
+                'nam_san_xuat'     => (string)($g['nam_san_xuat'] ?? ''),
+                'xuat_xu'          => (string)($g['xuat_xu'] ?? ''),
+                'don_gia'          => $dgBo,
+                'thanh_tien'       => $tienBo,
+                'da_chao'          => $boNhapTay ? ($dgBo > 0) : ($tienBo > 0),
+
+                // Đáp ứng cấp BỘ — cùng cấu trúc với chi tiết để GUI/Word dùng
+                // chung một đường vẽ, không phải phân nhánh.
+                'dap_ung'          => self::gomDapUng($g, $nhom),
+
+                // DÙNG LẠI $ctCuaBo đã dựng ở trên — KHÔNG gọi $dungDong() lần
+                // nữa: closure đó cộng dồn $tongTien / $soDaChao qua tham chiếu,
+                // gọi 2 lần là tổng tiền và số dòng đã chào bị nhân đôi.
+                'chi_tiet'         => $ctCuaBo,
             ];
         }
 
@@ -839,8 +1092,11 @@ class BG_BaoGia_BUS
                 'khong_dat' => (string)($ct[$c[2]] ?? ''),
             ];
         }
-        if (($ct['tai_lieu_chung_minh'] ?? '') !== '') {
-            $out['tai_lieu'] = ['dap_ung' => (string)$ct['tai_lieu_chung_minh'], 'khong_dat' => ''];
+        // $ct có thể là NULL (bộ / hàng hóa chưa có dòng chào giá nào) — truy
+        // cập offset trên null là warning ở PHP 8, phải chặn trước.
+        $tl = is_array($ct) ? (string)($ct['tai_lieu_chung_minh'] ?? '') : '';
+        if ($tl !== '') {
+            $out['tai_lieu'] = ['dap_ung' => $tl, 'khong_dat' => ''];
         }
         return $out;
     }
@@ -1299,6 +1555,10 @@ class BG_BaoGia_BUS
         $gt = BG_GoiThau_DAL::getById((int)$bg->goi_thau_id);
         if (!$gt) throw new RuntimeException('Không tìm thấy gói thầu');
 
+        // Nhóm quyết định: cột nào bị bỏ khỏi bảng đáp ứng, và tiền của BỘ
+        // là do nhà thầu nhập hay cộng dồn từ chi tiết.
+        $nhomGt = BG_Nhom_PUBLIC::chuanHoa($gt->nhom ?? null);
+
         // getBangChaoGia() tra CAY BO — GIU NGUYEN cay, khong trai phang:
         // Mau 1/Mau 2 trong Thu moi co DONG BO rieng (STT bo + Ten bo + yeu
         // cau chung/khac/cau hinh), dong chi tiet chi mang yeu cau ky thuat.
@@ -1357,23 +1617,43 @@ class BG_BaoGia_BUS
             // ---- DONG BO (bo qua voi hang le) ----
             // Chi in khi bo do thuc su co dong chi tiet ben duoi, neu khong
             // se tho ra mot dong tieu de trong tron giua bang.
-            if (!$laHangLe && $ctGia) {
-                // Thanh tien cua dong BO = cong don thanh tien cac chi tiet ben
-                // duoi no. KHONG cong vao $tong o day — $tong van cong theo tung
-                // chi tiet o vong duoi, neu cong ca 2 cho thi TONG CONG gap doi.
-                $tienBo = 0.0;
-                foreach ($ctGia as $d) $tienBo += (float)$d['thanh_tien'];
+            // Giá của BỘ do NHÀ THẦU CHÀO (bg_bao_gia_bo), KHÔNG còn cộng dồn
+            // từ chi tiết nữa. Với nhóm mua theo bộ, chi tiết bên dưới thường
+            // bỏ trống giá nên điều kiện in không thể dựa vào $ctGia — bộ có
+            // giá thì phải in, kể cả khi mọi chi tiết đều rỗng.
+            $dgBo = (float)($b['don_gia'] ?? 0);
+            if (!$laHangLe && ($dgBo > 0 || $ctGia)) {
+                $tienBo = (float)($b['thanh_tien'] ?? 0);
+                // he_thong_tbyt: tiền nằm ở dòng BỘ → cộng ở đây, chi tiết bên
+                // dưới không cộng. bo_dung_cu: tiền nằm ở TỪNG CHI TIẾT → cộng
+                // ở vòng chi tiết, ở đây chỉ hiển thị tổng của bộ.
+                if (BG_Nhom_PUBLIC::giaBoNhapTay($nhomGt)) $tong += $tienBo;
 
                 $r = $rong($khoaGia);
-                $r['MA']         = (string)($b['ma_bo'] ?? '');
-                $r['STT_BO']     = (string)($b['stt_bo'] ?? '');
-                $r['TEN_BO']     = (string)($b['ten_bo'] ?? '');
-                $r['DVT']        = (string)($b['dvt'] ?? '');
-                $r['SO_LUONG']   = self::soVN((float)($b['so_luong'] ?? 0));
-                $r['THANH_TIEN'] = self::soVN($tienBo);
+                $r['MA']             = (string)($b['ma_bo'] ?? '');
+                $r['STT_BO']         = (string)($b['stt_bo'] ?? '');
+                $r['TEN_BO']         = (string)($b['ten_bo'] ?? '');
+                $r['TEN_THUONG_MAI'] = (string)($b['ten_thuong_mai'] ?? '');
+                $r['MODEL']          = (string)($b['model'] ?? '');
+                $r['HANG_SAN_XUAT']  = (string)($b['hang_san_xuat'] ?? '');
+                $r['NAM_SAN_XUAT']   = (string)($b['nam_san_xuat'] ?? '');
+                $r['XUAT_XU']        = (string)($b['xuat_xu'] ?? '');
+                $r['DVT']            = (string)($b['dvt'] ?? '');
+                $r['SO_LUONG']       = self::soVN((float)($b['so_luong'] ?? 0));
+                $r['DON_GIA']        = self::soVN($dgBo);
+                $r['THANH_TIEN']     = self::soVN($tienBo);
                 $chaoGia[] = $r;
             }
-            if (!$laHangLe && $ctDu) {
+            // Dòng BỘ ở bảng đáp ứng: mang CẢ yêu cầu của bên mời LẪN phần đáp
+            // ứng nhà thầu điền cho cả bộ. In cả khi không còn chi tiết nào —
+            // nhóm mua theo bộ có thể chỉ điền ở dòng bộ.
+            $duBo = $b['dap_ung'] ?? [];
+            $coDuBo = false;
+            foreach ($duBo as $x) {
+                if (trim((string)($x['dap_ung'] ?? '')) !== ''
+                 || trim((string)($x['khong_dat'] ?? '')) !== '') { $coDuBo = true; break; }
+            }
+            if (!$laHangLe && ($ctDu || $coDuBo)) {
                 $r = $rong($khoaDu);
                 $r['MA']               = (string)($b['ma_bo'] ?? '');
                 $r['STT_BO']           = (string)($b['stt_bo'] ?? '');
@@ -1382,12 +1662,32 @@ class BG_BaoGia_BUS
                 $r['YEU_CAU_KHAC']     = (string)($b['yeu_cau_khac'] ?? '');
                 $r['YEU_CAU_CAU_HINH'] = (string)($b['yeu_cau_cau_hinh'] ?? '');
                 $r['YEU_CAU_NHOM_NUOC'] = (string)($b['nhom_nuoc'] ?? '');
+
+                $r['DAP_UNG_CHUNG']      = (string)($duBo['chung']['dap_ung'] ?? '');
+                $r['KHONG_DAT_CHUNG']    = (string)($duBo['chung']['khong_dat'] ?? '');
+                $r['DAP_UNG_KHAC']       = (string)($duBo['khac']['dap_ung'] ?? '');
+                $r['KHONG_DAT_KHAC']     = (string)($duBo['khac']['khong_dat'] ?? '');
+                $r['DAP_UNG_CAU_HINH']   = (string)($duBo['cau_hinh']['dap_ung'] ?? '');
+                $r['KHONG_DAT_CAU_HINH'] = (string)($duBo['cau_hinh']['khong_dat'] ?? '');
+                $r['THONG_SO_CHAO_GIA']  = (string)($duBo['ky_thuat']['dap_ung'] ?? '');
+                $r['DIEM_KHONG_DAT']     = (string)($duBo['ky_thuat']['khong_dat'] ?? '');
+                $r['DAP_UNG_NHOM_NUOC']  = (string)($duBo['nhom_nuoc']['dap_ung'] ?? '');
+                $r['KHONG_DAT_NHOM_NUOC'] = (string)($duBo['nhom_nuoc']['khong_dat'] ?? '');
+                $r['TAI_LIEU_CHUNG_MINH'] = (string)($duBo['tai_lieu']['dap_ung'] ?? '');
                 $dapUng[] = $r;
             }
 
             // ---- DONG CHI TIET ----
             foreach ($ctGia as $d) {
-                $tong += (float)$d['thanh_tien'];
+                // Khớp đúng công thức BG_BaoGia_DAL::updateTongTien():
+                //   - hàng LẺ: luôn cộng.
+                //   - hàng trong BỘ: chỉ cộng khi nhóm KHÔNG nhập giá bộ tay
+                //     (bo_dung_cu — tiền của bộ chính là tổng các chi tiết).
+                //     Với he_thong_tbyt thì tiền đã cộng ở dòng BỘ, cộng thêm
+                //     ở đây sẽ NHÂN ĐÔI.
+                if ($laHangLe || !BG_Nhom_PUBLIC::giaBoNhapTay($nhomGt)) {
+                    $tong += (float)$d['thanh_tien'];
+                }
                 $r = $rong($khoaGia);
                 $r['MA']             = (string)$d['ma_hh'];
                 $r['STT_CT']         = (string)($d['stt_chi_tiet'] ?? '');
@@ -1448,10 +1748,26 @@ class BG_BaoGia_BUS
               . '_' . preg_replace('/[^0-9A-Za-z]/', '_', $gt->so_thong_bao)
               . '_' . date('Ymd_His') . '.docx';
 
+        // ----- Bỏ cột KHÔNG áp dụng cho nhóm ở bảng ĐÁP ỨNG (bảng 2) -----
+        // Mẫu Word tĩnh 21 cột; để cột rỗng thì bản in bị ép ngang, không đọc
+        // nổi. Chỉ số 0-based theo thứ tự cột trong database/tao_mau_word.php:
+        //   5,6,7    = Yêu cầu chung / khác / cấu hình
+        //   10,11    = Đáp ứng + Không đáp ứng yêu cầu CHUNG
+        //   12,13    = ... yêu cầu KHÁC
+        //   14,15    = ... yêu cầu CẤU HÌNH
+        $boCot = [];
+        if (!BG_Nhom_PUBLIC::coYeuCauChung($nhomGt)) {
+            // vật tư dược: không có chung / khác / cấu hình
+            $boCot = [5, 6, 7, 10, 11, 12, 13, 14, 15];
+        } elseif (!BG_Nhom_PUBLIC::coYeuCauCauHinh($nhomGt)) {
+            // bộ dụng cụ: có chung + khác, KHÔNG có cấu hình
+            $boCot = [7, 14, 15];
+        }
+
         return WordTemplate::render('bao_gia.docx', $path, $data, [
             'CHAO_GIA' => $chaoGia,
             'DAP_UNG'  => $dapUng,
-        ]);
+        ], [], $boCot ? [2 => $boCot] : []);
     }
 
     /** So kieu Viet Nam: 1.234.567 - tra chuoi rong neu <= 0 */

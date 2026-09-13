@@ -179,8 +179,179 @@ class WordTemplate
      * @param array $anh Anh chen vao: ['QR' => ['path' => '...', 'w' => 40, 'h' => 40]]
      *                   Trong mau dat key dang {{@QR}}. Kich thuoc tinh bang mm.
      */
+    /**
+     * Bỏ hẳn một số CỘT khỏi bảng trong file .docx.
+     *
+     * Mẫu Word là TĨNH: bảng đáp ứng luôn 21 cột. Nhưng nhóm vật tư dược không
+     * có yêu cầu chung/khác/cấu hình, nhóm bộ dụng cụ không có yêu cầu cấu
+     * hình — để cột trống thì bản in ra thừa 9 (hoặc 3) cột rỗng, ép bề ngang
+     * các cột còn lại nhỏ đến mức không đọc nổi.
+     *
+     * PHẢI cắt ĐỒNG THỜI 3 chỗ, thiếu một là Word báo file hỏng:
+     *   1. <w:gridCol> trong <w:tblGrid>  (khai báo lưới cột)
+     *   2. <w:tc> tương ứng trên MỌI <w:tr>
+     *   3. w:w của <w:tblW>               (tổng bề ngang bảng)
+     *
+     * Chỉ dùng được khi bảng KHÔNG có gridSpan / vMerge — ô gộp làm chỉ số cột
+     * lệch khỏi thứ tự <w:tc>. Hàm tự kiểm và bỏ qua bảng có ô gộp thay vì
+     * sinh ra file hỏng.
+     *
+     * @param int    $soBang Thứ tự bảng trong tài liệu (1-based)
+     * @param int[]  $boCot  Chỉ số cột cần bỏ (0-based), theo bảng GỐC
+     */
+    public static function boCot(string $xml, int $soBang, array $boCot): string
+    {
+        if (!$boCot) return $xml;
+
+        // Duyệt từng <w:tbl> để lấy đúng bảng thứ $soBang
+        $viTri = 0;
+        $dem   = 0;
+        while (($dau = strpos($xml, '<w:tbl>', $viTri)) !== false) {
+            $cuoi = strpos($xml, '</w:tbl>', $dau);
+            if ($cuoi === false) break;
+            $cuoi += strlen('</w:tbl>');
+            $dem++;
+
+            if ($dem === $soBang) {
+                $tbl = substr($xml, $dau, $cuoi - $dau);
+                $moi = self::boCotTrongBang($tbl, $boCot);
+                return substr($xml, 0, $dau) . $moi . substr($xml, $cuoi);
+            }
+            $viTri = $cuoi;
+        }
+        return $xml;
+    }
+
+    /**
+     * Cắt cột trong XML của MỘT bảng — xem boCot().
+     *
+     * XỬ LÝ Ô GỘP NGANG (gridSpan): một <w:tc> có thể phủ nhiều cột, nên chỉ
+     * số cột KHÔNG trùng thứ tự <w:tc>. Phải cộng dồn gridSpan để biết mỗi ô
+     * phủ những cột nào:
+     *   - Ô phủ TOÀN BỘ cột bị bỏ  -> xóa hẳn ô.
+     *   - Ô phủ MỘT PHẦN           -> giữ ô, GIẢM gridSpan đúng số cột bỏ đi.
+     * Ví dụ tiêu đề 2 tầng của Phụ lục I: ô "Yêu cầu mời chào giá" gridSpan=10
+     * phủ cột 0-9; bỏ cột 5,6,7 thì ô đó còn gridSpan=7.
+     *
+     * vMerge (gộp DỌC) không ảnh hưởng chỉ số cột ngang -> bỏ qua an toàn.
+     */
+    private static function boCotTrongBang(string $tbl, array $boCot): string
+    {
+        $bo = array_flip($boCot);
+
+        // --- 1 + 3. <w:tblGrid>: bỏ gridCol, cộng lại bề ngang ---
+        $rongBo   = 0;   // tổng bề ngang các cột BỊ BỎ
+        $tongGrid = 0;   // tổng bề ngang MỌI cột trước khi cắt
+        $tbl = preg_replace_callback(
+            '/<w:tblGrid>(.*?)<\/w:tblGrid>/s',
+            function ($m) use ($bo, &$rongBo, &$tongGrid) {
+                $i = 0;
+                $ra = preg_replace_callback(
+                    '/<w:gridCol\b[^>]*\/>/',
+                    function ($g) use ($bo, &$i, &$rongBo, &$tongGrid) {
+                        $rong = preg_match('/w:w="(\d+)"/', $g[0], $w) ? (int)$w[1] : 0;
+                        $tongGrid += $rong;
+
+                        $giu = !isset($bo[$i]);
+                        if (!$giu) $rongBo += $rong;
+                        $i++;
+                        return $giu ? $g[0] : '';
+                    },
+                    $m[1]
+                );
+                return '<w:tblGrid>' . $ra . '</w:tblGrid>';
+            },
+            $tbl,
+            1
+        );
+
+        // Cập nhật <w:tblW> cho khớp lưới cột mới.
+        //
+        // CHỈ trừ khi tblW đang ĐÚNG BẰNG tổng gridCol cũ. Nhiều mẫu Word đặt
+        // tblW là con số tượng trưng (vd 5000) hoặc 0 = "tự co theo nội dung";
+        // trừ mù vào đó ra số vô nghĩa (5000 - 1907 = 3093) làm Word dựng bảng
+        // sai bề ngang. Gặp thật ở mẫu thu_moi.docx: tblW=5000 nhưng tổng
+        // gridCol là 14788.
+        if ($rongBo > 0) {
+            $tongCu = $tongGrid;              // tổng gridCol TRƯỚC khi cắt
+            $tbl = preg_replace_callback(
+                '/<w:tblW\b[^>]*\/>/',
+                function ($m) use ($rongBo, $tongCu) {
+                    return preg_replace_callback(
+                        '/w:w="(\d+)"/',
+                        function ($w) use ($rongBo, $tongCu) {
+                            $cu = (int)$w[1];
+                            // Không phải bề rộng thật -> để nguyên
+                            if ($cu === 0 || $cu !== $tongCu) return $w[0];
+                            return 'w:w="' . max(0, $cu - $rongBo) . '"';
+                        },
+                        $m[0]
+                    );
+                },
+                $tbl,
+                1
+            );
+        }
+
+        // --- 2. Mỗi <w:tr>: bỏ <w:tc> theo đúng chỉ số CỘT (không phải thứ tự ô) ---
+        return preg_replace_callback('/<w:tr(?:\s[^>]*)?>.*?<\/w:tr>/s', function ($m) use ($bo) {
+            $tr     = $m[0];
+            $cotDau = 0;   // cột đầu tiên mà ô hiện tại phủ
+            $ra     = '';
+            $vt     = 0;
+
+            // Cắt thủ công theo cặp <w:tc> ... </w:tc> — regex lồng nhau không
+            // dùng được vì trong ô còn có <w:tcPr>, <w:p>, thậm chí bảng con.
+            while (($d = strpos($tr, '<w:tc>', $vt)) !== false) {
+                $c = strpos($tr, '</w:tc>', $d);
+                if ($c === false) break;
+                $c += strlen('</w:tc>');
+
+                $o    = substr($tr, $d, $c - $d);
+                $span = 1;
+                if (preg_match('/<w:gridSpan\s+w:val="(\d+)"/', $o, $g)) {
+                    $span = max(1, (int)$g[1]);
+                }
+
+                // Đếm xem ô này phủ bao nhiêu cột nằm trong danh sách bỏ
+                $soBo = 0;
+                for ($k = 0; $k < $span; $k++) {
+                    if (isset($bo[$cotDau + $k])) $soBo++;
+                }
+
+                $ra .= substr($tr, $vt, $d - $vt);   // phần giữa các ô
+
+                if ($soBo === 0) {
+                    $ra .= $o;                        // giữ nguyên
+                } elseif ($soBo < $span) {
+                    // Ô gộp bị bỏ một phần -> thu hẹp gridSpan, giữ nội dung
+                    $conLai = $span - $soBo;
+                    if ($conLai > 1) {
+                        $o = preg_replace(
+                            '/<w:gridSpan\s+w:val="\d+"\s*\/>/',
+                            '<w:gridSpan w:val="' . $conLai . '"/>',
+                            $o,
+                            1
+                        );
+                    } else {
+                        // Còn đúng 1 cột thì bỏ hẳn thẻ gridSpan cho sạch
+                        $o = preg_replace('/<w:gridSpan\s+w:val="\d+"\s*\/>/', '', $o, 1);
+                    }
+                    $ra .= $o;
+                }
+                // $soBo === $span -> ô phủ toàn cột bị bỏ -> xóa hẳn
+
+                $cotDau += $span;
+                $vt = $c;
+            }
+            $ra .= substr($tr, $vt);
+            return $ra;
+        }, $tbl);
+    }
+
     public static function render(string $tenMau, string $dich, array $data,
-                                  array $bang = [], array $anh = []): string
+                                  array $bang = [], array $anh = [],
+                                  array $boCot = []): string
     {
         $nguon = self::duongDan($tenMau);
 
@@ -216,6 +387,13 @@ class WordTemplate
         // Chèn ảnh (nếu có) — làm sau bảng lặp, trước khi dọn key thừa
         if (!empty($anh)) {
             $xml = self::chenAnh($zip, $xml, $anh);
+        }
+
+        // Bỏ cột KHÔNG áp dụng cho nhóm — làm SAU khi lặp dòng để mọi <w:tr>
+        // (kể cả dòng vừa nhân bản) đều bị cắt cùng một chỉ số cột.
+        // $boCot = [số bảng (1-based) => [chỉ số cột 0-based cần bỏ]]
+        foreach ($boCot as $soBang => $cot) {
+            $xml = self::boCot($xml, (int)$soBang, (array)$cot);
         }
 
         // Dọn key còn sót để file không lộ {{...}}

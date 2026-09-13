@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../bootstrap.php';
+require_once __DIR__ . '/../../DAL/BG_BaoGiaBo_DAL.php';
 require_once __DIR__ . '/../../BUS/BG_BaoGia_BUS.php';
 require_once __DIR__ . '/../../BUS/BG_GoiThau_BUS.php';
 
@@ -67,6 +68,9 @@ try {
                 'nhom'     => $nhomCt,
                 'ten_nhom' => BG_Nhom_PUBLIC::tenNhom($nhomCt),
                 'cap'      => $capCt,
+                // Giá chào cho CẢ BỘ — nhóm mua theo bộ đặt giá ở dòng BỘ chứ
+                // không ở từng hàng hóa, nên chi_tiet phẳng không mang giá này.
+                'gia_bo'   => BG_BaoGiaBo_DAL::getMap($id),
             ]);
             break;
 

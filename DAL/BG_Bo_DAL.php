@@ -33,6 +33,41 @@ class BG_Bo_DAL
         return $stmt->fetchAll();
     }
 
+    /**
+     * Số thứ tự lớn nhất trong các mã bộ dạng BOxxx của 1 gói thầu.
+     *
+     * Dùng để sinh mã tiếp theo khi bên mời không tự đặt. Chỉ xét mã đúng
+     * khuôn BO + số; mã do người dùng tự đặt (BDC01, HT02...) không đụng tới,
+     * nên sinh mã mới không bao giờ ghi đè lên mã có sẵn.
+     */
+    public static function soThuTuMaLonNhat(int $goiThauId): int
+    {
+        $stmt = Database::getConnection()->prepare(
+            "SELECT ma_bo FROM bg_bo
+             WHERE goi_thau_id = :gt AND da_xoa = 0 AND ma_bo REGEXP '^BO[0-9]+$'"
+        );
+        $stmt->execute([':gt' => $goiThauId]);
+
+        $max = 0;
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $ma) {
+            $n = (int)substr((string)$ma, 2);
+            if ($n > $max) $max = $n;
+        }
+        return $max;
+    }
+
+    /** Mã bộ này đã có trong gói thầu chưa? (bỏ qua chính bộ $trừId) */
+    public static function maTonTai(int $goiThauId, string $maBo, int $truId = 0): bool
+    {
+        $stmt = Database::getConnection()->prepare(
+            "SELECT COUNT(*) FROM bg_bo
+             WHERE goi_thau_id = :gt AND da_xoa = 0
+               AND UPPER(ma_bo) = UPPER(:ma) AND id <> :tru"
+        );
+        $stmt->execute([':gt' => $goiThauId, ':ma' => $maBo, ':tru' => $truId]);
+        return (int)$stmt->fetchColumn() > 0;
+    }
+
     public static function insert(BG_Bo_PUBLIC $e): int
     {
         $sql = "INSERT INTO bg_bo

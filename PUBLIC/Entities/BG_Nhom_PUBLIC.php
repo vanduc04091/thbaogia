@@ -100,6 +100,33 @@ class BG_Nhom_PUBLIC
     }
 
     /**
+     * Nhóm này có mua theo BỘ không? (giá/đáp ứng đặt ở dòng BỘ)
+     *
+     * Vật tư, dược mua lẻ từng mặt hàng nên không dùng cấp bộ để chào giá.
+     */
+    public static function muaTheoBo(string $nhom): bool
+    {
+        return $nhom !== self::VAT_TU_DUOC;
+    }
+
+    /**
+     * Thành tiền của BỘ do NHÀ THẦU NHẬP TAY, hay CỘNG DỒN từ hàng hóa chi tiết?
+     *
+     *   - he_thong_tbyt : NHẬP TAY (true). Một hệ thống chào giá trọn gói, giá
+     *     không chia đều được theo từng thành phần nên nhà thầu tự ghi.
+     *   - bo_dung_cu    : CỘNG DỒN (false). Bộ dụng cụ là tập hợp các dụng cụ
+     *     rời, mỗi dụng cụ có đơn giá riêng → tiền của bộ = tổng các chi tiết.
+     *   - vat_tu_duoc   : không dùng bộ, giá trị trả về không có ý nghĩa.
+     *
+     * NGUỒN DUY NHẤT của quy tắc này — mọi nơi tính tiền phải hỏi ở đây,
+     * KHÔNG tự viết lại điều kiện theo tên nhóm.
+     */
+    public static function giaBoNhapTay(string $nhom): bool
+    {
+        return $nhom === self::HE_THONG_TBYT;
+    }
+
+    /**
      * Các cột của BỘ mà nhóm này dùng.
      * @return string[] tên cột trong bg_bo
      */

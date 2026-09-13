@@ -6,6 +6,7 @@ require_once __DIR__ . '/../DAL/BG_GoiThau_DAL.php';
 require_once __DIR__ . '/../DAL/DM_NhatKyHeThong_DAL.php';
 require_once __DIR__ . '/../PUBLIC/Common/ExcelHelper.php';
 require_once __DIR__ . '/BG_GoiThau_BUS.php';   // kiemTraChuaChotSo()
+require_once __DIR__ . '/BG_Bo_BUS.php';        // sinhMaBo()
 
 class BG_HangHoa_BUS
 {
@@ -571,9 +572,15 @@ class BG_HangHoa_BUS
             foreach ($dsBo as $b) {
                 if (empty($b['chi_tiet'])) continue;   // bộ rỗng → đã cảnh báo ở parser
 
+                // Bỏ trống Mã bộ trong file -> TỰ SINH (BO01, BO02...).
+                // Mã bộ là thứ duy nhất để đối chiếu dòng BỘ khi nhà thầu
+                // import file chào giá; thiếu mã thì phần nhà thầu điền ở
+                // dòng bộ từng bị bỏ qua im lặng, mất trắng dữ liệu.
                 $eb = new BG_Bo_PUBLIC();
                 $eb->goi_thau_id      = $goiThauId;
-                $eb->ma_bo            = $b['ma_bo'] !== '' ? $b['ma_bo'] : null;
+                $eb->ma_bo            = $b['ma_bo'] !== ''
+                    ? $b['ma_bo']
+                    : BG_Bo_BUS::sinhMaBo($goiThauId);
                 $eb->stt_bo           = $b['stt_bo'] ?? (++$soBo);
                 $eb->ten_bo           = $b['ten_bo'] !== '' ? $b['ten_bo'] : null;
                 $eb->yeu_cau_chung    = $b['yeu_cau_chung'] !== '' ? $b['yeu_cau_chung'] : null;
@@ -941,7 +948,7 @@ class BG_HangHoa_BUS
 
         return $mau === 'mau1'
             ? self::xuatMau1($gt, $dsBo, $theoBo)
-            : self::xuatMau2($gt, $dsBo, $theoBo);
+            : self::xuatMau2($gt, $dsBo, $theoBo, BG_Nhom_PUBLIC::chuanHoa($gt->nhom ?? null));
     }
 
     /**
@@ -993,7 +1000,10 @@ class BG_HangHoa_BUS
             [['v' => 'Thư mời số ' . $gt->so_thong_bao . ' — ' . $gt->ten_goi_thau,
               's' => ExcelHelper::S_SUBTITLE]],
             [['v' => 'Nhóm: ' . BG_Nhom_PUBLIC::tenNhom($nhom)
-                   . '. Chỉ điền các cột nền vàng (từ cột ' . self::tenCot($soCotMoi) . ' trở đi). '
+                   . '. CHỈ ĐIỀN Ô NỀN VÀNG (từ cột ' . self::tenCot($soCotMoi) . ' trở đi). '
+                   . 'Dòng BỘ: điền đáp ứng cho yêu cầu chung/khác/cấu hình của cả bộ. '
+                   . 'Dòng HÀNG HÓA CHI TIẾT: điền đáp ứng yêu cầu kỹ thuật và nhóm nước. '
+                   . 'Ô nền trắng là yêu cầu của bên mời — điền vào đó sẽ KHÔNG được ghi nhận. '
                    . 'KHÔNG sửa, chèn hay xóa dòng — hệ thống đối chiếu theo Mã.',
               's' => ExcelHelper::S_SUBTITLE]],
             $hdr,
@@ -1002,7 +1012,7 @@ class BG_HangHoa_BUS
         // Dựng 1 dòng CHI TIẾT — dùng chung cho hàng lẻ và hàng trong bộ.
         // $b = null nghĩa là HÀNG LẺ (không thuộc bộ nào).
         $dongChiTiet = function (array $h, ?array $b, int $stt)
-            use ($nhom, $cap, $S, $C): array {
+            use ($nhom, $cap, $S, $C, $HA): array {
             $d = [
                 ['v' => (string)($h['ma_hh'] ?? ''), 's' => $C],
                 ['v' => '', 's' => $C],
@@ -1016,8 +1026,18 @@ class BG_HangHoa_BUS
             if (BG_Nhom_PUBLIC::coYeuCauCauHinh($nhom)) $d[] = ['v' => '', 's' => $S];
             $d[] = ['v' => (string)($h['thong_so_ky_thuat'] ?? ''), 's' => $S];
             $d[] = ['v' => (string)($h['nhom_nuoc'] ?? ''), 's' => $C];
-            foreach ($cap as $_) { $d[] = ['v' => '', 's' => $S]; $d[] = ['v' => '', 's' => $S]; }
-            $d[] = ['v' => '', 's' => $S];
+
+            // Ô ĐÁP ỨNG nhà thầu phải điền → nền vàng ($HA) để phân biệt với
+            // cột yêu cầu của bên mời (nền trắng). Dòng CHI TIẾT chỉ điền cặp
+            // KỸ THUẬT + NHÓM NƯỚC; cặp chung/khác/cấu hình là của BỘ nên khóa
+            // lại (nền trắng) — điền ở đó cũng không được nhận.
+            foreach ($cap as $khoa => $_) {
+                $mo = ($khoa === 'ky_thuat' || $khoa === 'nhom_nuoc');
+                $o  = $mo ? $HA : $S;
+                $d[] = ['v' => '', 's' => $o];
+                $d[] = ['v' => '', 's' => $o];
+            }
+            $d[] = ['v' => '', 's' => $HA];   // tài liệu chứng minh
             return $d;
         };
 
@@ -1042,8 +1062,15 @@ class BG_HangHoa_BUS
             if (BG_Nhom_PUBLIC::coYeuCauCauHinh($nhom)) $d[] = ['v' => (string)($b['yeu_cau_cau_hinh'] ?? ''), 's' => $S];
             $d[] = ['v' => '', 's' => $S];
             $d[] = ['v' => (string)($b['nhom_nuoc'] ?? ''), 's' => $C];
-            foreach ($cap as $_) { $d[] = ['v' => '', 's' => $S]; $d[] = ['v' => '', 's' => $S]; }
-            $d[] = ['v' => '', 's' => $S];
+
+            // DÒNG BỘ: yêu cầu chung/khác/cấu hình là của BỘ nên ĐÁP ỨNG cho
+            // chúng điền ở ĐÂY (nền vàng). Cặp kỹ thuật của bộ cũng mở — nhóm
+            // mua theo bộ có thể mô tả đáp ứng kỹ thuật chung cho cả hệ thống.
+            foreach ($cap as $_) {
+                $d[] = ['v' => '', 's' => $HA];
+                $d[] = ['v' => '', 's' => $HA];
+            }
+            $d[] = ['v' => '', 's' => $HA];   // tài liệu chứng minh
             $rows[] = $d;
 
             // --- Dòng CHI TIẾT (yêu cầu kỹ thuật nằm ở đây) ---
@@ -1073,8 +1100,16 @@ class BG_HangHoa_BUS
      * KHÔNG phụ thuộc nhóm: cả 3 nhóm đều chào giá theo cùng bộ cột. Chỉ có
      * dòng BỘ là để trống phần giá (giá nằm ở hàng hóa chi tiết).
      */
-    private static function xuatMau2(BG_GoiThau_PUBLIC $gt, array $dsBo, array $theoBo): string
+    private static function xuatMau2(BG_GoiThau_PUBLIC $gt, array $dsBo, array $theoBo,
+                                     string $nhom = BG_Nhom_PUBLIC::VAT_TU_DUOC): string
     {
+        // 2 nhóm mua theo BỘ: nhà thầu chào giá ở DÒNG BỘ, các chi tiết bên
+        // dưới KHÔNG cần điền đơn giá / thành tiền. Nhóm vật tư dược thì
+        // ngược lại — giá nằm ở từng hàng hóa như cũ.
+        // CHỈ nhóm nhập giá bộ tay (he_thong_tbyt) mới khóa ô giá ở dòng chi
+        // tiết. bo_dung_cu chào giá TỪNG DỤNG CỤ rồi cộng lên bộ, nên dòng chi
+        // tiết phải mở ô giá còn dòng bộ thì khóa — xem giaBoNhapTay().
+        $giaTheoBo = BG_Nhom_PUBLIC::giaBoNhapTay($nhom);
         $H  = ExcelHelper::S_HEADER;
         $HA = ExcelHelper::S_HEADER_ALT;
         $S  = ExcelHelper::S_TEXT_WRAP;
@@ -1085,8 +1120,13 @@ class BG_HangHoa_BUS
             [['v' => 'MẪU 2 — BẢNG CHÀO GIÁ', 's' => ExcelHelper::S_TITLE]],
             [['v' => 'Thư mời số ' . $gt->so_thong_bao . ' — ' . $gt->ten_goi_thau,
               's' => ExcelHelper::S_SUBTITLE]],
-            [['v' => 'Chỉ điền các cột nền vàng (từ cột F trở đi). Đơn giá đã gồm thuế, '
-                   . 'vận chuyển và mọi chi phí phát sinh. KHÔNG sửa, chèn hay xóa dòng.',
+            [['v' => 'CHỈ ĐIỀN Ô NỀN VÀNG. '
+                   . ($giaTheoBo
+                        ? 'Nhóm này mua TRỌN BỘ: điền Đơn giá và Thành tiền ở DÒNG BỘ. '
+                          . 'Các hàng hóa chi tiết bên dưới KHÔNG cần điền giá. '
+                        : 'Điền Đơn giá cho từng hàng hóa. ')
+                   . 'Đơn giá đã gồm thuế, vận chuyển và mọi chi phí phát sinh. '
+                   . 'KHÔNG sửa, chèn hay xóa dòng.',
               's' => ExcelHelper::S_SUBTITLE]],
             [
                 ['v' => 'Mã bộ/hàng hóa chi tiết', 's' => $H],
@@ -1106,9 +1146,16 @@ class BG_HangHoa_BUS
             ],
         ];
 
-        // Dựng 1 dòng CHI TIẾT — dùng chung cho hàng lẻ và hàng trong bộ
+        // Dựng 1 dòng CHI TIẾT — dùng chung cho hàng lẻ và hàng trong bộ.
+        //
+        // $giaTheoBo = true (bộ dụng cụ / hệ thống TBYT): chi tiết NẰM TRONG BỘ
+        // không cần điền giá → 2 ô cuối để nền xám như cột của bên mời, nhà
+        // thầu nhìn là biết không phải điền. Hàng LẺ vẫn phải điền giá bình
+        // thường vì nó không thuộc bộ nào.
         $dongChiTiet = function (array $h, bool $trongBo, int $stt)
-            use ($S, $C, $N): array {
+            use ($S, $C, $N, $H, $giaTheoBo): array {
+            $khoaGia = $giaTheoBo && $trongBo;
+            $oGia    = $khoaGia ? ['v' => '', 's' => $H] : ['v' => '', 's' => $N];
             return [
                 ['v' => (string)($h['ma_hh'] ?? ''), 's' => $C],
                 ['v' => '', 's' => $C],
@@ -1119,7 +1166,7 @@ class BG_HangHoa_BUS
                 ['v' => '', 's' => $C], ['v' => '', 's' => $S],
                 ['v' => (string)($h['dvt'] ?? ''), 's' => $C],
                 ['v' => (float)$h['so_luong'], 's' => $N, 't' => 'n'],
-                ['v' => '', 's' => $N], ['v' => '', 's' => $N],
+                $oGia, $oGia,
             ];
         };
 
@@ -1131,17 +1178,24 @@ class BG_HangHoa_BUS
         foreach ($dsBo as $b) {
             $ct = $theoBo[(int)$b['id']] ?? [];
 
-            // Dòng bộ: chỉ để nhận biết, không chào giá ở đây
+            // DÒNG BỘ.
+            // Nhóm mua theo bộ: ĐÂY là nơi nhà thầu chào giá (ô nền vàng),
+            // kèm cả tên thương mại / model / hãng / năm / xuất xứ của cả bộ.
+            // Nhóm vật tư dược: dòng bộ chỉ để nhận biết, không chào giá.
+            $oNhap  = $giaTheoBo ? $HA : $S;
+            $oNhapC = $giaTheoBo ? $HA : $C;
+            $oGiaBo = $giaTheoBo ? ['v' => '', 's' => $HA] : ['v' => '', 's' => $H];
+
             $rows[] = [
                 ['v' => (string)($b['ma_bo'] ?? ''), 's' => $C],
                 ['v' => (string)($b['stt_bo'] ?? ''), 's' => $C],
                 ['v' => (string)($b['ten_bo'] ?? ''), 's' => $S],
                 ['v' => '', 's' => $C], ['v' => '', 's' => $S],
-                ['v' => '', 's' => $S], ['v' => '', 's' => $S], ['v' => '', 's' => $S],
-                ['v' => '', 's' => $C], ['v' => '', 's' => $S],
+                ['v' => '', 's' => $oNhap], ['v' => '', 's' => $oNhap], ['v' => '', 's' => $oNhap],
+                ['v' => '', 's' => $oNhapC], ['v' => '', 's' => $oNhap],
                 ['v' => (string)($b['dvt'] ?? ''), 's' => $C],
                 ['v' => (float)$b['so_luong'], 's' => $N, 't' => 'n'],
-                ['v' => '', 's' => $N], ['v' => '', 's' => $N],
+                $oGiaBo, $oGiaBo,
             ];
 
             foreach ($ct as $k => $h) {
