@@ -209,7 +209,7 @@ foreach (['GIOI_THIEU'    => 'Tên + MST + địa chỉ + ĐT + email của côn
           'SO_THONG_BAO'  => 'Số thư mời của gói thầu',
           'TEN_GOI_THAU'  => 'Tên gói thầu',
           'HIEU_LUC'      => 'Số ngày hiệu lực báo giá',
-          'NGAY_NOP'      => 'Ngày nộp báo giá (dd/mm/yyyy)',
+          'NGAY_NOP'      => 'Mốc tính hiệu lực = ngày ĐÓNG nhận báo giá (dd/mm/yyyy)',
           'TONG_TIEN'     => 'Tổng tiền đã định dạng 1.234.567',
           'NGAY_IN'       => 'Ngày in file'] as $k => $v) {
     say(sprintf('    {{%-22s %s', $k . '}}', $v));

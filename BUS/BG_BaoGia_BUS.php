@@ -1747,7 +1747,12 @@ class BG_BaoGia_BUS
             'SO_THONG_BAO' => (string)$gt->so_thong_bao,
             'TEN_GOI_THAU' => (string)$gt->ten_goi_thau,
             'HIEU_LUC'     => (string)$hieuLuc,
-            'NGAY_NOP'     => $bg->ngay_nop ? date('d/m/Y', strtotime($bg->ngay_nop)) : '…/…/……',
+            // Mẫu dùng key này ở câu "hiệu lực trong vòng N ngày, KỂ TỪ NGÀY …".
+            // Mốc tính hiệu lực là NGÀY ĐÓNG nhận báo giá của gói thầu, KHÔNG
+            // phải ngày nhà thầu bấm nộp: mỗi nhà thầu nộp một lúc khác nhau,
+            // lấy ngày nộp thì hiệu lực của họ lệch nhau, không so sánh được.
+            // Cùng công thức với NGAY_HET_HAN ở Thư mời (BG_GoiThau_BUS).
+            'NGAY_NOP'     => self::ngayHetHanChaoGia($gt),
             'TONG_TIEN'    => self::soVN($tong),
             'NGAY_IN'      => date('d/m/Y'),
         ];
@@ -1780,6 +1785,24 @@ class BG_BaoGia_BUS
     }
 
     /** So kieu Viet Nam: 1.234.567 - tra chuoi rong neu <= 0 */
+    /**
+     * Ngày ĐÓNG nhận báo giá của gói thầu, dạng dd/mm/yyyy.
+     *
+     * Dùng làm mốc tính hiệu lực báo giá ("có hiệu lực N ngày, kể từ ngày …").
+     * Lấy thoi_gian_dong_bao_gia; gói cũ chưa có thì lùi về han_cuoi. Cùng
+     * công thức với NGAY_HET_HAN ở Thư mời (BG_GoiThau_BUS::xuatThuMoi) —
+     * hai chỗ lệch nhau thì bản giấy nhà thầu ký sẽ khác thư mời đã phát.
+     */
+    private static function ngayHetHanChaoGia(BG_GoiThau_PUBLIC $gt): string
+    {
+        foreach ([$gt->thoi_gian_dong_bao_gia ?? null, $gt->han_cuoi ?? null] as $moc) {
+            if (empty($moc)) continue;
+            $t = strtotime((string)$moc);
+            if ($t) return date('d/m/Y', $t);
+        }
+        return '…/…/……';
+    }
+
     private static function soVN(float $n): string
     {
         if ($n <= 0) return '';
