@@ -457,13 +457,22 @@ class BG_BaoGia_DAL
         return (int)$stmt->fetchColumn() > 0;
     }
 
-    /** Chặn 1 MST nộp trùng 2 lần cho cùng gói thầu khi chưa bị từ chối */
+    /**
+     * Chặn 1 MST nộp trùng 2 lần cho cùng gói thầu khi chưa bị từ chối.
+     *
+     * CHỈ tính báo giá ĐÃ HOÀN THÀNH (da_hoan_thanh = 1). Bản nhà thầu làm dở
+     * rồi bỏ giữa chừng KHÔNG được coi là đã nộp (§10.2) — nó vô hình với bên
+     * mời, không vào thống kê, và cron xóa sau 24h. Đếm cả bản dở thì nhà thầu
+     * thử một lần rồi thoát sẽ bị chặn vĩnh viễn, không nộp lại được bằng
+     * chính MST của mình.
+     */
     public static function existsMstTrongGoiThau(string $mst, int $goiThauId, int $excludeId = 0): bool
     {
         if (trim($mst) === '') return false;
         $stmt = Database::getConnection()->prepare(
             "SELECT COUNT(*) FROM bg_bao_gia
              WHERE ma_so_thue = :mst AND goi_thau_id = :gt AND da_xoa = 0
+               AND da_hoan_thanh = 1
                AND trang_thai <> 2 AND id <> :id"
         );
         $stmt->execute([':mst' => trim($mst), ':gt' => $goiThauId, ':id' => $excludeId]);
